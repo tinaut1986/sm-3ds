@@ -264,9 +264,11 @@ static void DrawBottom(const UiPerf *p) {
   default: break;
   }
   if (g_toast[0]) DrawText(s, 8, SCREEN_H - 12, 1, COL_WARN, g_toast);
+  // Visible from every tab, over the right end of the tab bar.
+  if (Debug_PerfRecording()) DrawText(s, SCREEN_W - 32, 7, 1, COL_BAD, "REC");
 }
 
-void BottomUi_Frame(const UiPerf *p) {
+bool BottomUi_Frame(const UiPerf *p) {
   if (g_toast[0] && osGetTime() > g_toast_until) {
     g_toast[0] = 0;
     g_dirty = 2;
@@ -278,7 +280,9 @@ void BottomUi_Frame(const UiPerf *p) {
   if (g_dirty > 0) {
     g_dirty--;
     DrawBottom(p);
+    return true;
   }
+  return false;
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {

@@ -469,6 +469,11 @@ int main(int argc, char** argv) {
       gfxFlushBuffers();
       gfxSwapBuffers();
       shown_window++;
+    } else if (BottomUi_Frame(&perf)) {
+      // Nothing new on the top screen (skipped frame, or PPU render off), but
+      // the UI changed: swap the bottom screen only.
+      gfxFlushBuffers();
+      gfxScreenSwapBuffers(GFX_BOTTOM, false);
     }
 
     // Measure how long the whole iteration took, before the pacing delay.

@@ -55,7 +55,8 @@ void BottomUi_TouchUp(void);
 
 // Call once per frame after the top screen has been drawn and before
 // gfxSwapBuffers.
-void BottomUi_Frame(const UiPerf *perf);
+// Returns true if it drew this frame, i.e. the bottom screen needs a swap.
+bool BottomUi_Frame(const UiPerf *perf);
 
 // Short message at the bottom of the screen for ~1.5 s.
 void BottomUi_Toast(const char *msg);
