@@ -15,7 +15,8 @@ order that makes sense:
 
 1. **P2.3** GPU PPU renderer: write `docs/gpu-ppu-design.md` first. Biggest win
    (~8.4 ms PPU + 2.8 ms copy per frame on New 3DS) and the base for stereo 3D.
-2. **P1.6** before the first beta tag: version from git, README install section.
+2. **P1.6** only the first beta tag is left (`v0.1.0` on `release/v0.1.0`); the
+   version, `ftp` target, build assistant and README are done.
 3. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
    no Old 3DS numbers at all).
 4. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
@@ -166,10 +167,11 @@ Lessons from mzm that apply directly:
   version, `build-release.yml` with beta/stable channel, CIA-only release, a
   README install section. *Done when:* a tag on a release branch produces a
   "Beta" GitHub release with the CIA.
-  Status: workflow, branch model and `tools/bin` done 2026-09-30 (see
-  CLAUDE.md); not exercised by a real tag yet. Pending: version from git
-  (still static in `resources/AppInfo`), `ftp`/`print-version` targets,
-  README rewrite (where to put the ROM, which ROM).
+  Status 2026-10-01: all done except the proof: no tag pushed yet. Version from
+  git (mzm's scheme, `make print-version`; `build/version.h` is generated,
+  `resources/AppInfo` has no version any more), `ftp` target, `build_3ds.sh`
+  assistant (LAN scan + FTP upload, tested against the console), README rewritten
+  for players (install, ROM, data folder) and builders.
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
   Status 2026-10-01: done except remapping. Options tab: pause, turbo,
@@ -445,3 +447,13 @@ Lessons from mzm that apply directly:
   `$0A02-$0E0B`, so `hud_item_index` (selected weapon) is reset on every warp.
   Host: 583 of 586 (`d408` door 1 makes an automatic second transition again, `b482`
   and `dc19` die on arrival).
+- 2026-10-01: Version from git, copied from mzm: exact tag, else
+  `vX.Y.Z-dev.<main..release count>[.<release..HEAD count>]+<hash>` from the
+  release branch HEAD is on or was cut from. The CIA header's major/minor/micro
+  come from the leading `X.Y.Z`; the SMDH long description carries the full
+  string. `build/version.h` is written at parse time only when it changes, so a
+  new commit recompiles `main.c` alone. `tools/build_3ds.py` is mzm's assistant
+  minus the debug/production mode (no `DEBUG_TOOLS` switch here yet, see P1.9 E)
+  and minus the portlib check (no self-updater yet), in English per the language
+  rule. `tools/ui-preview` crashes in `SmMap_Init` (the map tab reads the ROM,
+  which the preview does not load); not fixed yet.

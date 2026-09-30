@@ -376,7 +376,7 @@ static void DrawDebug(Surface s, const UiPerf *p) {
   UiDrawTextf(s, 8, y, COL_TEXT, "work %.1f  logic+PPU %.1f ms", p->frame_ms, p->logic_ms); y += 12;
   UiDrawTextf(s, 8, y, COL_TEXT, "top draw %.1f  audio %.1f ms", p->draw_ms, p->audio_ms); y += 12;
   UiDrawTextf(s, 8, y, COL_TEXT, "audio lock %.1f spc %.1f dsp %.1f rs %.1f", p->audio_part_ms[0], p->audio_part_ms[1], p->audio_part_ms[2], p->audio_part_ms[3]); y += 12;
-  UiDrawTextf(s, 8, y, COL_TEXT, "v%s  ROM %.8s%s  free %uKB", g_rom_info.version, g_rom_info.rom_sha1,
+  UiDrawTextf(s, 8, y, COL_TEXT, "%s ROM %.8s%s %uK free", g_rom_info.version, g_rom_info.rom_sha1,
               g_rom_info.rom_had_header ? "*" : "", (unsigned)(linearSpaceFree() / 1024)); y += 12;
   UiDrawTextf(s, 8, y, COL_TEXT, "state %02X  samus x %u y %u", (unsigned)game_state, (unsigned)samus_x_pos, (unsigned)samus_y_pos);
 }

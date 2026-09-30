@@ -1,61 +1,123 @@
 # sm-3ds
 
-<!-- ![banner](resources/ghpreview.png) -->
 ![ceres station on Azahar](screenshots/sm-3ds.gif)
 
-This is a 3DS port of Super Metroid, based on [the PC port by snesrev](https://github.com/snesrev/sm).
+A native Nintendo 3DS port of **Super Metroid**, built on
+[snesrev's C reimplementation](https://github.com/snesrev/sm) and
+[CharlesAverill's 3DS port](https://github.com/CharlesAverill/sm-3ds).
+Stereoscopic 3D is the long-term goal; for now the game runs in 2D.
 
-This runs at about 50fps on hardware per my testing.
-If you switch to the backup SNES emulation mode this gets back to 60, but audio will not work.
-And where's the fun in that anyways?
-With some careful optimization, this could surely hit 60fps.
+**The ROM is not included.** You need your own copy of Super Metroid.
 
-Saves are dubious right now, I have them working in emulation but not on hardware.
-They should be stored in the SD card's `saves` directory.
+## Status
 
-![title screen on Azahar](screenshots/titlescreen.png)
+Early, pre-release. Tested on a New 3DS:
+
+- Runs at 60 fps in the areas measured so far (Landing Site). Old 3DS/2DS has
+  not been measured yet and is expected to be slower.
+- Saves at save stations persist across power cycles; save states (10 slots)
+  work.
+- The bottom screen has tabs for status, map, cheats, options and debug tools.
+
+Bugs found while playing go to the
+[issue tracker](https://github.com/tinaut1986/sm-3ds/issues). The roadmap is
+[`docs/PLAN.md`](docs/PLAN.md).
+
+## Installing
+
+You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA
+installer.
+
+1. Download `sm-3ds-<version>.cia` from the
+   [Releases page](https://github.com/tinaut1986/sm-3ds/releases), or scan the
+   QR code on that page with FBI ("Remote Install" -> "Scan QR Code").
+   Releases marked **Beta** are test builds from a release branch.
+2. Install the CIA with FBI.
+3. Copy your ROM to the SD card, into this folder (create it if needed; the
+   game also creates it on first start):
+
+   ```
+   sdmc:/3ds/Super Metroid 3DS/
+   ```
+
+   Any file name ending in `.smc` or `.sfc` works. Only the **Japan/USA**
+   release is accepted: its headerless SHA-1 is
+   `da957f0d63d14cb441d215462904c4fa8519c613`. A 512-byte copier header is
+   stripped automatically. PAL and translation-patched ROMs are rejected; the
+   game shows an error screen with the expected hash if no valid ROM is found.
+4. Start "Super Metroid 3DS Port" from the HOME menu.
+
+Everything else the game writes lives in the same folder:
+
+| Path | What |
+|---|---|
+| `saves/sm.srm` | in-game save files (the three save slots) |
+| `saves/save0.sav` ... `save9.sav` | save states (Options tab) |
+| `config.ini` | options from the bottom screen |
+| `debug/` | logs, perf CSVs and dumps from the Debug tab |
+
+## Controls
+
+The 3DS buttons map to the SNES buttons of the same name (D-pad, A, B, X, Y,
+L, R, Start, Select). The game's own controller settings still apply. The
+bottom screen is operated by touch: pause, turbo, frame skip, audio, FPS
+overlay, 804 MHz mode (New 3DS), save states and reset are on the Options tab.
 
 ## Building
 
-### Setup
+Needs devkitARM with libctru, citro2d/citro3d (the
+[devkitPro](https://devkitpro.org/wiki/Getting_Started) `3ds-dev` group), plus
+`cmake`, `git`, `curl` and Python 3. `makerom` and `bannertool` are committed
+in `tools/bin/` (Linux x86-64). No ROM is needed to build.
 
-```bash
-# Install devkitARM - https://devkitpro.org/wiki/Getting_Started
-
-# Clone
-git clone --recurse-submodules https://github.com/CharlesAverill/sm-3ds.git
-
-# Install bannertool
-git clone https://github.com/carstene1ns/3ds-bannertool.git --depth=1 && cd 3ds-bannertool
-cmake -B build && cmake --build build && sudo cmake --install build
-cd ..
-
-# Install makerom
-git clone https://github.com/3DSGuy/Project_CTR.git --depth=1
-make -C Project_CTR/makerom deps -j
-make -C Project_CTR/makerom program -j
-sudo cp Project_CTR/makerom/bin/makerom /usr/bin
-
+```sh
+git clone --recurse-submodules https://github.com/tinaut1986/sm-3ds.git
 cd sm-3ds
-
-# Place your copy of Super Metroid in romfs
-cp ~/Games/sm.smc romfs
-
-# Build SDL2
-make sdl
-
-# Build sm-3ds
-make -j FULL_NATIVE=1
+./build_3ds.sh          # interactive: build, optionally find the 3DS and send it
 ```
 
-| Make Commands    | Action                                                                                    |
-| -----------------| ----------------------------------------------------------------------------------------- |
-| make             | 
-| make 3ds         | The 3ds target will build a `<project name>.3ds` file.
-| make 3dsx        | The 3dsx target will build both a `<project name>.3dsx` and a `<project name>.smdh` files.
-| make cia         | The cia target will build a `<project name>.cia` file.
-| make azahar      | The azahar target will build a `<project name>.3dsx` file and automatically run azahar.
-| make elf         | The elf target will build a `<project name>.elf` file.
-| make fbi         | The fbi target will build a `<project name>.cia` file and send it to your 3ds via [FBI].
-| make hblauncher  | The hblauncher target will build a `<project name>.3dsx` file and send your 3ds via homebrew launcher.<sup>2</sup>
-| make release     | The release target will build `.elf`, `.3dsx`, `.cia`, `.3ds` files and a zip file (.3dsx and .smdh only).<sup>3</sup>
+`build_3ds.sh` builds SDL2 the first time, then the CIA
+(`output/SuperMetroid3DSPort.cia`). With ftpd or FBI's FTP server running on
+the console, it can scan the local network for it and upload the CIA to
+`/cias/sm-3ds-<version>.cia`. Non-interactive forms:
+
+```sh
+./build_3ds.sh --no-ftp                  # build only
+./build_3ds.sh --ftp 192.168.1.50        # build and upload (port 5000)
+./build_3ds.sh --ftp                     # upload to the last IP used
+./build_3ds.sh --help
+```
+
+Or with make directly (`DEVKITPRO` defaults to `/opt/devkitpro`):
+
+```sh
+make sdl                                               # once
+make -j FULL_NATIVE=1 cia                              # -> output/SuperMetroid3DSPort.cia
+make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload
+make print-version
+```
+
+`FULL_NATIVE=1` runs only the C game code, never the ROM on the bundled SNES
+CPU emulator; release builds use it.
+
+### Versions
+
+The version comes from git: a tag gives `v0.1.0`; a build from
+`release/v0.1.0` (or a branch cut from it) gives
+`v0.1.0-dev.<commits since main>[.<commits on the branch>]+<hash>`. It is shown
+in the HOME menu description, on the Debug tab and in the debug logs. Pushing a
+`v*` tag builds the CIA on GitHub Actions and publishes a release (Beta unless
+the tag is on `main`).
+
+## Credits and license
+
+- [snesrev](https://github.com/snesrev/sm): the C reimplementation of the
+  game (`sm/`, MIT, see `sm/LICENSE.txt`, which also carries the Opus BSD
+  license).
+- [Charles Averill](https://github.com/CharlesAverill/sm-3ds): the original
+  3DS port this one started from.
+- The 5x7 UI font and much of the tooling come from the author's
+  [Metroid: Zero Mission 3DS port](https://github.com/tinaut1986/mzm).
+
+This project's code is MIT (see `LICENSE`). Super Metroid is © Nintendo; this
+project contains no game data.

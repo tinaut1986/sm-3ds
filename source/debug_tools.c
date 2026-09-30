@@ -21,7 +21,7 @@
 
 extern Snes *g_snes;
 
-static char g_version[16] = "";
+static char g_version[48] = "";
 static FILE *g_log;
 static char g_log_name[64];
 static char g_message[64];

@@ -100,3 +100,5 @@ source/lang/parser/*.hh
 *.sfc
 *.SMC
 *.SFC
+.3ds_ftp_ip
+__pycache__/
