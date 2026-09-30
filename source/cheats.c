@@ -74,10 +74,11 @@ bool Cheats_GiveAllItems(void) {
 
 bool Cheats_GiveAllBeams(void) {
   if (!Cheats_InGameplay()) return false;
-  for (int i = 0; i < kSmBeamCount; i++) {
+  for (int i = 0; i < kSmBeamCount; i++)
     collected_beams |= kSmBeams[i].mask;
-    equipped_beams |= kSmBeams[i].mask;
-  }
+  // Spazer and Plasma are never equipped together: the game's beam tables have no
+  // entry for that combination and it ends in Unreachable(). Equip Plasma.
+  equipped_beams = (equipped_beams & ~0x0004) | 0x1000 | 0x0002 | 0x0001 | 0x0008;
   return true;
 }
 

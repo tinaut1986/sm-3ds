@@ -531,9 +531,19 @@ uint32 Load24(const LongPtr *src) {
   return *(uint32 *)src & 0xffffff;
 }
 
-bool Unreachable(void) {
-  printf("Unreachable!\n");
+#ifdef __3DS__
+extern void __assert_func(const char *file, int line, const char *func, const char *expr);
+#endif
+
+bool UnreachableAt(const char *file, int line) {
+  printf("Unreachable at %s:%d!\n", file, line);
+#ifdef __3DS__
+  // The frontend's __assert_func leaves a note on the SD card; report the caller
+  // rather than this function.
+  __assert_func(file, line, "Unreachable", "0");
+#else
   assert(0);
+#endif
   g_ram[0x1ffff] = 1;
   return false;
 }

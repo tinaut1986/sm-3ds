@@ -28,7 +28,9 @@ void mov24(LongPtr *dst, uint32 src);
 uint32 Load24(const LongPtr *src);
 void MemCpy(void *dst, const void *src, int size);
 void Call(uint32 addr);
-bool Unreachable();
+bool UnreachableAt(const char *file, int line);
+// Reports where it was reached (the old no-argument form only said that it was).
+#define Unreachable() UnreachableAt(__FILE__, __LINE__)
 
 #define INSTR_RETURN_ADDR(x) ((const uint16*)(uintptr_t)(x))
 #define INSTR_INCR_BYTES(x, n) ((const uint16*)((uintptr_t)(x) + n))
