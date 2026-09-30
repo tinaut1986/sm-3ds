@@ -21,6 +21,8 @@
 #include "src/audio_prof.h"
 
 #include "bottom_ui.h"
+#include "cheats.h"
+#include "sm_warp.h"
 #include "debug_tools.h"
 #include "rom_loader.h"
 #include "version.h"
@@ -205,11 +207,19 @@ int idx_of_btn(enum Button b) {
       return 10;
     case BTN_R:
       return 11;
+    default:
+      // SDL numbers the joystick buttons after the HID key bits, so touching the
+      // screen (KEY_TOUCH, bit 20), ZL/ZR and others arrive here too. They are not
+      // game buttons: falling off the end of this function used to return garbage
+      // that ended up as "D-pad up" on every tap.
+      return -1;
   }
 }
 
 static void HandleCommand(uint32 j, bool pressed) {
-  j = 1 + idx_of_btn(j);
+  int idx = idx_of_btn(j);
+  if (idx < 0) return;
+  j = 1 + idx;
   if (j <= kKeys_Controls_Last) {
     static const uint8 kKbdRemap[] = { 0, 4, 5, 6, 7, 2, 3, 8, 0, 9, 1, 10, 11 };
     if (pressed)
@@ -351,8 +361,7 @@ int main(int argc, char** argv) {
   }
 
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
-  if (!BottomUi_Init(&ui_rom))
-    Warning("romfs:/font.bmp missing or invalid: bottom screen text disabled");
+  BottomUi_Init(&ui_rom);
 
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
@@ -456,7 +465,10 @@ int main(int argc, char** argv) {
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
+      Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      Cheats_AfterFrame();
+      SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
       frameCtr++;
       logic_window++;

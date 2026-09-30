@@ -2,7 +2,7 @@
 #define SM_VARIABLES_H_
 #include "types.h"
 
-extern uint8 g_ram[0x20000];
+extern uint8 g_ram[0x20000 + 0x20000];   // see sm_rtl.h
 
 #define INT16_SHL8(x) ((int16)(x) << 8)
 #define INT16_SHL16(x) ((int16)(x) << 16)

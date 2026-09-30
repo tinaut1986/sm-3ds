@@ -46,7 +46,7 @@ typedef struct {
 
 extern UiOptions g_ui;
 
-bool BottomUi_Init(const UiRomInfo *rom);   // loads romfs:/font.bmp
+bool BottomUi_Init(const UiRomInfo *rom);
 void BottomUi_Exit(void);
 
 // Touch: x,y in bottom-screen pixels (0..319, 0..239).
