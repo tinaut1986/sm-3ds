@@ -102,8 +102,9 @@ Lessons from mzm that apply directly:
   *Spec:* `make sdl && make -j FULL_NATIVE=1 cia`, with a locally supplied
   ROM in `romfs/` (never committed).
   *Done when:* it boots in Azahar and on hardware.
-  Status: builds locally without a ROM (needed a `<sys/stat.h>` include for
-  current GCC). Not yet run.
+  Status: builds locally (needed a `<sys/stat.h>` include for current GCC).
+  2026-09-30: the CIA with the ROM baked in booted on a New 3DS (no bottom
+  screen at all). Emulator and Old 3DS not tried yet.
 - [ ] **P0.3** Measure the baseline.
   *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
@@ -123,6 +124,10 @@ Lessons from mzm that apply directly:
   `sdmc:/3ds/Super Metroid 3DS/`, any `.smc`/`.sfc`, strip a 512-byte copier
   header if present, verify sha1, clear error screen otherwise. Remove the ROM
   from `romfs/`. *Done when:* CIA built without a ROM boots with the ROM on SD.
+  Status 2026-09-30: implemented on `feat/rom-from-sd-bottom-ui`
+  (`source/rom_loader.c`, error screen in `main.c`); CIA is 2.2 MB without the
+  ROM. Not yet run on hardware. The emulator core already skips a 512-byte
+  header; the loader also strips it before hashing.
 - [ ] **P1.2** Saves on SD with absolute paths (same folder), SRAM flushed on
   save and on exit/home menu. *Done when:* save at a station, power off, power
   on, continue works on hardware.
@@ -133,6 +138,9 @@ Lessons from mzm that apply directly:
   a texture, scale with citro3d; stop drawing the game on the bottom screen.
   *Done when:* no per-pixel CPU copy remains in the frontend.
 - [ ] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay (from mzm).
+  Status 2026-09-30: 804 MHz is switched on at boot on New 3DS (toggle in the
+  Options tab); FPS/timing overlay and bottom-screen status exist
+  (`source/bottom_ui.c`). Frame pacing is still upstream's SDL_Delay loop.
 - [ ] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
   version, `build-release.yml` with beta/stable channel, CIA-only release, a
   README install section. *Done when:* a tag on a release branch produces a
@@ -144,6 +152,8 @@ Lessons from mzm that apply directly:
   the ROM.
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
+  Status 2026-09-30: touch tabs Status/Options/Debug with pause, turbo, audio,
+  FPS overlay, save state slots 0-9, reset. No remap, no config file yet.
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
@@ -217,3 +227,14 @@ Lessons from mzm that apply directly:
   `release/vX.Y.Z` accumulates, topic branches merge back `--no-ff`, tags
   trigger the CIA build (Beta unless reachable from `main`). First line:
   `release/v0.1.0`, matching the version already in `resources/AppInfo`.
+- 2026-09-30: Bottom screen is software-drawn straight into the framebuffer
+  with `romfs/font.bmp` (8x8 ASCII grid), not citro2d like mzm: the game still
+  goes through SDL, and this needs no GPU state. Redraws only on change or
+  every 15 frames (the bottom screen is double buffered, so two frames per
+  change). Revisit when P1.3/P1.4 move presentation to citro3d. Touch comes
+  from SDL finger events, because calling `hidScanInput` ourselves would make
+  SDL miss button edges.
+- 2026-09-30: ROM lives in `sdmc:/3ds/Super Metroid 3DS/` (any `.smc`/`.sfc`,
+  first one whose headerless sha1 matches). Only the JU ROM is accepted; a
+  translation-patched ROM is rejected on purpose until we decide how to handle
+  those.
