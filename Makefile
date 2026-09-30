@@ -7,17 +7,73 @@ PWD= $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
 # Environment Setup
 #---------------------------------------------------------------------------------
 ifeq ($(strip $(DEVKITPRO)),)
-$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>devkitPRO")
+export DEVKITPRO := /opt/devkitpro
 endif
 
 ifeq ($(strip $(DEVKITARM)),)
-$(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
+export DEVKITARM := $(DEVKITPRO)/devkitARM
 endif
 
 include $(DEVKITARM)/3ds_rules
 
 # ip address of 3ds for hblauncher/fbi target.
 IP3DS := 172.20.10.2
+
+# FTP server on the console (ftpd, FBI) for the `ftp` target.
+FTP_HOST ?= $(IP3DS)
+FTP_PORT ?= 5000
+
+#---------------------------------------------------------------------------------
+# Version, derived from git (same scheme as ../mzm)
+#---------------------------------------------------------------------------------
+# - HEAD exactly on a tag:        that tag, e.g. v0.1.0
+# - on (or branched off) release/vX.Y.Z:
+#                                 vX.Y.Z-dev.<commits since main>[.<commits since
+#                                 the release branch>]+<hash>
+# - anything else:                git describe
+# Override with `make VERSION=...`.
+GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
+EXACT_TAG := $(shell git describe --tags --exact-match 2>/dev/null)
+# Newest release/* branch (local or origin) that HEAD contains, so topic
+# branches cut from a release branch inherit its version.
+REL_MERGED := $(shell git for-each-ref --format='%(refname:short)' --merged HEAD refs/heads/'release/*' refs/remotes/'origin/release/*' 2>/dev/null | sort -V | tail -1)
+REL_BASE := $(shell git rev-parse --verify -q refs/remotes/origin/main >/dev/null && echo refs/remotes/origin/main || echo main)
+
+ifneq ($(strip $(EXACT_TAG)),)
+  GIT_VERSION := $(EXACT_TAG)
+else
+ifeq ($(filter release/%,$(GIT_BRANCH)),)
+  REL_NAME := $(subst origin/,,$(REL_MERGED))
+else
+  REL_NAME := $(GIT_BRANCH)
+endif
+ifneq ($(filter release/%,$(REL_NAME)),)
+  REL_TARGET := $(shell git rev-parse --verify -q refs/heads/$(REL_NAME) >/dev/null && echo refs/heads/$(REL_NAME) || echo refs/remotes/origin/$(REL_NAME))
+  REL_CNT := $(shell git rev-list --count $(REL_BASE)..$(REL_TARGET) 2>/dev/null || echo 1)
+  DEV_CNT := $(shell git rev-list --count $(REL_TARGET)..HEAD 2>/dev/null || echo 0)
+  REL_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+  ifeq ($(DEV_CNT),0)
+    GIT_VERSION := $(patsubst release/%,%,$(REL_NAME))-dev.$(REL_CNT)+$(REL_HASH)
+  else
+    GIT_VERSION := $(patsubst release/%,%,$(REL_NAME))-dev.$(REL_CNT).$(DEV_CNT)+$(REL_HASH)
+  endif
+else
+  GIT_VERSION := $(shell git describe --tags --always 2>/dev/null || echo "0.0-dev")
+endif
+endif
+VERSION ?= $(GIT_VERSION)
+
+# Numeric major/minor/micro for the CIA header, from a leading [v]X.Y.Z.
+VERSION_NUMS := $(shell echo '$(VERSION)' | sed -nE 's/^v?([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/p')
+ifeq ($(words $(VERSION_NUMS)),3)
+  APP_VER_MAJOR := $(word 1,$(VERSION_NUMS))
+  APP_VER_MINOR := $(word 2,$(VERSION_NUMS))
+  APP_VER_MICRO := $(word 3,$(VERSION_NUMS))
+else
+  APP_VER_MAJOR := 0
+  APP_VER_MINOR := 0
+  APP_VER_MICRO := 0
+endif
 
 #---------------------------------------------------------------------------------
 # Directory Setup
@@ -79,7 +135,7 @@ else
 	EXTRA_CFLAGS :=
 endif
 
-CFLAGS := $(COMMON_FLAGS) -std=gnu99 $(shell $(CURDIR)/../$(SDL)/build/sdl2-config --cflags) -DSYSTEM_VOLUME_MIXER_AVAILABLE=1 $(EXTRA_CFLAGS)
+CFLAGS := $(COMMON_FLAGS) -std=gnu99 $(shell $(CURDIR)/../$(SDL)/build/sdl2-config --cflags 2>/dev/null) -DSYSTEM_VOLUME_MIXER_AVAILABLE=1 $(EXTRA_CFLAGS)
 CXXFLAGS := $(COMMON_FLAGS) -std=gnu++17
 # CXXFLAGS += -fno-rtti -fno-exceptions
 
@@ -106,13 +162,12 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 include resources/AppInfo
 
-VERSION_H = $(SOURCES)/version.h
-
-$(VERSION_H): resources/AppInfo
-	echo "#pragma once" > $(VERSION_H)
-	echo "#define APP_TITLE \"$(APP_TITLE)\"" >> $(VERSION_H)
-	echo "#define APP_AUTHOR \"$(APP_AUTHOR)\"" >> $(VERSION_H)
-	echo "#define APP_VERSION \"$(APP_VER_MAJOR).$(APP_VER_MINOR).$(APP_VER_MICRO)\"" >> $(VERSION_H)
+# Generated at parse time and rewritten only when its content changes, so a new
+# commit rebuilds main.c (and the SMDH) but nothing else.
+VERSION_H := $(BUILD)/version.h
+VERSION_H_TEXT := \#pragma once\n\#define APP_TITLE "$(APP_TITLE)"\n\#define APP_AUTHOR "$(APP_AUTHOR)"\n\#define APP_VERSION "$(VERSION)"\n
+$(shell mkdir -p $(BUILD) && printf '$(VERSION_H_TEXT)' > $(VERSION_H).tmp && \
+	(cmp -s $(VERSION_H).tmp $(VERSION_H) && rm -f $(VERSION_H).tmp || mv -f $(VERSION_H).tmp $(VERSION_H)))
 
 #---------------------------------------------------------------------------------
 # Build Variable Setup
@@ -156,8 +211,11 @@ export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir) $(call recurse,d,$(CUR
 
 export TOPDIR := $(CURDIR)
 OUTPUT_DIR := $(TOPDIR)/$(OUTPUT)
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+OUTPUT_FILE := $(OUTPUT_DIR)/$(subst $(SPACE),,$(APP_TITLE))
 
-.PHONY: $(BUILD) clean all format clean_sdl
+.PHONY: $(BUILD) clean all format clean_sdl print-version ftp
 
 #---------------------------------------------------------------------------------
 # Initial Targets
@@ -165,13 +223,21 @@ OUTPUT_DIR := $(TOPDIR)/$(OUTPUT)
 all: $(BUILD) $(OUTPUT_DIR)
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
-3dsx: $(VERSION_H) $(BUILD) $(OUTPUT_DIR)
-# 	@echo $(CFILES)
+3dsx: $(BUILD) $(OUTPUT_DIR)
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $@
 
 cia: $(BUILD) $(OUTPUT_DIR)
-	@echo $(BANNER_IMAGE_FILE)
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $@
+
+print-version:
+	@echo $(VERSION)
+
+# Build the CIA and upload it to the console's FTP server as
+# cias/sm-3ds-<VERSION>.cia (install it from there with FBI).
+#   make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50 [FTP_PORT=5000]
+ftp: cia
+	@echo "Uploading $(notdir $(OUTPUT_FILE)).cia as sm-3ds-$(VERSION).cia to FTP..."
+	curl --ftp-create-dirs -T $(OUTPUT_FILE).cia "ftp://$(FTP_HOST):$(FTP_PORT)/cias/sm-3ds-$(VERSION).cia"
 
 3ds: $(BUILD) $(OUTPUT_DIR)
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $@
@@ -219,9 +285,6 @@ APP_DESCRIPTION := $(shell echo "$(APP_DESCRIPTION)" | cut -c1-256)
 APP_AUTHOR := $(shell echo "$(APP_AUTHOR)" | cut -c1-128)
 APP_PRODUCT_CODE := $(shell echo $(APP_PRODUCT_CODE) | cut -c1-16)
 APP_UNIQUE_ID := $(shell echo $(APP_UNIQUE_ID) | cut -c1-7)
-APP_VER_MAJOR := $(shell echo $(APP_VER_MAJOR) | cut -c1-3)
-APP_VER_MINOR := $(shell echo $(APP_VER_MINOR) | cut -c1-3)
-APP_VER_MICRO := $(shell echo $(APP_VER_MICRO) | cut -c1-3)
 ifneq ("$(wildcard $(TOPDIR)/$(BANNER_IMAGE).cgfx)","")
 	BANNER_IMAGE_FILE := $(TOPDIR)/$(BANNER_IMAGE).cgfx
 	BANNER_IMAGE_ARG := -ci $(BANNER_IMAGE_FILE)
@@ -256,8 +319,9 @@ ifeq ($(OS),Windows_NT)
 	MAKEROM = makerom.exe
 	BANNERTOOL = bannertool.exe
 else
-	MAKEROM = makerom
-	BANNERTOOL = bannertool
+	# Prefer the copies committed in tools/bin, so PATH needs no setup.
+	MAKEROM = $(firstword $(wildcard $(TOPDIR)/tools/bin/makerom) makerom)
+	BANNERTOOL = $(firstword $(wildcard $(TOPDIR)/tools/bin/bannertool) bannertool)
 endif
 
 _3DSXFLAGS += --smdh=$(OUTPUT_FILE).smdh
@@ -275,8 +339,12 @@ banner.bnr: $(BANNER_IMAGE_FILE) $(BANNER_AUDIO_FILE)
 	@echo $(BANNER_IMAGE_FILE)
 	@$(BANNERTOOL) makebanner $(BANNER_IMAGE_ARG) $(BANNER_AUDIO_ARG) -o banner.bnr > /dev/null
 
-icon.icn: $(TOPDIR)/$(ICON)
-	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_TITLE)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
+# The long description carries the version, so HOME menu shows which build this is
+# (SMDH text fields are 64 characters at most in practice, like ../mzm).
+APP_LONG_DESC := $(shell printf '%s %s' "$(APP_TITLE)" "$(VERSION)" | cut -c1-64)
+
+icon.icn: $(TOPDIR)/$(ICON) version.h
+	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_LONG_DESC)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
 
 $(OUTPUT_FILE).elf: $(OFILES) $(SDL)/build/libSDL2.a
 

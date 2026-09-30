@@ -66,8 +66,9 @@ frame by frame. Consequences:
   the active release branch and merged back into it with `--no-ff`.
 - Never commit directly on `main` or `release/*`. Commit only when the owner asks.
 - Version numbers: minor = milestone, patch = fix round. Ask before a minor
-  bump; never infer one. Also bump `resources/AppInfo` (APP_VER_*) until the
-  version is derived from git (PLAN P1.6).
+  bump; never infer one. The version is derived from git (tag, or the
+  `release/*` branch name plus counts, see `make print-version`); nothing to
+  bump by hand.
 
 ### Releases (installer on GitHub)
 
@@ -136,7 +137,14 @@ export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
 export PATH=$PWD/tools/bin:/opt/devkitpro/tools/bin:$PATH
 make sdl                        # once; builds SDL/build/libSDL2.a
 make -j FULL_NATIVE=1 cia       # -> output/SuperMetroid3DSPort.cia
+make -j FULL_NATIVE=1 ftp FTP_HOST=<3ds ip>   # build + upload to /cias/
 ```
+
+`./build_3ds.sh` (`tools/build_3ds.py`, from mzm) wraps the same steps: it
+builds SDL if missing, can scan the LAN for the console's FTP server (port
+5000) and upload the CIA as `cias/sm-3ds-<version>.cia`. `--ftp [IP]`,
+`--no-ftp`, `--clean`, `--dry-run`; no flags = interactive menu. The last IP
+is kept in `.3ds_ftp_ip` (gitignored).
 
 `FULL_NATIVE`: run only the C game code, never the ROM on the emulated CPU.
 The CIA never contains the ROM. At runtime it reads any `.smc`/`.sfc` in
