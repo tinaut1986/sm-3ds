@@ -188,10 +188,13 @@ Lessons from mzm that apply directly:
     health/reserves and ammo for god mode, give items/beams/suits, set tanks,
     unlock map. Must also be recorded with `StateRecorder_RecordPatchByte` when
     replay/save states are involved (see `RtlCheat` in `sm_rtl.c`).
-  - **C. Map tab:** live map from `map_tiles_explored` (RAM `$7F7`) and the room
+  - **C. Map tab:** DONE 2026-09-30, pending hardware check (`sm_map.c`, MAP
+    tab; see the decisions log for the data layout). Original text: live map from `map_tiles_explored` (RAM `$7F7`) and the room
     headers in ROM (area, map x/y, width, height); Samus marker; area switch;
     zoom/pan.
-  - **D. Warp:** room list by area, and tap-on-map to warp. Like mzm, warp to a
+  - **D. Warp:** DONE 2026-09-30 (`sm_warp.c`, WARP HERE on the MAP tab; host
+    regression `tools/warp-test/run.sh`: 255 of 262 rooms work, 6 have no door
+    into them, 1 (`D408`) ends up in `D340`). Not yet seen on hardware. Original text: room list by area, and tap-on-map to warp. Like mzm, warp to a
     *door*, not a room: set `door_def_ptr` to a door definition whose
     destination is the target room and let the game run its own transition
     (`door_transition_*`). Needs a door-def scan of bank `$83`. Risk: transition
@@ -343,3 +346,97 @@ Lessons from mzm that apply directly:
   from mzm (plus , _ '), and `romfs/font.bmp` is gone (the romfs only keeps its
   `blank` placeholder). Remaining differences from mzm: tabs are text, not 30 px
   icons, and there are no modals yet.
+- 2026-09-30: Map data layout, verified against the ROM on the host. The pause
+  map tilemap per area is 64x32 words stored as two 32-column screens (index =
+  (col>=32 ? 1024 : 0) + row*32 + col%32), pointer table at `$82:964A` (3-byte
+  entries, areas 0-5 + Ceres = 6). Row 0 is an empty margin: a room header's map y
+  is the tilemap row minus 1 (82 % of header rectangles are filled at +1, 61 % at
+  0). Tile `0x1F` = blank. `map_tiles_explored` (RAM `$7F7`, 256 bytes, same cell
+  order, MSB first) is live for the current area; other areas are in
+  `explored_map_tiles_saved` (RAM `$CD52`, 256 bytes each, areas 0-5); Ceres has no
+  saved bits. `map_station_byte_array[area]` != 0 shows every cell. Room headers:
+  scanning bank `$8F` for the 11-byte `RoomDefHeader` followed by a known room-state
+  condition routine (`$E5E6/E5EB/E5FF/E612/E629/E640/E652/E669/E676`) finds 262
+  rooms; 250 are reachable from Landing Site by following door lists (u16 pointers
+  to door definitions in bank `$83`, the list itself in bank `$8F`). The 12 others
+  are Ceres and a few scripted rooms. Gotcha: `RomFixedPtr(addr)` does not
+  parenthesise `addr`; never pass it an expression.
+- 2026-09-30: Teleport design, verified on the host. A warp injects what
+  `BlockColl_Horiz_Door` does when Samus hits a door: `door_def_ptr = <door def
+  whose destination is the target room>`, `door_transition_function =
+  FUNC16(DoorTransitionFunction_HandleElevator)`, `elevator_flags = 0`,
+  `game_state = 9`. It is only safe between frames of normal gameplay
+  (`game_state == 8` and `coroutine_state_0 == 0`): the game dispatcher resumes the
+  state function recorded in `coroutine_state_0`, so switching state while an async
+  one (door transition, pause) is running would resume the wrong code. Doors are
+  indexed by walking each room's door list in bank `$8F` (u16 pointers to door defs
+  in `$83`, list ends at the first entry that is not a door into a known room).
+  Host test: boot headless with scripted inputs (the frontend's bit layout, Start =
+  0x08, A = 0x100, not the SNES one) to reach gameplay (Ceres), save a state, and
+  warp into each room from it. No door leads into rooms `A201 A734 B0B4 B1BB B3E1
+  DF1B` (scripted/boss rooms); `D408` (Maridia) lands in `D340`, not investigated.
+- 2026-10-01: Teleport crash on the console (Luma dump 60): data abort in
+  `BlockInsideDetection` from `Samus_FrameHandlerAlfa_Func11`, `r3 = 0xFFFF`.
+  Root cause: after a warp Samus can arrive outside the room. The game places her
+  at `layer1 + (uint8)old_position` (`DoorTransitionFunction_PlaceSamusLoadTiles`),
+  keeping the low byte of where she stood, which is consistent only through a real
+  door. `CalculateBlockAt` returns the sentinel `cur_block_index = 0xFFFF` for a
+  negative or >= 4096 coordinate, and `BlockInsideDetection` then reads
+  `level_data[0xFFFF]`, 128 KB past the end of `g_ram` (`$7F:0002` + 2*0xFFFF). On a
+  real SNES that is harmless mirrored memory, on the host it lands in other globals
+  (so ASAN never saw it and the PC tests passed), on the 3DS it is unmapped. Two
+  fixes: (1) `g_ram` now has 128 KB of zero padding after the WRAM, guarded by a
+  `_Static_assert`, so the sentinel read is an air block; (2) `SmWarp_AfterFrame`
+  checks Samus once the transition ends (in room, not in a solid block) and moves
+  her to the nearest standing spot (air/special air/shootable air over solid), and
+  the warp itself starts from a position derived from the source door's cap.
+  Host results with the start position forced to (0,0): 572 of 586 room/door pairs
+  fail the position check without (2), 583 pass with it. Remaining: `af3f` door 2
+  (automatic second transition), and Samus dying on arrival at `d461` door 2,
+  `d4c2` door 1 and `dc19` door 0 (idle Samus; cause not investigated).
+  Water rooms use block type 3 for air: anything that assumes type 0 is air is
+  wrong there.
+- 2026-10-01: Teleport placement, second round (user report: an extra door appeared
+  next to the real one and Samus arrived inside it, closed in). `DoorDef`'s
+  `x_pos_plm/y_pos_plm` are in the DESTINATION room: `SpawnDoorClosingPLM` spawns the
+  door that closes behind Samus there (or re-arms the existing cap,
+  `CheckIfColoredDoorCapSpawned`). The earlier code treated them as source-room
+  coordinates and derived the start position from them, so she ended up at the door.
+  Now, after arrival, Samus is put two blocks in front of that door: horizontal doors
+  snap to the nearest standing spot (three passable blocks over a floor block;
+  passable = types 0, 3, 4; floor = 8, 1 slope, B, C, E, F, because door tunnels use
+  slopes as flat floors), vertical doors (ceiling/floor) drop her in the air if it
+  fits. Door defs with cap (0,0) are scripted transitions: only the generic validity
+  check applies. Host test with a distance check (<= 64 px from the aimed spot, not in
+  a door or solid block): 581 of 586 pass. The others: Kraid's room (`a59f`, the boss AI
+  pins Samus to the first screen, found with a gdb hardware watchpoint on her x
+  position), `a641`, two automatic second transitions, one death on arrival.
+- 2026-10-01: Teleport, third round: the door transition itself was the wrong tool.
+  Hardware dumps (user) showed a second, stale copy of the door cap in BG1 (same
+  columns, two blocks lower; level data and PLM list had only one), and the warp
+  was still a door transition started from a room that is not the source room: the
+  game keeps the old room's scroll registers and the low byte of Samus's old
+  position across a door. Could not reproduce the drawing on the host (its VRAM does
+  not match the console's in the test harness), so instead of chasing the exact
+  stale write, the warp now loads the room like "Continue": `game_state = 6`
+  (`InitAndLoadGameData_Async`) with a hook in `LoadFromLoadStation`
+  (`g_rtl_warp_load`, sm_80.c) that substitutes room, door definition, camera and Samus
+  position once; it also saves the old area's explored-map bits and mirrors the new
+  area's. Builds the room from scratch (BG, PLMs, enemies, music), keeps all progress
+  (items, bosses, doors). No door closes behind Samus any more. Host: 584 of 586.
+  The earlier failures that were second automatic transitions (`af3f`, `d408`) and the
+  death at `d461`/`d4c2` are gone with the door transition.
+- Debug technique that worked: a gdb hardware watchpoint on a RAM variable
+  (`watch *(unsigned short*)&g_ram[0xAF6]`) finds the writer of a game-state value in
+  seconds; a `SM_WARP_DEBUG` no-op function gives a breakpoint at the right moment.
+- 2026-10-01: The warp-by-load leaves Samus in the "just loaded a game" state:
+  `Samus_Initialize` sets pose 0 and `frame_handler_beta = Samus_Func16`, which
+  plays the load fanfare (`PlaySamusFanfare`, ~360 frames, substate counter,
+  controls locked, room music queued after 0x168 frames). `SmWarp_AfterFrame` now
+  ends that state on arrival the way the fanfare does when it finishes: alfa =
+  `Samus_FrameHandlerAlfa_Func11`, beta = `Samus_FrameHandlerBeta_Func17`, `substate`
+  = 0, standing pose facing into the room (pose 1/2, x_dir 8/4) and
+  `PlayRoomMusicTrackAfterAFrames(16)`. `Samus_Initialize` also clears RAM
+  `$0A02-$0E0B`, so `hud_item_index` (selected weapon) is reset on every warp.
+  Host: 583 of 586 (`d408` door 1 makes an automatic second transition again, `b482`
+  and `dc19` die on arrival).

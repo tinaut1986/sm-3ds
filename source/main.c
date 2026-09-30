@@ -22,6 +22,7 @@
 
 #include "bottom_ui.h"
 #include "cheats.h"
+#include "sm_warp.h"
 #include "debug_tools.h"
 #include "rom_loader.h"
 #include "version.h"
@@ -467,6 +468,7 @@ int main(int argc, char** argv) {
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
       Cheats_AfterFrame();
+      SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
       frameCtr++;
       logic_window++;

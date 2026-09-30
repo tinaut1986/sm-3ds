@@ -18,7 +18,7 @@
 extern bool g_is_turbo;
 int snes_frame_counter;
 static const double apuCyclesPerMaster = (32040 * 32) / (1364 * 262 * 60.0);
-extern uint8_t g_ram[0x20000];
+extern uint8_t g_ram[0x20000 + 0x20000];
 
 extern void RtlApuWrite(uint32_t adr, uint8_t val);
 

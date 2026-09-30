@@ -8,6 +8,8 @@
 #include "bottom_ui.h"
 #include "cheats.h"
 #include "debug_tools.h"
+#include "src/sm_cpu_infra.h"
+#include "sm_map.h"
 static uint8_t fb[2][400 * 240 * 4];
 u8 *gfxGetFramebuffer(gfxScreen_t s, gfx3dSide_t side, u16 *w, u16 *h) { if (w) *w = 240; if (h) *h = s == GFX_TOP ? 400 : 320; return fb[s]; }
 u64 osGetTime(void) { return 1000; }
@@ -26,6 +28,8 @@ static void Dump(const char *name) {
   fclose(f);
 }
 int main(int argc, char **argv) {
+  const char *rom_path = getenv("SM_ROM");   // optional: needed for the MAP tab
+  if (rom_path && !SnesInit(rom_path)) { fprintf(stderr, "cannot load %s\n", rom_path); return 1; }
   UiRomInfo rom = { "Super Metroid (Japan, USA).sfc", "da957f0d63d14cb441d215462904c4fa8519c613", false, "0.1.0" };
   BottomUi_Init(&rom);
   UiPerf perf = { .fps = 60, .game_fps = 60, .frame_ms = 13.7f, .logic_ms = 9.8f, .draw_ms = 2.8f, .audio_ms = 4.7f,
@@ -38,9 +42,24 @@ int main(int argc, char **argv) {
   collected_beams = 0x1000 | 0x0002; equipped_beams = 0x1000;
   game_time_hours = 3; game_time_minutes = 27; game_time_seconds = 9;
   boss_bits_for_area[1] = 3; boss_bits_for_area[0] = 1;
-  for (int tab = 0; tab < 4; tab++) {
-    BottomUi_TouchDown(tab * 80 + 10, 10);   // select the tab
-    if (tab == 1) g_cheats.invincible = true;
+  if (rom_path) {
+    // Pretend Samus is in the Landing Site and has explored the Crateria rooms near it.
+    room_ptr = 0x91F8; area_index = 0; samus_x_pos = 700; samus_y_pos = 300;
+    int n; const SmRoom *rooms = SmMap_Rooms(&n);
+    for (int i = 0; i < n; i++) {
+      if (rooms[i].area != 0 || rooms[i].x < 14) continue;
+      for (int j = 0; j < rooms[i].h; j++) for (int k = 0; k < rooms[i].w; k++) {
+        int col = rooms[i].x + k, row = rooms[i].y + 1 + j, idx = (col >= 32 ? 1024 : 0) + row * 32 + (col & 31);
+        map_tiles_explored[idx >> 3] |= 0x80 >> (idx & 7);
+      }
+    }
+    printf("rooms found: %d\n", n);
+  }
+  for (int tab = 0; tab < 5; tab++) {
+    if (tab == 1 && !rom_path) continue;
+    BottomUi_TouchDown(tab * 64 + 10, 10);   // select the tab
+    if (tab == 1) BottomUi_TouchDown(24 * 5 + 2, 24 + 3 * 5 + 2);   // select a map cell
+    if (tab == 2) g_cheats.invincible = true;
     char name[64];
     snprintf(name, sizeof(name), "tab%d.ppm", tab);
     BottomUi_Toast(tab == 1 ? "All items" : "Preview");

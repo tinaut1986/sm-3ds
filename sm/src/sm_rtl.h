@@ -3,7 +3,12 @@
 #include <string.h>
 #include <stdio.h>
 
-extern uint8 g_ram[0x20000];
+// The console's WRAM is 0x20000 bytes. The extra tail is zero padding: CalculateBlockAt
+// returns the sentinel index 0xFFFF for a position outside the room and some callers
+// (BlockInsideDetection) read level_data[0xFFFF] anyway, which is 128 KB past the end.
+// On the SNES that lands in harmless mirrored memory; here it would be a data abort on
+// the 3DS. With the padding it reads zero, i.e. an air block.
+extern uint8 g_ram[0x20000 + 0x20000];
 extern void RtlApuWrite(uint32 adr, uint8 val);
 extern int snes_frame_counter;
 
@@ -97,6 +102,16 @@ uint8 ReadReg(uint16 reg);
 
 typedef void RunFrameFunc(uint16 input, int run_what);
 typedef void SyncAllFunc();
+
+// Debug teleport support: when `active`, LoadFromLoadStation uses these values instead of
+// the save station's, so a normal game load (game_state 6) builds any room at any position.
+typedef struct RtlWarpLoad {
+  bool active;
+  uint16 warp_room, warp_door;           // not room_ptr/door_def_ptr: those are macros
+  uint16 warp_screen_x, warp_screen_y;   // camera top-left
+  uint16 warp_samus_x, warp_samus_y;     // absolute, in the room
+} RtlWarpLoad;
+extern RtlWarpLoad g_rtl_warp_load;
 
 void RtlReset(int mode);
 void RtlSetupEmuCallbacks(uint8 *emu_ram, RunFrameFunc *func, SyncAllFunc *sync_all);

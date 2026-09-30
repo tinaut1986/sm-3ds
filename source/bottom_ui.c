@@ -10,6 +10,8 @@
 #include "src/variables.h"
 #include "cheats.h"
 #include "debug_tools.h"
+#include "sm_map.h"
+#include "sm_warp.h"
 #include "ui_draw.h"
 
 #define SCREEN_W 320
@@ -23,8 +25,8 @@ UiOptions g_ui = {
   .new3ds_speedup = true,
 };
 
-typedef enum { TAB_STATUS, TAB_CHEATS, TAB_OPTIONS, TAB_DEBUG, TAB_COUNT } Tab;
-static const char *const kTabNames[TAB_COUNT] = { "STATUS", "CHEATS", "OPTIONS", "DEBUG" };
+typedef enum { TAB_STATUS, TAB_MAP, TAB_CHEATS, TAB_OPTIONS, TAB_DEBUG, TAB_COUNT } Tab;
+static const char *const kTabNames[TAB_COUNT] = { "STATUS", "MAP", "CHEATS", "OPTIONS", "DEBUG" };
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -136,6 +138,120 @@ static void DrawStatus(Surface s, const UiPerf *p) {
   UiDrawTextf(s, 8, 218, COL_DIM, "boss C%02X B%02X N%02X W%02X M%02X T%02X", boss_bits_for_area[0], boss_bits_for_area[1],
               boss_bits_for_area[2], boss_bits_for_area[3], boss_bits_for_area[4], boss_bits_for_area[5]);
   (void)p;
+}
+
+// ---- Map tab ----------------------------------------------------------------
+// One area at a time: 64x32 cells of 5 px fill the screen width, so no zoom or
+// scrolling is needed. Row 0 of the tilemap is an empty margin and is not drawn.
+
+#define MAP_CELL 5
+#define MAP_Y0 24
+#define MAP_COL_EXPLORED  RGB(214, 96, 150)
+#define MAP_COL_KNOWN     RGB(56, 64, 104)
+#define MAP_COL_ROOM      RGB(250, 220, 90)
+#define MAP_COL_SELECT    RGB(90, 220, 240)
+
+static int g_map_area;              // area being shown
+static bool g_map_follow = true;    // follow the area Samus is in
+static int g_sel_col = -1, g_sel_row = -1;
+static int g_warp_door;             // which of the doors into the selected room to use
+
+static const char *const kAreaShort[kSmAreaCount] = { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER" };
+
+static Rect AreaButtonRect(int i) { return (Rect){ 2 + i * 45, 180, 43, 13 }; }
+static Rect FollowRect(void) { return (Rect){ 226, 194, 92, 13 }; }
+static Rect WarpRect(void) { return (Rect){ 4, 218, 150, 14 }; }
+static Rect DoorRect(void) { return (Rect){ 160, 218, 96, 14 }; }
+
+static const SmRoom *SelectedRoom(int area) {
+  return g_sel_col >= 0 ? SmMap_RoomAt(area, g_sel_col, g_sel_row) : NULL;
+}
+
+static int ShownMapArea(void) {
+  if (g_map_follow && area_index < kSmAreaCount && Cheats_InGameplay()) g_map_area = (int)area_index;
+  return g_map_area;
+}
+
+static void MapTouch(int x, int y) {
+  const int area = ShownMapArea();
+  for (int i = 0; i < kSmAreaCount; i++) {
+    if (UiIn(AreaButtonRect(i), x, y)) {
+      g_map_area = i;
+      g_map_follow = false;
+      g_sel_col = g_sel_row = -1;
+      g_dirty = 2;
+      return;
+    }
+  }
+  const SmRoom *room = SelectedRoom(area);
+  if (UiIn(FollowRect(), x, y)) {
+    g_map_follow = !g_map_follow;
+  } else if (room && UiIn(WarpRect(), x, y)) {
+    Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
+  } else if (room && UiIn(DoorRect(), x, y)) {
+    const int n = SmWarp_DoorCount(room);
+    if (n > 1) g_warp_door = (g_warp_door + 1) % n;
+  } else if (y >= MAP_Y0 && y < MAP_Y0 + (kSmMapRows - 1) * MAP_CELL) {
+    g_sel_col = x / MAP_CELL;
+    g_sel_row = (y - MAP_Y0) / MAP_CELL + 1;
+    g_warp_door = 0;
+  } else {
+    return;
+  }
+  g_dirty = 2;
+}
+
+static void DrawMap(Surface s, const UiPerf *p) {
+  const int area = ShownMapArea();
+  const bool station = SmMap_HasMapStation(area);
+  int total = 0, seen = 0;
+  for (int row = 1; row < kSmMapRows; row++) {
+    for (int col = 0; col < kSmMapCols; col++) {
+      bool exists, explored;
+      SmMap_Cell(area, col, row, &exists, &explored);
+      if (!exists) continue;
+      total++;
+      if (explored) seen++;
+      if (!explored && !station) continue;
+      UiFillRect(s, col * MAP_CELL, MAP_Y0 + (row - 1) * MAP_CELL, MAP_CELL - 1, MAP_CELL - 1,
+                 explored ? MAP_COL_EXPLORED : MAP_COL_KNOWN);
+    }
+  }
+
+  // Outline the room Samus is in, and mark Samus (blinking).
+  int sa, sc, sr;
+  const bool here = SmMap_SamusCell(&sa, &sc, &sr) && sa == area;
+  if (here) {
+    const SmRoom *r = SmMap_CurrentRoom();
+    if (r) UiFrameRect(s, r->x * MAP_CELL - 1, MAP_Y0 + r->y * MAP_CELL - 1, r->w * MAP_CELL + 1, r->h * MAP_CELL + 1, MAP_COL_ROOM);
+    if ((p->frames / 15) & 1)
+      UiFillRect(s, sc * MAP_CELL + 1, MAP_Y0 + (sr - 1) * MAP_CELL + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
+  }
+  if (g_sel_col >= 0)
+    UiFrameRect(s, g_sel_col * MAP_CELL - 1, MAP_Y0 + (g_sel_row - 1) * MAP_CELL - 1, MAP_CELL + 1, MAP_CELL + 1, MAP_COL_SELECT);
+
+  for (int i = 0; i < kSmAreaCount; i++)
+    UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, kAreaShort[i]);
+  UiDrawTextf(s, 4, 197, COL_TEXT, "%s  %d/%d CELLS%s", kSmAreaNames[area], seen, total, station ? "  MAP" : "");
+  UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, g_map_follow ? "FOLLOW: ON" : "FOLLOW: OFF");
+
+  const SmRoom *room = SelectedRoom(area);
+  if (room) {
+    const int doors = SmWarp_DoorCount(room);
+    UiDrawTextf(s, 4, 208, MAP_COL_SELECT, "ROOM %04X  %dX%d AT %d,%d  DOORS %d", room->header, room->w, room->h, room->x, room->y, doors);
+    if (doors > 0) {
+      UiDrawButton(s, WarpRect(), COL_TAB_ON, "WARP HERE");
+      char buf[32];
+      snprintf(buf, sizeof(buf), "DOOR %d/%d", g_warp_door + 1, doors);
+      UiDrawButton(s, DoorRect(), doors > 1 ? COL_BTN : COL_FAINT, buf);
+    } else {
+      UiDrawText(s, 4, 222, 1, COL_WARN, "NO DOOR LEADS TO THIS ROOM");
+    }
+  } else if (g_sel_col >= 0) {
+    UiDrawTextf(s, 4, 208, COL_DIM, "NO ROOM AT %d,%d", g_sel_col, g_sel_row - 1);
+  } else {
+    UiDrawText(s, 4, 208, 1, COL_DIM, "TAP THE MAP TO SELECT A ROOM");
+  }
 }
 
 // ---- Cheats tab -------------------------------------------------------------
@@ -317,6 +433,7 @@ static void TouchDownImpl(int x, int y) {
     }
   }
   switch (g_tab) {
+  case TAB_MAP:     MapTouch(x, y); break;
   case TAB_CHEATS:  CheatsTouch(x, y); break;
   case TAB_OPTIONS: OptionsTouch(x, y); break;
   case TAB_DEBUG:   DebugTouch(x, y); break;
@@ -341,14 +458,17 @@ static void DrawBottom(const UiPerf *p) {
     UiDrawButton(s, TabRect(i), i == (int)g_tab ? COL_TAB_ON : COL_TAB, kTabNames[i]);
   switch (g_tab) {
   case TAB_STATUS:  DrawStatus(s, p); break;
+  case TAB_MAP:     DrawMap(s, p); break;
   case TAB_CHEATS:  DrawCheats(s); break;
   case TAB_OPTIONS: DrawOptions(s); break;
   case TAB_DEBUG:   DrawDebug(s, p); break;
   default: break;
   }
   if (g_toast[0]) {
-    UiFillRect(s, 0, SCREEN_H - 14, SCREEN_W, 14, COL_BG);
-    UiDrawText(s, 8, SCREEN_H - 11, 1, COL_WARN, g_toast);
+    // On the map the bottom rows hold the warp buttons, so show it on the info line.
+    const int ty = g_tab == TAB_MAP ? 197 : SCREEN_H - 11;
+    UiFillRect(s, 0, ty - 2, g_tab == TAB_MAP ? 222 : SCREEN_W, 11, COL_BG);
+    UiDrawText(s, g_tab == TAB_MAP ? 4 : 8, ty, 1, COL_WARN, g_toast);
   }
   // Visible from every tab, over the right end of the tab bar.
   if (Debug_PerfRecording()) UiDrawText(s, SCREEN_W - 32, 7, 1, COL_BAD, "REC");
@@ -404,6 +524,8 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
 
 bool BottomUi_Init(const UiRomInfo *rom) {
   g_rom_info = *rom;
+  SmMap_Init();
+  SmWarp_Init();
   APT_CheckNew3DS(&g_is_new3ds);
   g_ui.new3ds_speedup = g_is_new3ds;
   LoadConfig();

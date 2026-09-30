@@ -2623,23 +2623,44 @@ void DecompressToVRAM(uint32 src, uint16 dst_addr) {  // 0x80B271
 }
 
 
+RtlWarpLoad g_rtl_warp_load;
+
 void LoadFromLoadStation(void) {  // 0x80C437
   save_station_lockout_flag = 1;
   const LoadStationList *L = (LoadStationList *)RomPtr_80(kLoadStationLists[area_index] + 14 * load_station_index);
 
-  room_ptr = L->room_ptr_;
-  door_def_ptr = L->door_ptr;
+  uint16 room = L->room_ptr_, door = L->door_ptr, screen_x = L->screen_x_pos, screen_y = L->screen_y_pos;
+  uint16 samus_y_offset = L->samus_y_offset, samus_x_offset = L->samus_x_offset;
+  const bool warp = g_rtl_warp_load.active;
+  if (warp) {
+    // Debug teleport: same arithmetic as below, inverted, so that Samus ends up exactly at
+    // the requested position.
+    g_rtl_warp_load.active = false;
+    room = g_rtl_warp_load.warp_room;
+    door = g_rtl_warp_load.warp_door;
+    screen_x = g_rtl_warp_load.warp_screen_x;
+    screen_y = g_rtl_warp_load.warp_screen_y;
+    samus_y_offset = g_rtl_warp_load.warp_samus_y - screen_y;
+    samus_x_offset = g_rtl_warp_load.warp_samus_x - screen_x - 128;
+  }
+
+  room_ptr = room;
+  door_def_ptr = door;
 //  door_bts = v0[2];
-  bg1_x_offset = layer1_x_pos = L->screen_x_pos;
-  bg1_y_offset = layer1_y_pos = L->screen_y_pos;
-  samus_y_pos = layer1_y_pos + L->samus_y_offset;
+  bg1_x_offset = layer1_x_pos = screen_x;
+  bg1_y_offset = layer1_y_pos = screen_y;
+  samus_y_pos = layer1_y_pos + samus_y_offset;
   samus_prev_y_pos = samus_y_pos;
-  samus_x_pos = layer1_x_pos + 128 + L->samus_x_offset;
+  samus_x_pos = layer1_x_pos + 128 + samus_x_offset;
   samus_prev_x_pos = samus_x_pos;
   reg_BG1HOFS = 0;
   reg_BG1VOFS = 0;
   LOBYTE(area_index) = get_RoomDefHeader(room_ptr)->area_index_;
   LOBYTE(debug_disable_minimap) = 0;
+  // A station load never changes area without a file load, which mirrors the explored
+  // map bits; a warp can, so do it here (the caller saved the old area's bits).
+  if (warp)
+    LoadMirrorOfExploredMapTiles();
 }
 
 

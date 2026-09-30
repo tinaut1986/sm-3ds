@@ -10,7 +10,7 @@ SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c
 gcc -O1 -fno-strict-aliasing -I"$ROOT/tools/ui-preview/fake" -I"$ROOT/source" -I"$S" \
     -I"$ROOT/SDL/include" -I"$ROOT/SDL/build/include" -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE \
     -w $SRCS \
-    "$ROOT/source/bottom_ui.c" "$ROOT/source/ui_draw.c" "$ROOT/source/ui_font.c" "$ROOT/source/cheats.c" "$ROOT/source/debug_tools.c" \
+    "$ROOT/source/bottom_ui.c" "$ROOT/source/ui_draw.c" "$ROOT/source/ui_font.c" "$ROOT/source/cheats.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/debug_tools.c" \
     "$ROOT/tools/ui-preview/preview.c" -o "$OUT/preview" -lm
 (cd "$OUT" && ./preview && python3 - <<'PY'
 from PIL import Image

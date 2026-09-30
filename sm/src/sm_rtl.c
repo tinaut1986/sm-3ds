@@ -13,7 +13,9 @@ struct StateRecorder;
 static void RtlSaveMusicStateToRam_Locked();
 static void RtlRestoreMusicAfterLoad_Locked(bool is_reset);
 
-uint8 g_ram[0x20000];
+uint8 g_ram[0x20000 + 0x20000];   // see sm_rtl.h: the tail is zero padding
+// level_data starts at g_ram+0x10002 and the sentinel index is 0xFFFF (16-bit entries).
+_Static_assert(sizeof(g_ram) >= 0x10002 + 2 * 0x10000, "g_ram padding too small for level_data[0xFFFF]");
 uint8 *g_sram;
 const uint8 *g_rom;
 
