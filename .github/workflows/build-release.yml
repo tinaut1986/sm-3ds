@@ -1,0 +1,137 @@
+name: Build 3DS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-3ds:
+    runs-on: ubuntu-latest
+    container:
+      # Pinned to the same image as ../mzm so both ports build with one
+      # toolchain. Bump deliberately.
+      image: devkitpro/devkitarm:20260610
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install host tools
+        run: |
+          command -v cmake > /dev/null || (apt-get update -qq && apt-get install -y -qq cmake > /dev/null)
+
+      - name: Build 3DS port
+        run: |
+          git config --global --add safe.directory '*'
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITARM=/opt/devkitpro/devkitARM
+          chmod +x tools/bin/bannertool tools/bin/makerom
+          export PATH=$GITHUB_WORKSPACE/tools/bin:/opt/devkitpro/tools/bin:$PATH
+          # The ROM is never part of the repository or of a published build.
+          # Fail loudly if one ever ends up in romfs/.
+          if ls romfs | grep -qiE '\.(smc|sfc)$'; then echo "ROM found in romfs/"; exit 1; fi
+          make sdl
+          make clean
+          make -j$(nproc) FULL_NATIVE=1 cia
+
+      # NOTE: container default shell is dash/sh -- no [[ ]], use POSIX case
+      - name: Determine release tag and channel
+        id: vars
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              TAG="${GITHUB_REF#refs/tags/}"
+              ;;
+            *)
+              TAG=$(git describe --tags --always)
+              ;;
+          esac
+
+          # Stable vs beta is decided by whether main can reach this commit,
+          # NOT by "was this a tag push" (same rule as ../mzm):
+          #   - Tag on an unmerged release/* branch  -> Beta (prerelease).
+          #   - Tag on (or merged into) main         -> Release.
+          #   - Manual workflow_dispatch on a branch -> Beta.
+          #   - Re-running this workflow ON THE TAG for a tag that shipped as
+          #     a beta and is now merged promotes that same page to stable.
+          # Push main BEFORE the tag. If the fetch fails we fall through to
+          # Beta: mislabelling stable as beta is recoverable, not the reverse.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main || true
+          if git merge-base --is-ancestor HEAD refs/remotes/origin/main 2>/dev/null; then
+            PRERELEASE=false
+            CHANNEL=Release
+          else
+            PRERELEASE=true
+            CHANNEL=Beta
+          fi
+          {
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+            echo "channel=$CHANNEL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog and QR code
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          TAG="${{ steps.vars.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+          PRERELEASE="${{ steps.vars.outputs.prerelease }}"
+
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          RANGE="${PREV:+${PREV}..}HEAD"
+
+          {
+            if [ "$PRERELEASE" = "true" ]; then
+              echo "> **Beta build.** This comes off a \`release/*\` branch that has not"
+              echo "> been merged into \`main\` yet, so it is not a stable version."
+              echo
+            fi
+            echo "![QR code for the ${TAG} CIA](${BASE}/QR-${TAG}.png)"
+            echo
+            echo "## Downloads"
+            echo
+            echo "- [sm-3ds-${TAG}.cia](${BASE}/sm-3ds-${TAG}.cia)"
+            echo
+            echo "The ROM is not included. Supply your own Super Metroid (Japan, USA)"
+            echo "ROM, see the README."
+            echo
+            echo "## Changelog"
+            echo
+            git log ${RANGE} --no-merges --pretty='- %s (%h)'
+          } > release_notes.md
+
+          apt-get update -qq && apt-get install -y -qq qrencode > /dev/null
+          qrencode -s 10 -o "QR-${TAG}.png" "${BASE}/sm-3ds-${TAG}.cia"
+
+          cp output/SuperMetroid3DSPort.cia "sm-3ds-${TAG}.cia"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sm-3ds-build
+          path: output/SuperMetroid3DSPort.cia
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: ${{ steps.vars.outputs.channel }} ${{ steps.vars.outputs.tag }}
+          draft: false
+          prerelease: ${{ steps.vars.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          body_path: release_notes.md
+          files: |
+            sm-3ds-${{ steps.vars.outputs.tag }}.cia
+            QR-${{ steps.vars.outputs.tag }}.png
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,217 @@
+# Super Metroid 3DS: action plan
+
+Living document. Read it at the start of every session; update it at the end.
+
+**Active release branch:** `release/v0.1.0` (no tags yet).
+
+- **Goal:** a native 3DS port of Super Metroid that is completable start to
+  finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
+  and has stereoscopic 3D with per-layer depth, like `../mzm`.
+- **Starting point:** `CharlesAverill/sm-3ds` (forked as `tinaut1986/sm-3ds`),
+  which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
+  hardware (model not stated) and unreliable saves on hardware.
+
+## How work is tracked
+
+- **This file** is the roadmap: phases, task specs with acceptance criteria,
+  decisions. It is the source of truth for "what next" and is what a new
+  Claude session reads.
+- **GitHub issues** (to be enabled on the fork) are for bugs found by playing:
+  things with a repro, screenshots, a console model. Link the issue from the
+  task here when a task spawns from one; do not duplicate specs into issues.
+- Larger design work gets its own note in `docs/` (as mzm does, e.g.
+  `../mzm/docs/3ds-renderer-perf-plan.md`) and is linked from its task.
+
+Task format: `- [ ] **ID** title`, then *Spec* (what) and *Done when*
+(verifiable criteria). IDs are stable; never renumber.
+
+---
+
+## Known facts about the upstream code (verified 2026-09-30)
+
+- `source/main.c` (~370 lines) is the whole 3DS frontend. It:
+  - uses SDL2 (software renderer) for init, input and audio; video bypasses
+    SDL and writes pixels to `gfxGetFramebuffer` by hand, with a **float
+    divide per pixel** for 256x224 -> 274x240 scaling, and repeats the same
+    copy to the **bottom screen** every frame. Both are obvious CPU sinks.
+  - loads the ROM from `romfs:/sm.smc`: the ROM is baked into the app, so
+    upstream builds are not distributable.
+  - creates saves with `mkdir("saves")`, a relative path: the likely cause of
+    "saves work in emulator, not on hardware".
+  - has save/load/replay/reset hotkeys commented out.
+- `sm` submodule originally pointed to `CharlesAverill/sm-3ds-lib` (snesrev/sm
+  main + 4 commits: build options for native/emulated, hard-coded version, no
+  double frame check). Now repointed to our `tinaut1986/sm` branch `3ds`.
+- snesrev/sm upstream is dormant since 2023-04 (`main`); branches `devel` and
+  `stable` exist and are older. Its README calls it "early version, has bugs".
+- The game uses Mode 7 in a few scenes (Ceres, `QueueMode7Transfers` in
+  `sm_80.c`), HDMA for per-scanline effects (FX layers, heat, gradients,
+  windows) and colour math. These are the hard parts for a GPU renderer.
+- Audio is a C port of the SPC700 sound driver plus an emulated S-DSP
+  (`spc_player.c`, `snes/dsp.c`), not native like mzm's. It is heavy.
+
+---
+
+## Reuse map from `../mzm`
+
+Paths are relative to `../mzm`. "As is" means game-agnostic; "adapt" means the
+structure carries over but GBA-specific parts must be rewritten for SNES.
+
+| Area | mzm source | Reuse |
+|---|---|---|
+| Build/packaging | `platform/3ds/Makefile`, `tools/build_3ds.py`, `platform/3ds/cia/` | As is (targets `cia`, `ftp`, `print-version`, `test`, portlib check) |
+| Versioning from git | `platform/3ds/Makefile` (`print-version`) | As is |
+| CI + beta/stable channel | `.github/workflows/build-release.yml`, `../mzm/CLAUDE.md` "Release process" | As is, rename paths |
+| ROM from SD + sha1 check | `platform/3ds/source/platform_3ds_minimal.c`, `docs/3ds-port-rom-loading.md` | Adapt (SNES ROM, no header) |
+| Self-updater | `port_updater_3ds.c`, `port_updater_parse.c` (+ host test) | As is |
+| Emulator test script | `tools/run_azahar_test.sh` | As is |
+| Perf profiling | `tools/perf_report.py`, `docs/3ds-renderer-perf-plan.md` | As is / method |
+| Debug dumps over FTP | `docs/3ds-debug-tools.md` | Method; dump formats change |
+| New3DS clock + L2, frame pacing | `platform_3ds_minimal.c`, `main_3ds.c` | As is |
+| Audio output via NDSP | `port_mzm_audio_3ds.c` | Adapt: output path yes, mixer no (SNES DSP instead) |
+| GPU renderer (citro3d, tile atlas, CPU fallback) | `port_gpu_renderer.c`, `platform_gpu_3ds.c`, `port_ppu_mzm.c`, `docs/3ds-port-gpu-renderer-status-*.md` | Adapt: architecture and citro3d code yes; register/VRAM decoding must be rewritten for SNES PPU |
+| Stereo depth as a pure, host-tested function | `port_stereo_depth.h/.c`, `tests/stereo_depth_test.c` | Adapt: same design, SNES inputs (BG priorities, OBJ priority, mode) |
+| Per-sprite depth overrides | `port_sprite_depth_oam.c`, `port_sprite_depth.inc` | Adapt: SNES OAM, SM enemy IDs |
+| Layer fixes / workbench | `port_layer_fixes.c`, `tools/layer-workbench/` | Idea only; data is MZM-specific |
+| Bottom screen UI | `port_bottom_ui_3ds.c` | Adapt the frame (map view, items, touch); data from SM RAM |
+| Bezel | `port_gba_bezel.c` | Adapt (new art, 8:7 area) |
+| RetroAchievements | `port_retroachievements_3ds.c`, `tools/gen_ra_iwram_map.py` | Adapt: network/toasts/badges as is; memory map to SNES WRAM. Hardcore stays off (unofficial port) |
+| Save states | `port_save_state.c` | Idea only. snesrev already has snapshot code in `sm_cpu_infra.c`/`sm_rtl.c` |
+| WIDE view | `port_wide_view.c` | Probably not needed: snesrev has `extended_aspect_ratio` |
+
+Lessons from mzm that apply directly:
+
+- Get 2D correct and fast first, stereo second.
+- Keep depth decisions in one pure function with host tests; every stereo bug
+  in mzm was either one object split across planes or a depth contradicting
+  2D occlusion.
+- Keep port code out of the game code where possible; read game state from
+  the port side (mzm: `savestate-layout-compat`).
+- A plain build compiles the debug menu out; clean-build when toggling debug
+  flags.
+
+---
+
+## Phase 0: baseline and ownership
+
+- [x] **P0.1** Own the game submodule.
+  Done 2026-09-30: `sm` -> `https://github.com/tinaut1986/sm.git`, branch `3ds`
+  (CharlesAverill/sm-3ds-lib pushed there; a separate fork was impossible, see
+  decisions log).
+- [ ] **P0.2** Build upstream and run it.
+  *Spec:* `make sdl && make -j FULL_NATIVE=1 cia`, with a locally supplied
+  ROM in `romfs/` (never committed).
+  *Done when:* it boots in Azahar and on hardware.
+  Status: builds locally without a ROM (needed a `<sys/stat.h>` include for
+  current GCC). Not yet run.
+- [ ] **P0.3** Measure the baseline.
+  *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
+  heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
+  and `FULL_NATIVE`. Record in a table below.
+  *Done when:* table filled in.
+- [ ] **P0.4** Establish game-logic correctness on PC.
+  *Spec:* build `../sm` (snesrev) on Linux; play or replay with the
+  native-vs-ROM comparison on; note mismatches. Check whether `devel`/`stable`
+  or active forks carry fixes that `sm-3ds-lib` lacks.
+  *Done when:* a short list of known game-logic gaps exists in the decisions
+  log (may be empty).
+
+## Phase 1: platform foundations (2D, no stereo)
+
+- [ ] **P1.1** ROM from SD, never bundled. Folder
+  `sdmc:/3ds/Super Metroid 3DS/`, any `.smc`/`.sfc`, strip a 512-byte copier
+  header if present, verify sha1, clear error screen otherwise. Remove the ROM
+  from `romfs/`. *Done when:* CIA built without a ROM boots with the ROM on SD.
+- [ ] **P1.2** Saves on SD with absolute paths (same folder), SRAM flushed on
+  save and on exit/home menu. *Done when:* save at a station, power off, power
+  on, continue works on hardware.
+- [ ] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
+  (from mzm), citro3d presentation. Drop the `SDL` submodule.
+  *Done when:* same features as upstream, SDL gone, FPS not worse than P0.3.
+- [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
+  a texture, scale with citro3d; stop drawing the game on the bottom screen.
+  *Done when:* no per-pixel CPU copy remains in the frontend.
+- [ ] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay (from mzm).
+- [ ] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
+  version, `build-release.yml` with beta/stable channel, CIA-only release, a
+  README install section. *Done when:* a tag on a release branch produces a
+  "Beta" GitHub release with the CIA.
+  Status: workflow, branch model and `tools/bin` done 2026-09-30 (see
+  CLAUDE.md); not exercised by a real tag yet. Pending: version from git
+  (still static in `resources/AppInfo`), `ftp`/`print-version` targets,
+  README rewrite. Tagging before P1.1 would publish a CIA that cannot find
+  the ROM.
+- [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
+  pause/options menu, config file on SD.
+
+## Phase 2: performance (target 60 fps on Old 3DS)
+
+- [ ] **P2.1** Profile. Port mzm's perf instrumentation; split frame time into
+  game logic, PPU, audio, present. Write `docs/perf.md` with the numbers.
+- [ ] **P2.2** Audio off the main thread: run the SPC/DSP on the syscore
+  (Old 3DS) or core 2 (New 3DS), fed by a ring buffer. Evaluate cheaper DSP
+  paths (interpolation, echo) behind an option if still too slow.
+- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`):
+  tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
+  draw order/depth, colour math as blending, HDMA as per-scanline register
+  tables (split strips or shader lookup), windows via stencil/scissor.
+  Hybrid like mzm: fall back to the CPU PPU for frames with unsupported state
+  (Mode 7, exotic windows) and report which state caused it.
+- [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
+  CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
+  *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
+  path, and Old 3DS reaches the target in the P0.3 spots.
+
+## Phase 3: stereoscopic 3D
+
+- [ ] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
+  per-layer and per-tile priority, OBJ priority, which layer carries HUD/FX),
+  with exhaustive host tests like `../mzm/platform/3ds/tests/stereo_depth_test.c`.
+- [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
+  Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
+- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
+  a debug depth tint like mzm's.
+- [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
+  (flat or with deliberate depth).
+
+## Phase 4: features
+
+- [ ] **P4.1** Bottom screen: live map, items/equipment, touch shortcuts
+  (e.g. item select, morph).
+- [ ] **P4.2** Bezel/borders for the unused top-screen area.
+- [ ] **P4.3** Self-updater.
+- [ ] **P4.4** RetroAchievements (softcore only).
+
+## Phase 5: completion
+
+- [ ] **P5.1** Full 100% playthrough on hardware, bugs filed as issues.
+- [ ] **P5.2** Any-% and known sequence breaks (wall jumps, shinespark,
+  mockball) behave like the original.
+- [ ] **P5.3** First stable release (minor bump; ask first).
+
+---
+
+## Baseline measurements (P0.3)
+
+| Spot | Old 3DS | New 3DS | Notes |
+|---|---|---|---|
+| Ceres intro | | | |
+| Landing Site | | | |
+| Brinstar | | | |
+| Norfair heat room | | | |
+| Maridia water | | | |
+
+## Decisions log
+
+- 2026-09-30: Base on `CharlesAverill/sm-3ds` rather than a raw fork of
+  `snesrev/sm`, because it already has a working 3DS toolchain, audio and
+  input. `../sm` (snesrev fork) kept as PC reference.
+- 2026-09-30: Tracking = this file for roadmap/specs, GitHub issues for
+  playtest bugs. No heavier spec framework.
+- 2026-09-30: GitHub allows one fork per repo network per account. sm-3ds-lib
+  is in the snesrev/sm network and `tinaut1986/sm` already existed, so the game
+  code lives on branch `3ds` of `tinaut1986/sm` instead of its own fork.
+- 2026-09-30: Branch/release model copied from mzm: `main` stable,
+  `release/vX.Y.Z` accumulates, topic branches merge back `--no-ff`, tags
+  trigger the CIA build (Beta unless reachable from `main`). First line:
+  `release/v0.1.0`, matching the version already in `resources/AppInfo`.
