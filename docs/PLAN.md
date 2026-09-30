@@ -302,3 +302,9 @@ Lessons from mzm that apply directly:
   never waited for vblank, so two swaps in one vblank left the next draw in the
   buffer being scanned out. Now `gspWaitForVBlank` after a swap when the frame
   took < 15 ms, and the pacing resyncs to it.
+- 2026-09-30: After the APU queue lock + vblank pacing, New 3DS, Landing Site,
+  1116 frames, all on: logic p95 9.99 ms (was 19.97), work avg 13.7 / p95 15.4 /
+  max 18.3 ms (was 23.7 / 29.6), no frame over 20 ms, no frame skipped. The
+  average did not move, only the stalls went away. Remaining per frame: logic
+  ~1 ms + PPU ~8.4 ms + top copy 2.8 ms on the game thread; DSP ~1.5 ms CPU on
+  the system core.
