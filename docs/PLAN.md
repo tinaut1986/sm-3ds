@@ -2,9 +2,9 @@
 
 Living document. Read it at the start of every session; update it at the end.
 
-**Active release branch:** `release/v0.1.0`. First beta `v0.1.0` tagged
-2026-10-01 (GitHub release "Beta v0.1.0", CIA + QR). All topic branches so far are
-merged into it and deleted.
+**Active release branch:** `release/v0.1.1` (renamed from `release/v0.1.0` after
+tagging the first beta `v0.1.0` on 2026-10-01: GitHub release "Beta v0.1.0", CIA +
+QR). All topic branches so far are merged into it and deleted.
 
 ## Next up (updated 2026-10-01)
 
