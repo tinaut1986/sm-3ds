@@ -20,6 +20,7 @@
 #include "src/spc_player.h"
 
 #include "bottom_ui.h"
+#include "debug_tools.h"
 #include "rom_loader.h"
 #include "version.h"
 
@@ -75,11 +76,13 @@ extern Snes *g_snes;
 
 void NORETURN Die(const char *error) {
   fprintf(stderr, "Error: %s\n", error);
+  Debug_Log("FATAL: %s", error);
   exit(1);
 }
 
 void Warning(const char *error) {
   fprintf(stderr, "Warning: %s\n", error);
+  Debug_Log("warning: %s", error);
 }
 
 void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
@@ -373,6 +376,7 @@ int main(int argc, char** argv) {
   }
 
   mkdir("saves", 0755);
+  Debug_Init(APP_VERSION);
 
   PpuBeginDrawing(snes->snes_ppu, g_pixels, 256 * 4, 0);
   // PpuBeginDrawing(snes->my_ppu, g_my_pixels, 256 * 4, 0);
@@ -434,6 +438,11 @@ int main(int argc, char** argv) {
     if (g_ui.req_save_state) RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
     if (g_ui.req_load_state) RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
+    if (g_ui.req_dump) {
+      Debug_DumpScreen(g_pixels);
+      BottomUi_Toast(Debug_LastMessage());
+      g_ui.req_dump = false;
+    }
 
     u64 t_logic = 0, t_draw = 0;
     bool presented = false;
@@ -480,7 +489,10 @@ int main(int argc, char** argv) {
 
     // Measure how long the whole iteration took, before the pacing delay.
     u64 now = svcGetSystemTick();
-    perf.frame_ms += (TicksToMs(now - frame_start) - perf.frame_ms) * 0.1f;
+    float work_ms = TicksToMs(now - frame_start);
+    perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
+    if (!g_ui.paused)
+      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented);
     float window_ms = TicksToMs(now - fps_window_start);
     if (window_ms >= 1000.0f) {
       perf.fps = shown_window * 1000.0f / window_ms;

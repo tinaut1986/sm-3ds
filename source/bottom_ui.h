@@ -40,6 +40,7 @@ typedef struct {
   bool req_reset;
   bool req_save_state;
   bool req_load_state;
+  bool req_dump;         // Debug_DumpScreen, needs the PPU output owned by main
 } UiOptions;
 
 extern UiOptions g_ui;
@@ -55,6 +56,9 @@ void BottomUi_TouchUp(void);
 // Call once per frame after the top screen has been drawn and before
 // gfxSwapBuffers.
 void BottomUi_Frame(const UiPerf *perf);
+
+// Short message at the bottom of the screen for ~1.5 s.
+void BottomUi_Toast(const char *msg);
 
 // Small FPS/timing overlay on the top framebuffer (if g_ui.fps_overlay).
 void BottomUi_DrawTopOverlay(const UiPerf *perf);

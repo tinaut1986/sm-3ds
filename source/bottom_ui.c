@@ -9,6 +9,7 @@
 #include "src/types.h"
 #include "src/sm_rtl.h"
 #include "src/variables.h"
+#include "debug_tools.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -120,10 +121,12 @@ typedef enum {
   OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_SLOT, OPT_STATE, OPT_RESET, OPT_ROWS
 } OptRow;
 
-static void Toast(const char *msg) {
+void BottomUi_Toast(const char *msg) {
   snprintf(g_toast, sizeof(g_toast), "%s", msg);
   g_toast_until = osGetTime() + 1500;
+  g_dirty = 2;
 }
+#define Toast BottomUi_Toast
 
 static void OptionsTouch(int x, int y) {
   if (In(RowRect(OPT_PAUSE), x, y)) g_ui.paused = !g_ui.paused;
@@ -145,9 +148,15 @@ static void OptionsTouch(int x, int y) {
   g_dirty = 2;
 }
 
+enum { DBG_PPU, DBG_AUDIO, DBG_LOG, DBG_ACTIONS, DBG_PERF };
+
 static void DebugTouch(int x, int y) {
-  if (In(RowRect(0), x, y)) g_ui.render_on = !g_ui.render_on;
-  else if (In(RowRect(1), x, y)) g_ui.audio_on = !g_ui.audio_on;
+  if (In(RowRect(DBG_PPU), x, y)) g_ui.render_on = !g_ui.render_on;
+  else if (In(RowRect(DBG_AUDIO), x, y)) g_ui.audio_on = !g_ui.audio_on;
+  else if (In(RowRect(DBG_LOG), x, y)) { Debug_LogSetEnabled(!Debug_LogEnabled()); Toast(Debug_LastMessage()); }
+  else if (In(HalfRect(DBG_ACTIONS, 0), x, y)) { Debug_LogMark(); Toast(Debug_LogEnabled() ? Debug_LastMessage() : "Turn the log on first"); }
+  else if (In(HalfRect(DBG_ACTIONS, 1), x, y)) g_ui.req_dump = true;
+  else if (In(RowRect(DBG_PERF), x, y)) { Debug_PerfToggle(); Toast(Debug_LastMessage()); }
   else return;
   g_dirty = 2;
 }
@@ -222,15 +231,23 @@ static void DrawOptions(Surface s) {
 }
 
 static void DrawDebug(Surface s, const UiPerf *p) {
-  DrawToggle(s, RowRect(0), "PPU render", g_ui.render_on);
-  DrawToggle(s, RowRect(1), "Audio", g_ui.audio_on);
-  int y = ROW_Y0 + 2 * ROW_H + 6;
-  DrawText(s, 8, y, 1, COL_DIM, "Turn PPU/audio off to see what each"); y += 10;
-  DrawText(s, 8, y, 1, COL_DIM, "costs in FPS and in the timings."); y += 18;
-  DrawTextf(s, 8, y, COL_TEXT, "frames %lu", (unsigned long)p->frames); y += 12;
-  DrawTextf(s, 8, y, COL_TEXT, "linear free %u KB", (unsigned)(linearSpaceFree() / 1024)); y += 12;
-  DrawTextf(s, 8, y, COL_TEXT, "samus x %u y %u", (unsigned)samus_x_pos, (unsigned)samus_y_pos); y += 12;
-  DrawTextf(s, 8, y, COL_TEXT, "frame ctr %u", (unsigned)frame_counter_every_frame); y += 12;
+  DrawToggle(s, RowRect(DBG_PPU), "PPU render", g_ui.render_on);
+  DrawToggle(s, RowRect(DBG_AUDIO), "Audio", g_ui.audio_on);
+  char buf[48];
+  snprintf(buf, sizeof(buf), "Log to SD: %s", Debug_LogEnabled() ? Debug_LogName() : "OFF");
+  Rect r = RowRect(DBG_LOG);
+  DrawButton(s, r.x, r.y, r.w, r.h, Debug_LogEnabled() ? COL_ON : COL_OFF, buf);
+  Rect a = HalfRect(DBG_ACTIONS, 0), b = HalfRect(DBG_ACTIONS, 1);
+  DrawButton(s, a.x, a.y, a.w, a.h, COL_BTN, "LOG MARK");
+  DrawButton(s, b.x, b.y, b.w, b.h, COL_BTN, "DUMP SCREEN");
+  r = RowRect(DBG_PERF);
+  DrawButton(s, r.x, r.y, r.w, r.h, Debug_PerfRecording() ? COL_ON : COL_BTN,
+             Debug_PerfRecording() ? "PERF: RECORDING (tap to stop)" : "PERF: RECORD FRAME TIMES");
+  int y = ROW_Y0 + 5 * ROW_H + 6;
+  DrawTextf(s, 8, y, COL_WARN, "%s", Debug_LastMessage()); y += 14;
+  DrawTextf(s, 8, y, COL_TEXT, "frames %lu   linear free %u KB", (unsigned long)p->frames, (unsigned)(linearSpaceFree() / 1024)); y += 12;
+  DrawTextf(s, 8, y, COL_TEXT, "samus x %u y %u   frame ctr %u", (unsigned)samus_x_pos, (unsigned)samus_y_pos, (unsigned)frame_counter_every_frame); y += 12;
+  DrawText(s, 8, y, 1, COL_DIM, "files in debug/ on the SD card");
 }
 
 static void DrawBottom(const UiPerf *p) {

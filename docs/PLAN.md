@@ -161,6 +161,16 @@ Lessons from mzm that apply directly:
   fetchable over FTP. Needs a real crash handler too: Luma's "generic" dumps
   carry no useful stack, so log to SD before risky calls and hook asserts.
   *Done when:* a crash or a visual bug can be diagnosed from files on the SD.
+  Status 2026-09-30: first cut in `source/debug_tools.c`, all under `debug/`
+  in the data folder, reached from the Debug tab: log to SD with marks
+  (`sm-log-NN.txt`), screen dump set (`sm-dump-NN-{top.rgb,vram,cgram,oam,
+  highoam,wram}.bin`, `-ppu.txt`, `-game.txt`; top.rgb is 256x240 RGB8),
+  frame-time recorder (`sm-perf-NN.csv`, up to 3600 frames, per-frame logic/
+  draw/audio/work ms, game state, area, room) and `__assert_func` replaced so an
+  assert leaves `sm-crash.txt` before aborting. Ten rotating slots each; order
+  by mtime. Tested on the host only; not yet on hardware. Missing: built-in
+  viewer tools on the PC side (`tools/`), HDMA table dump, warp/teleport,
+  scene recorder, compile-time gating like mzm's `DEBUG_TOOLS=1`.
 - [ ] **P1.9** Redo the bottom UI in the style of this game, based on mzm's
   (`port_bottom_ui_3ds.c`): proper tabs with icons, live map from SM RAM,
   item/equipment status, options with modals, debug tab. Current one
