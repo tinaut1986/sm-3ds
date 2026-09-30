@@ -155,6 +155,17 @@ Lessons from mzm that apply directly:
   Status 2026-09-30: touch tabs Status/Options/Debug with pause, turbo, audio,
   FPS overlay, save state slots 0-9, reset. No remap, no config file yet.
 
+- [ ] **P1.8** Debug tooling like mzm's (`../mzm/docs/3ds-debug-tools.md`):
+  log to SD with marks, screen dumps (top framebuffer, PPU VRAM/CGRAM/OAM/regs,
+  WRAM), Samus/room state dump, all into `debug/` in the data folder and
+  fetchable over FTP. Needs a real crash handler too: Luma's "generic" dumps
+  carry no useful stack, so log to SD before risky calls and hook asserts.
+  *Done when:* a crash or a visual bug can be diagnosed from files on the SD.
+- [ ] **P1.9** Redo the bottom UI in the style of this game, based on mzm's
+  (`port_bottom_ui_3ds.c`): proper tabs with icons, live map from SM RAM,
+  item/equipment status, options with modals, debug tab. Current one
+  (`source/bottom_ui.c`) is a functional stopgap.
+
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
 - [ ] **P2.1** Profile. Port mzm's perf instrumentation; split frame time into
@@ -238,3 +249,12 @@ Lessons from mzm that apply directly:
   first one whose headerless sha1 matches). Only the JU ROM is accepted; a
   translation-patched ROM is rejected on purpose until we decide how to handle
   those.
+- 2026-09-30: Load state crashed on the console: `StateRecorder_Load` asserted a
+  hard-coded state size (275493, x86-64). The 3DS writes 275559, so `assert`
+  called `abort()`. Now computed at runtime; incompatible states are refused.
+  Found by loading the console's `save0.sav` in a host ASAN harness, not from
+  the Luma dump (a "generic" dump only has the registers of an unrelated thread).
+- 2026-09-30: Everything is still CPU: game logic, the software PPU
+  (`sm/src/snes/ppu.c`), the SPC/DSP audio and a per-pixel copy to the top
+  framebuffer. Adaptive frameskip keeps game speed but does not make it
+  cheaper; the next data point is the timing split shown on the Status tab.
