@@ -282,3 +282,8 @@ Lessons from mzm that apply directly:
   emulator stepping and the DSP audio (~4.9 ms per block on a New 3DS).
   Baseline before P2.0 on a New 3DS, Landing Site, 1655 frames: logic 9.2 ms
   without PPU drawing, 19.0 ms with it, 58 % of frames skipped.
+- 2026-09-30: After P2.0, New 3DS (804 MHz), Landing Site, 2025 frames, no
+  frame needed skipping: logic+PPU 11.4 ms avg (was 19.0), top copy 2.8 ms,
+  work per frame 15.3 ms avg / 23.1 p95 / 28.8 max, 22 % of frames over 16.7 ms
+  (absorbed by pacing, so it still shows 60). Headroom ~1.4 ms: nothing to spare
+  for Old 3DS. Audio block 4.8 ms on its own thread. Raw CSV not committed.
