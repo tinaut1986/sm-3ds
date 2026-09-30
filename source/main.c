@@ -52,7 +52,7 @@ bool g_new_ppu = true;
 bool g_other_image;
 struct SpcPlayer *g_spc_player;
 
-static uint8_t g_pixels[256 * 4 * 240];
+static uint8_t g_pixels[256 * 4 * 240] __attribute__((aligned(16)));
 static uint8_t g_my_pixels[256 * 4 * 240];
 
 int g_got_mismatch_count;
@@ -91,48 +91,32 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
     memcpy((uint8_t *)pixel_buffer + y * pitch, ppu_pixels + y * 256 * 4, 256 * 4);
 }
 
+// Copies the 256x224 PPU output to the top screen, scaled to 274x240 (nearest,
+// aspect-correct) and rotated: the 3DS framebuffer is column-major with the
+// origin at the bottom-left. Source pixels are 0x00RRGGBB, the framebuffer
+// wants R,G,B,A from the high byte down, so one shift does the conversion.
 static void DrawPpuFrame(void) {
-    u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-    uint8_t *src = g_pixels;
-
-    const int src_w = 256;
-    const int src_h = 224;
-
-    const int fb_w  = 400;
-    const int fb_h  = 240;
-
-    // Aspect-correct uniform scale
-    const float scale = (float)fb_h / (float)src_h;  // 240 / 224
-
-    const int dst_w = (int)(src_w * scale);           // ~274
-    const int dst_h = fb_h;                            // 240
-
-    const int x_off = (fb_w - dst_w) / 2;
-    const int y_off = 0;
-
-    for (int dy = 0; dy < dst_h; dy++) {
-        int sy = (int)(dy / scale);
-        if (sy >= src_h) continue;
-
-        for (int dx = 0; dx < dst_w; dx++) {
-            int sx = (int)(dx / scale);
-            if (sx >= src_w) continue;
-
-            uint8_t *s = &src[(sy * src_w + sx) * 4];
-
-            uint8_t b = s[0];
-            uint8_t g = s[1];
-            uint8_t r = s[2];
-
-            int fb_x = dx + x_off;
-            int fb_y = fb_h - 1 - (dy + y_off);
-
-            u32 idx = (fb_x * fb_h + fb_y) * 4;
-
-            fb[idx + 1] = b;
-            fb[idx + 2] = g;
-            fb[idx + 3] = r;
+    enum { SRC_W = 256, SRC_H = 224, FB_W = 400, FB_H = 240, DST_W = 274 };
+    static uint16_t xmap[DST_W];
+    static const uint32_t *rows[FB_H];   // source row for each destination row
+    static bool init;
+    if (!init) {
+        const float scale = (float)FB_H / (float)SRC_H;
+        for (int dx = 0; dx < DST_W; dx++) xmap[dx] = (uint16_t)((int)(dx / scale) % SRC_W);
+        for (int dy = 0; dy < FB_H; dy++) {
+            int sy = (int)(dy / scale);
+            rows[dy] = (const uint32_t *)g_pixels + (sy < SRC_H ? sy : SRC_H - 1) * SRC_W;
         }
+        init = true;
+    }
+
+    uint32_t *fb = (uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
+    const int x_off = (FB_W - DST_W) / 2;
+    for (int dx = 0; dx < DST_W; dx++) {
+        uint32_t *col = fb + (x_off + dx) * FB_H + (FB_H - 1);   // dy = 0 is the last word
+        const int sx = xmap[dx];
+        for (int dy = 0; dy < FB_H; dy++)
+            col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
     }
 }
 
@@ -395,7 +379,7 @@ int main(int argc, char** argv) {
   uint8 is_replay = 0;
   bool skip_render = false;      // this frame is late: run the logic, draw nothing
   int skipped_in_a_row = 0;
-  enum { kMaxSkipInARow = 3 };   // never show fewer than 15 fps
+  enum { kMaxSkipInARow = 2 };   // never show fewer than 20 fps
 
   printf("Super Metroid starting...\n");
 
