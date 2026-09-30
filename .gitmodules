@@ -4,4 +4,5 @@
 	branch = SDL2
 [submodule "sm"]
 	path = sm
-	url = git@github.com:CharlesAverill/sm-3ds-lib.git
+	url = https://github.com/tinaut1986/sm.git
+	branch = 3ds
