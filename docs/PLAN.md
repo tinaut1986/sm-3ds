@@ -2,7 +2,25 @@
 
 Living document. Read it at the start of every session; update it at the end.
 
-**Active release branch:** `release/v0.1.0` (no tags yet).
+**Active release branch:** `release/v0.1.0` (no tags yet). All topic branches so
+far are merged into it and deleted.
+
+## Next up (updated 2026-10-01)
+
+Everything below "Phase 0" marked [x] has been checked on a New 3DS by the owner:
+the CIA without the ROM boots with the ROM on the SD card, saves survive a power
+cycle, save states load, the bottom UI (status, map, cheats, options, debug) and the
+teleport work. Do not re-propose those as pending. What is actually open, in the
+order that makes sense:
+
+1. **P2.3** GPU PPU renderer: write `docs/gpu-ppu-design.md` first. Biggest win
+   (~8.4 ms PPU + 2.8 ms copy per frame on New 3DS) and the base for stereo 3D.
+2. **P1.6** before the first beta tag: version from git, README install section.
+3. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
+   no Old 3DS numbers at all).
+4. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
+5. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present); fits with P2.3.
+6. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
   finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
@@ -16,7 +34,7 @@ Living document. Read it at the start of every session; update it at the end.
 - **This file** is the roadmap: phases, task specs with acceptance criteria,
   decisions. It is the source of truth for "what next" and is what a new
   Claude session reads.
-- **GitHub issues** (to be enabled on the fork) are for bugs found by playing:
+- **GitHub issues** (enabled on `tinaut1986/sm-3ds`) are for bugs found by playing:
   things with a repro, screenshots, a console model. Link the issue from the
   task here when a task spawns from one; do not duplicate specs into issues.
 - Larger design work gets its own note in `docs/` (as mzm does, e.g.
@@ -98,18 +116,16 @@ Lessons from mzm that apply directly:
 
 - [x] **P0.1** Own the game code.
   Done 2026-09-30: vendored into `sm/` (see decisions log).
-- [ ] **P0.2** Build upstream and run it.
-  *Spec:* `make sdl && make -j FULL_NATIVE=1 cia`, with a locally supplied
-  ROM in `romfs/` (never committed).
-  *Done when:* it boots in Azahar and on hardware.
-  Status: builds locally (needed a `<sys/stat.h>` include for current GCC).
-  2026-09-30: the CIA with the ROM baked in booted on a New 3DS (no bottom
-  screen at all). Emulator and Old 3DS not tried yet.
+- [x] **P0.2** Build upstream and run it.
+  Done 2026-09-30: the upstream build (ROM baked into romfs) booted on a New 3DS.
+  Superseded by P1.1; that build no longer exists. Azahar never tried.
 - [ ] **P0.3** Measure the baseline.
   *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
   and `FULL_NATIVE`. Record in a table below.
   *Done when:* table filled in.
+  Status 2026-10-01: New 3DS / Landing Site only (see the table and decisions
+  log). Tool: Debug tab -> PERF writes `debug/sm-perf-NN.csv`.
 - [ ] **P0.4** Establish game-logic correctness on PC.
   *Spec:* build the PC version from `sm/` on Linux; play or replay with the
   native-vs-ROM comparison on; note mismatches. Check whether snesrev's
@@ -117,30 +133,35 @@ Lessons from mzm that apply directly:
   `sm/` lacks.
   *Done when:* a short list of known game-logic gaps exists in the decisions
   log (may be empty).
+  Note: `make -C sm` needs `libsdl2-dev`, not installed on the dev machine; the
+  host harnesses in `tools/` build the game code without it.
 
 ## Phase 1: platform foundations (2D, no stereo)
 
-- [ ] **P1.1** ROM from SD, never bundled. Folder
-  `sdmc:/3ds/Super Metroid 3DS/`, any `.smc`/`.sfc`, strip a 512-byte copier
-  header if present, verify sha1, clear error screen otherwise. Remove the ROM
-  from `romfs/`. *Done when:* CIA built without a ROM boots with the ROM on SD.
-  Status 2026-09-30: implemented on `feat/rom-from-sd-bottom-ui`
-  (`source/rom_loader.c`, error screen in `main.c`); CIA is 2.2 MB without the
-  ROM. Not yet run on hardware. The emulator core already skips a 512-byte
-  header; the loader also strips it before hashing.
-- [ ] **P1.2** Saves on SD with absolute paths (same folder), SRAM flushed on
-  save and on exit/home menu. *Done when:* save at a station, power off, power
-  on, continue works on hardware.
+- [x] **P1.1** ROM from SD, never bundled.
+  Done 2026-09-30, checked on hardware: `source/rom_loader.c` looks in
+  `sdmc:/3ds/Super Metroid 3DS/` for a `.smc`/`.sfc` whose headerless sha1 is the
+  JU ROM, strips a copier header, shows an error screen otherwise (seen working on
+  the console: folder created, expected hash shown). CIA is ~2.2 MB, no ROM inside.
+- [x] **P1.2** Saves on SD.
+  Done 2026-09-30, checked on hardware (save at a station, power cycle, continue).
+  The game `chdir`s to the data folder, so `saves/sm.srm` lands there; the game
+  writes SRAM when saving at a station, so no extra flush on exit was needed.
+  Save states (Options tab, slots 0-9) also work after the state-size fix.
 - [ ] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
   (from mzm), citro3d presentation. Drop the `SDL` submodule.
   *Done when:* same features as upstream, SDL gone, FPS not worse than P0.3.
+  Note: SDL currently puts the audio thread on the system core (30 % cap) and
+  delivers touch as finger events; keep both behaviours.
 - [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
-  a texture, scale with citro3d; stop drawing the game on the bottom screen.
+  a texture, scale with citro3d.
   *Done when:* no per-pixel CPU copy remains in the frontend.
-- [ ] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay (from mzm).
-  Status 2026-09-30: 804 MHz is switched on at boot on New 3DS (toggle in the
-  Options tab); FPS/timing overlay and bottom-screen status exist
-  (`source/bottom_ui.c`). Frame pacing is still upstream's SDL_Delay loop.
+  Status: the bottom screen no longer mirrors the game; the top copy is
+  table-driven (2.8 ms on New 3DS) but still CPU.
+- [x] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay.
+  Done 2026-09-30, checked on hardware: 804 MHz at boot (Options toggle, saved),
+  vblank-locked pacing with adaptive frameskip, FPS/timing overlay on the top
+  screen, timing split on the Debug tab.
 - [ ] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
   version, `build-release.yml` with beta/stable channel, CIA-only release, a
   README install section. *Done when:* a tag on a release branch produces a
@@ -148,85 +169,67 @@ Lessons from mzm that apply directly:
   Status: workflow, branch model and `tools/bin` done 2026-09-30 (see
   CLAUDE.md); not exercised by a real tag yet. Pending: version from git
   (still static in `resources/AppInfo`), `ftp`/`print-version` targets,
-  README rewrite. Tagging before P1.1 would publish a CIA that cannot find
-  the ROM.
+  README rewrite (where to put the ROM, which ROM).
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
-  Status 2026-09-30: touch tabs Status/Options/Debug with pause, turbo, audio,
-  FPS overlay, save state slots 0-9, reset. No remap, no config file yet.
-
-- [ ] **P1.8** Debug tooling like mzm's (`../mzm/docs/3ds-debug-tools.md`):
-  log to SD with marks, screen dumps (top framebuffer, PPU VRAM/CGRAM/OAM/regs,
-  WRAM), Samus/room state dump, all into `debug/` in the data folder and
-  fetchable over FTP. Needs a real crash handler too: Luma's "generic" dumps
-  carry no useful stack, so log to SD before risky calls and hook asserts.
-  *Done when:* a crash or a visual bug can be diagnosed from files on the SD.
-  Status 2026-09-30: first cut in `source/debug_tools.c`, all under `debug/`
-  in the data folder, reached from the Debug tab: log to SD with marks
-  (`sm-log-NN.txt`), screen dump set (`sm-dump-NN-{top.rgb,vram,cgram,oam,
-  highoam,wram}.bin`, `-ppu.txt`, `-game.txt`; top.rgb is 256x240 RGB8),
-  frame-time recorder (`sm-perf-NN.csv`, up to 3600 frames, per-frame logic/
-  draw/audio/work ms, game state, area, room) and `__assert_func` replaced so an
-  assert leaves `sm-crash.txt` before aborting. Ten rotating slots each; order
-  by mtime. Tested on the host only; not yet on hardware. Missing: built-in
-  viewer tools on the PC side (`tools/`), HDMA table dump, warp/teleport,
-  scene recorder, compile-time gating like mzm's `DEBUG_TOOLS=1`.
-- [ ] **P1.9** Bottom UI in the style of mzm's (`port_bottom_ui_3ds.c`, 5.5k
-  lines, citro2d), rewritten compactly for SM data, in stages. Current
-  `source/bottom_ui.c` is the stopgap. Keep all drawing behind a few
-  primitives (rect, text, icon) so it can move to citro2d with P1.3/P1.4.
-  - **A. Framework + Status:** DONE 2026-09-30 (`ui_draw.c` primitives, Status tab
-    with energy/tanks/reserve, ammo bars, item and beam grids, area/room/time,
-    raw boss bits; host preview in `tools/ui-preview/`). Not yet seen on hardware.
-    Original text: tab bar with icons, items/equipment, energy,
-    ammo, boss and area progress, read from SM RAM (`variables.h`).
-  - **B. Cheats (god mode etc.):** DONE 2026-09-30 (`cheats.c`: god mode,
-    infinite ammo, all items/beams, max ammo/energy, full heal; refill before and
-    after each frame, only inside a room). Not yet seen on hardware. HUD icons
-    for newly given items, and the suit palette, may need a refresh call: check.
-    Original text: write RAM after each `RtlRunFrame`: refill
-    health/reserves and ammo for god mode, give items/beams/suits, set tanks,
-    unlock map. Must also be recorded with `StateRecorder_RecordPatchByte` when
-    replay/save states are involved (see `RtlCheat` in `sm_rtl.c`).
-  - **C. Map tab:** DONE 2026-09-30, pending hardware check (`sm_map.c`, MAP
-    tab; see the decisions log for the data layout). Original text: live map from `map_tiles_explored` (RAM `$7F7`) and the room
-    headers in ROM (area, map x/y, width, height); Samus marker; area switch;
-    zoom/pan.
-  - **D. Warp:** DONE 2026-09-30 (`sm_warp.c`, WARP HERE on the MAP tab; host
-    regression `tools/warp-test/run.sh`: 255 of 262 rooms work, 6 have no door
-    into them, 1 (`D408`) ends up in `D340`). Not yet seen on hardware. Original text: room list by area, and tap-on-map to warp. Like mzm, warp to a
-    *door*, not a room: set `door_def_ptr` to a door definition whose
-    destination is the target room and let the game run its own transition
-    (`door_transition_*`). Needs a door-def scan of bank `$83`. Risk: transition
-    state consistency; test on hardware.
-  - **E. Debug tab:** what exists now plus HDMA/PPU dumps and the scene tools.
-  - Gating: debug tabs stay in every build until the first stable release, then
-    go behind `DEBUG_TOOLS=1` like mzm.
+  Status 2026-10-01: done except remapping. Options tab: pause, turbo,
+  frameskip, audio, FPS overlay, 804 MHz, save state slots, reset;
+  `config.ini` in the data folder keeps tab, frameskip, audio, overlay, 804 MHz
+  and slot (not pause/turbo/cheats on purpose).
+- [x] **P1.8** Debug tooling like mzm's.
+  Done 2026-09-30, used on hardware to diagnose real bugs (load-state assert,
+  teleport crash, stale door drawing, audio lock stall): log to SD with marks,
+  screen dump sets (top RGB, VRAM, CGRAM, OAM, WRAM, PPU regs, game state),
+  frame-time recorder CSV with the audio split, `__assert_func`/`Unreachable()`
+  crash note with file:line. All in `debug/` of the data folder, fetch over FTP.
+  Follow-ups go to P1.9 E.
+- [ ] **P1.9** Bottom UI in the style of mzm's, rewritten for SM data.
+  Stages A-D done and checked on hardware (2026-10-01):
+  - **A. Status:** energy/tanks/reserve, ammo bars, item and beam grids,
+    area/room/time, raw boss bits. 5x7 font from mzm.
+  - **B. Cheats:** god mode, infinite ammo, all items/beams, max ammo/energy,
+    full heal (inside a room only).
+  - **C. Map:** whole area at 5 px per cell, explored bits, map station, Samus
+    marker, area buttons, follow.
+  - **D. Teleport:** WARP HERE / DOOR n/m on the map. Loads the room like
+    "Continue" (see decisions log). Owner accepted it as a debug tool: the
+    selected HUD weapon resets on each warp; `b482`, `dc19` kill an idle Samus;
+    `d408` door 1 bounces to a neighbour.
+  - **E. Debug tab, open:** HDMA/PPU dumps, a scene recorder, PC-side viewers
+    for the dump files, compile-time gating (`DEBUG_TOOLS=1`) before the first
+    stable release. Tabs are still text, not mzm's 30 px icons; no modals.
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
-- [ ] **P2.1** Profile. Port mzm's perf instrumentation; split frame time into
-  game logic, PPU, audio, present. Write `docs/perf.md` with the numbers.
-- [x] **P2.0** Cheap CPU wins found by profiling (2026-09-30).
-  `snes_handle_pos_stuff` was 37-52 % of the frame on the host profile: it ran
-  154k times per frame, once per 2 master cycles, and only acts at hPos 0, 512
-  and 1024. `snes_handle_scanline` visits just those. Verified identical
-  (RAM, VRAM, CGRAM, OAM, pixels, audio hash) against the old loop for 4000
-  frames on the host; 5.0 s -> 3.4 s there. Also: table-driven top-screen
-  copy (5.0 -> 2.8 ms on a New 3DS).
-- [ ] **P2.2** Audio off the main thread: run the SPC/DSP on the syscore
-  (Old 3DS) or core 2 (New 3DS), fed by a ring buffer. Evaluate cheaper DSP
-  paths (interpolation, echo) behind an option if still too slow.
+- [x] **P2.0** Cheap CPU wins found by profiling (2026-09-30), checked on hardware
+  (New 3DS holds 60 fps in Landing Site with no frame skipped).
+  `snes_handle_pos_stuff` ran 154k times per frame and only acts at hPos 0, 512
+  and 1024; `snes_handle_scanline` visits just those (bit-identical on the host,
+  4000 frames). Table-driven top-screen copy (5.0 -> 2.8 ms).
+- [ ] **P2.1** Profile. Split frame time into game logic, PPU, audio, present;
+  write `docs/perf.md` with the numbers.
+  Status: the split exists (perf CSV, decisions log); `docs/perf.md` not written,
+  no Old 3DS numbers.
+- [ ] **P2.2** Audio cost.
+  Status 2026-10-01: SDL already runs audio on the system core; the stall on the
+  game thread (APU mutex held for a whole block) is fixed with a separate queue
+  lock. Open: the DSP itself (~1.5 ms CPU per frame on New 3DS, likely over the
+  30 % core-1 budget on Old 3DS). Options: cheaper interpolation/echo behind a
+  quality setting, or core 2 on New 3DS.
 - [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`):
   tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
   draw order/depth, colour math as blending, HDMA as per-scanline register
   tables (split strips or shader lookup), windows via stencil/scissor.
   Hybrid like mzm: fall back to the CPU PPU for frames with unsupported state
   (Mode 7, exotic windows) and report which state caused it.
+  Start by dumping PPU/HDMA state of a few representative rooms with the Debug
+  tab to see what SM actually uses in gameplay.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
+  Note: the host harness's PPU/VRAM does not match the console's yet (seen while
+  debugging the teleport); fix that before relying on host frame diffs.
 
 ## Phase 3: stereoscopic 3D
 
@@ -244,6 +247,8 @@ Lessons from mzm that apply directly:
 
 - [ ] **P4.1** Bottom screen: live map, items/equipment, touch shortcuts
   (e.g. item select, morph).
+  Status: the live map and items/equipment exist (P1.9 A and C, debug-flavoured).
+  Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
 - [ ] **P4.4** RetroAchievements (softcore only).
@@ -262,7 +267,7 @@ Lessons from mzm that apply directly:
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
 | Ceres intro | | | |
-| Landing Site | | | |
+| Landing Site | | 60 fps, work 13.7 ms avg / 15.4 p95 | 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8 |
 | Brinstar | | | |
 | Norfair heat room | | | |
 | Maridia water | | | |

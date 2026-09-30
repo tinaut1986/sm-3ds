@@ -20,10 +20,10 @@ decisions log. The next session starts from that file, not from chat history.
 
 | Path | Origin | Notes |
 |---|---|---|
-| `source/` | CharlesAverill/sm-3ds | 3DS frontend: `main.c`, SDL2-based. Ours to rewrite. |
+| `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (still SDL2 for input/audio, see PLAN P1.3), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
 | `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
 | `SDL/` (submodule) | libsdl-org/SDL, SDL2 branch | Planned to be dropped in favour of libctru + citro3d directly (see PLAN). |
-| `romfs/` | | Upstream packs `sm.smc` here. We must NOT ship that. See PLAN P1. |
+| `romfs/` | | Only a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
 
 Other local checkouts:
 
@@ -139,8 +139,17 @@ make -j FULL_NATIVE=1 cia       # -> output/SuperMetroid3DSPort.cia
 ```
 
 `FULL_NATIVE`: run only the C game code, never the ROM on the emulated CPU.
-Until PLAN P1.1 lands, the game still loads `romfs:/sm.smc`, so a CIA built
-without the ROM (every CI build) installs and starts but cannot run the game.
+The CIA never contains the ROM. At runtime it reads any `.smc`/`.sfc` in
+`sdmc:/3ds/Super Metroid 3DS/` whose headerless sha1 matches the JU ROM, and shows
+an error screen otherwise. Saves, `config.ini` and `debug/` live in that folder too.
+
+Host-side tools (no console needed; the ones that run the game need a local ROM,
+never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
+`tools/warp-test/run.sh` boots the game headless and checks the teleport into every
+room. Installing on the owner's console: FBI's FTP server, `curl -T
+output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
+console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in
+`/luma/dumps/arm11/`).
 
 Test on hardware whenever performance is involved; Azahar is fine for logic
 but its timings say nothing about Old 3DS.
