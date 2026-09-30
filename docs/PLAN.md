@@ -287,3 +287,18 @@ Lessons from mzm that apply directly:
   work per frame 15.3 ms avg / 23.1 p95 / 28.8 max, 22 % of frames over 16.7 ms
   (absorbed by pacing, so it still shows 60). Headroom ~1.4 ms: nothing to spare
   for Old 3DS. Audio block 4.8 ms on its own thread. Raw CSV not committed.
+- 2026-09-30: Audio findings (New 3DS, 1461 frames, all on): of the 4.97 ms audio
+  block, DSP cycles are 4.69, SPC driver loop 0.08, resample 0.15, mutex wait
+  ~0. SDL already runs the audio thread on the system core (core 1, 30 % CPU
+  cap), so the 4.7 ms wall is ~1.5 ms of CPU: the 90x gap to the host (54 us)
+  was mostly that cap. The real cost to the game thread was the lock: the
+  audio callback holds the APU mutex for a whole block and the game thread
+  took it every frame in RtlPushApuState, so it stalled up to a block (logic
+  p95 12 ms with audio on vs 1.1 with it off). Fix: separate small lock for the
+  port queue (RtlApuQueueLock); audio output verified bit-identical on the host.
+  The DSP is still the budget problem for Old 3DS (30 % of core 1 = ~5 ms per
+  frame, and the DSP alone is ~1.5 ms of CPU on New 3DS).
+- 2026-09-30: Bottom screen tearing ("flashes", half-painted triangles): the loop
+  never waited for vblank, so two swaps in one vblank left the next draw in the
+  buffer being scanned out. Now `gspWaitForVBlank` after a swap when the frame
+  took < 15 ms, and the pacing resyncs to it.

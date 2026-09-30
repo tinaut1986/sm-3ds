@@ -609,8 +609,11 @@ static bool IsFrameEmpty(ApuWriteEnt *w) {
   return (w->ports[0] == 255) && (w->ports[1] == 255) && (w->ports[2] == 255) && (w->ports[3] == 255);
 }
 
+// The queue has its own small lock so the game thread can push its per-frame
+// port writes without waiting for the audio thread, which holds the big APU
+// lock for a whole audio block. Lock order: RtlApuLock, then the queue lock.
 void RtlPushApuState(void) {
-  RtlApuLock();
+  RtlApuQueueLock();
   if (!is_uploading_apu) {
     // Strive for the queue to be empty.
     if (g_apu_queue_size == 0) {
@@ -618,7 +621,7 @@ void RtlPushApuState(void) {
     } else {
       if (g_apu_time_since_empty >= 32 && IsFrameEmpty(&g_apu_write)) {
         g_apu_time_since_empty -= 4;
-        RtlApuUnlock();
+        RtlApuQueueUnlock();
         return;
       }
       g_apu_time_since_empty++;
@@ -639,7 +642,7 @@ void RtlPushApuState(void) {
   } else {
     g_apu_queue_size = 0;
   }
-  RtlApuUnlock();
+  RtlApuQueueUnlock();
 }
 
 static void RtlPopApuState_Locked(void) {
@@ -647,6 +650,7 @@ static void RtlPopApuState_Locked(void) {
     return;
 
   uint8 *input_ports = g_use_my_apu_code ? g_spc_player->input_ports : g_snes->apu->inPorts;
+  RtlApuQueueLock();
   if (g_apu_queue_size != 0) {
     ApuWriteEnt *w = &g_apu_write_ents[(g_apu_write_ent_pos - g_apu_queue_size--) & (kApuMaxQueueSize - 1)];
     for (int i = 0; i != 4; i++) {
@@ -654,11 +658,14 @@ static void RtlPopApuState_Locked(void) {
         input_ports[i] = w->ports[i];
     }
   }
+  RtlApuQueueUnlock();
 }
 
 static void RtlResetApuQueue(void) {
+  RtlApuQueueLock();
   g_apu_write_ent_pos = g_apu_time_since_empty = g_apu_queue_size = 0;
   memset(&g_apu_write, 0xff, sizeof(g_apu_write));
+  RtlApuQueueUnlock();
 }
 
 void RtlApuUpload(const uint8 *p) {

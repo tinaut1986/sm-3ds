@@ -77,6 +77,16 @@ static void DrawText(Surface s, int x, int y, int scale, uint32_t c, const char 
     unsigned ch = (unsigned char)*str;
     if (ch >= 128 || ch == ' ') continue;
     int gx = (ch % 16) * 8, gy = (ch / 16) * 8;
+    if (scale == 1) {
+      // Common case: write pixels directly, no per-pixel rectangle clipping.
+      if (x < 0 || x + 8 > s.w || y < 0 || y + 8 > s.h) continue;
+      for (int xx = 0; xx < 8; xx++) {
+        uint32_t *col = s.px + (x + xx) * s.h + (s.h - 1 - y);
+        for (int yy = 0; yy < 8; yy++)
+          if (g_font[(gy + yy) * 128 + gx + xx]) col[-yy] = c;
+      }
+      continue;
+    }
     for (int yy = 0; yy < 8; yy++)
       for (int xx = 0; xx < 8; xx++)
         if (g_font[(gy + yy) * 128 + gx + xx]) FillRect(s, x + xx * scale, y + yy * scale, scale, scale, c);
@@ -161,7 +171,57 @@ static void DebugTouch(int x, int y) {
   g_dirty = 2;
 }
 
+// ---- Persistent options --------------------------------------------------
+// Saved to config.ini in the data folder whenever one changes. Not persisted on
+// purpose: pause, turbo, PPU render off and the log/perf recorders, which would
+// be confusing or harmful to find switched on at the next boot.
+
+#define CONFIG_PATH "config.ini"
+
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, save_slot; } SavedOptions;
+
+static SavedOptions CurrentOptions(void) {
+  return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup, g_ui.save_slot };
+}
+
+static void SaveConfig(void) {
+  FILE *f = fopen(CONFIG_PATH, "w");
+  if (!f) return;
+  SavedOptions o = CurrentOptions();
+  fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
+  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\nsave_slot=%d\n", o.tab, o.frameskip,
+          o.audio, o.fps_overlay, o.speedup, o.save_slot);
+  fclose(f);
+}
+
+static void LoadConfig(void) {
+  FILE *f = fopen(CONFIG_PATH, "r");
+  if (!f) return;
+  char line[64];
+  while (fgets(line, sizeof(line), f)) {
+    char key[32];
+    int v;
+    if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
+    if (!strcmp(key, "tab") && v >= 0 && v < TAB_COUNT) g_tab = (Tab)v;
+    else if (!strcmp(key, "frameskip")) g_ui.frameskip = v != 0;
+    else if (!strcmp(key, "audio")) g_ui.audio_on = v != 0;
+    else if (!strcmp(key, "fps_overlay")) g_ui.fps_overlay = v != 0;
+    else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
+    else if (!strcmp(key, "save_slot") && v >= 0 && v < 10) g_ui.save_slot = v;
+  }
+  fclose(f);
+}
+
+static void TouchDownImpl(int x, int y);
+
 void BottomUi_TouchDown(int x, int y) {
+  SavedOptions before = CurrentOptions();
+  TouchDownImpl(x, y);
+  SavedOptions after = CurrentOptions();
+  if (memcmp(&before, &after, sizeof(before)) != 0) SaveConfig();
+}
+
+static void TouchDownImpl(int x, int y) {
   for (int i = 0; i < TAB_COUNT; i++) {
     if (In(TabRect(i), x, y)) {
       g_tab = (Tab)i;
@@ -346,7 +406,9 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_rom_info = *rom;
   APT_CheckNew3DS(&g_is_new3ds);
   g_ui.new3ds_speedup = g_is_new3ds;
-  if (g_is_new3ds) osSetSpeedupEnable(true);
+  LoadConfig();
+  if (!g_is_new3ds) g_ui.new3ds_speedup = false;
+  if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);
   g_dirty = 2;
   return LoadFont();
 }

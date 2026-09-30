@@ -143,6 +143,18 @@ void RtlApuUnlock(void) {
   SDL_UnlockMutex(g_audio_mutex);
 }
 
+// Separate from the audio mutex, which the audio callback holds for a whole
+// block: see RtlPushApuState.
+static SDL_mutex *g_apu_queue_mutex;
+
+void RtlApuQueueLock(void) {
+  SDL_LockMutex(g_apu_queue_mutex);
+}
+
+void RtlApuQueueUnlock(void) {
+  SDL_UnlockMutex(g_apu_queue_mutex);
+}
+
 static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
   if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
   while (len != 0) {
@@ -344,6 +356,7 @@ int main(int argc, char** argv) {
 
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
+  g_apu_queue_mutex = SDL_CreateMutex();
   if (!g_audio_mutex) Die("No mutex");
 
   g_spc_player = SpcPlayer_Create();
@@ -472,7 +485,9 @@ int main(int argc, char** argv) {
 
     // A skipped frame must not touch or swap the (double buffered) screens:
     // swapping without drawing would show the frame before last.
+    bool swapped = false;
     if (presented) {
+      swapped = true;
       BottomUi_DrawTopOverlay(&perf);
       BottomUi_Frame(&perf);
       gfxFlushBuffers();
@@ -483,6 +498,7 @@ int main(int argc, char** argv) {
       // the UI changed: swap the bottom screen only.
       gfxFlushBuffers();
       gfxScreenSwapBuffers(GFX_BOTTOM, false);
+      swapped = true;
     }
 
     // Measure how long the whole iteration took, before the pacing delay.
@@ -500,7 +516,20 @@ int main(int argc, char** argv) {
     }
 
     if (g_ui.paused) {
-      SDL_Delay(16);
+      if (swapped) gspWaitForVBlank();
+      else SDL_Delay(16);
+      frame_start = svcGetSystemTick();
+      continue;
+    }
+
+    // With time to spare, let the display pace us. Two swaps inside one vblank
+    // leave the next draw in the buffer that is being scanned out, which shows
+    // as torn, half-painted screens (seen first on the bottom UI).
+    if (swapped && work_ms < 15.0f) {
+      gspWaitForVBlank();
+      lastTick = SDL_GetTicks();   // locked to the display: drop accumulated drift
+      skip_render = false;
+      skipped_in_a_row = 0;
       frame_start = svcGetSystemTick();
       continue;
     }
@@ -533,6 +562,7 @@ int main(int argc, char** argv) {
   SDL_PauseAudioDevice(g_audio_device, 1);
   SDL_CloseAudioDevice(g_audio_device);
   SDL_DestroyMutex(g_audio_mutex);
+  SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
   SDL_DestroyTexture(g_texture);
   SDL_DestroyRenderer(g_renderer);
