@@ -175,9 +175,16 @@ Lessons from mzm that apply directly:
   lines, citro2d), rewritten compactly for SM data, in stages. Current
   `source/bottom_ui.c` is the stopgap. Keep all drawing behind a few
   primitives (rect, text, icon) so it can move to citro2d with P1.3/P1.4.
-  - **A. Framework + Status:** tab bar with icons, items/equipment, energy,
+  - **A. Framework + Status:** DONE 2026-09-30 (`ui_draw.c` primitives, Status tab
+    with energy/tanks/reserve, ammo bars, item and beam grids, area/room/time,
+    raw boss bits; host preview in `tools/ui-preview/`). Not yet seen on hardware.
+    Original text: tab bar with icons, items/equipment, energy,
     ammo, boss and area progress, read from SM RAM (`variables.h`).
-  - **B. Cheats (god mode etc.):** write RAM after each `RtlRunFrame`: refill
+  - **B. Cheats (god mode etc.):** DONE 2026-09-30 (`cheats.c`: god mode,
+    infinite ammo, all items/beams, max ammo/energy, full heal; refill before and
+    after each frame, only inside a room). Not yet seen on hardware. HUD icons
+    for newly given items, and the suit palette, may need a refresh call: check.
+    Original text: write RAM after each `RtlRunFrame`: refill
     health/reserves and ammo for god mode, give items/beams/suits, set tanks,
     unlock map. Must also be recorded with `StateRecorder_RecordPatchByte` when
     replay/save states are involved (see `RtlCheat` in `sm_rtl.c`).
@@ -325,3 +332,14 @@ Lessons from mzm that apply directly:
   average did not move, only the stalls went away. Remaining per frame: logic
   ~1 ms + PPU ~8.4 ms + top copy 2.8 ms on the game thread; DSP ~1.5 ms CPU on
   the system core.
+- 2026-09-30: The UI font `romfs/font.bmp` had a broken lowercase `u` (it looked
+  like a `v`); redrawn in place. `tools/ui-preview/build.sh` renders the bottom
+  tabs to PNG on the host with a fake `<3ds.h>`, so layout can be checked
+  without the console.
+- 2026-09-30: Correction to the decision above: mzm does not use citro2d for text
+  either, it draws its own 5x7 bitmap font (6 px advance, upper case) as
+  rectangles. The 8x8 `font.bmp` inherited from upstream was the reason the first
+  UI looked bigger than mzm's. Now `source/ui_font.c` is that 5x7 table, copied
+  from mzm (plus , _ '), and `romfs/font.bmp` is gone (the romfs only keeps its
+  `blank` placeholder). Remaining differences from mzm: tabs are text, not 30 px
+  icons, and there are no modals yet.

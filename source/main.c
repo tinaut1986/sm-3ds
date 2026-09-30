@@ -21,6 +21,7 @@
 #include "src/audio_prof.h"
 
 #include "bottom_ui.h"
+#include "cheats.h"
 #include "debug_tools.h"
 #include "rom_loader.h"
 #include "version.h"
@@ -351,8 +352,7 @@ int main(int argc, char** argv) {
   }
 
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
-  if (!BottomUi_Init(&ui_rom))
-    Warning("romfs:/font.bmp missing or invalid: bottom screen text disabled");
+  BottomUi_Init(&ui_rom);
 
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
@@ -456,7 +456,9 @@ int main(int argc, char** argv) {
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
+      Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      Cheats_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
       frameCtr++;
       logic_window++;
