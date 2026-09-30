@@ -18,6 +18,7 @@
 #include "src/config.h"
 #include "src/util.h"
 #include "src/spc_player.h"
+#include "src/audio_prof.h"
 
 #include "bottom_ui.h"
 #include "debug_tools.h"
@@ -118,6 +119,10 @@ static void DrawPpuFrame(void) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
     }
+}
+
+uint64_t AudioProf_Now(void) {
+  return svcGetSystemTick();
 }
 
 static float TicksToMs(u64 ticks) {
@@ -455,6 +460,10 @@ int main(int argc, char** argv) {
 
     perf.frames = frameCtr;
     perf.audio_ms = g_audio_ms;
+    perf.audio_part_ms[0] = TicksToMs(g_audio_prof_last[kAudioProf_LockWait]);
+    perf.audio_part_ms[1] = TicksToMs(g_audio_prof_last[kAudioProf_SpcLoop]);
+    perf.audio_part_ms[2] = TicksToMs(g_audio_prof_last[kAudioProf_DspCycles]);
+    perf.audio_part_ms[3] = TicksToMs(g_audio_prof_last[kAudioProf_Resample]);
     if (!g_ui.paused) {
       // Light smoothing so the numbers are readable.
       perf.logic_ms += (TicksToMs(t_logic) - perf.logic_ms) * 0.1f;
@@ -481,7 +490,7 @@ int main(int argc, char** argv) {
     float work_ms = TicksToMs(now - frame_start);
     perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
     if (!g_ui.paused)
-      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented);
+      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms);
     float window_ms = TicksToMs(now - fps_window_start);
     if (window_ms >= 1000.0f) {
       perf.fps = shown_window * 1000.0f / window_ms;

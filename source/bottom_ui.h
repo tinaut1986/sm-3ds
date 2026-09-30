@@ -15,6 +15,7 @@ typedef struct {
   float logic_ms;     // RtlRunFrame (game logic + PPU rendering into g_pixels)
   float draw_ms;      // copy of the PPU output to the top screen
   float audio_ms;     // last audio block generation (audio thread)
+  float audio_part_ms[4];  // of that: lock wait, SPC driver loop, DSP cycles, resample
   uint32_t frames;    // frames since boot
   bool is_new3ds;
 } UiPerf;

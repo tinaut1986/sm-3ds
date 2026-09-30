@@ -206,7 +206,7 @@ int Debug_DumpScreen(const uint8_t *bgra) {
 // ---- Frame-time recorder ---------------------------------------------------
 
 typedef struct {
-  float logic, draw, audio, work;
+  float logic, draw, audio, work, a_lock, a_spc, a_dsp, a_resample;
   uint16_t state, area, room;
   uint8_t shown;
 } PerfSample;
@@ -223,11 +223,11 @@ static void PerfStop(void) {
   double sum = 0, max = 0;
   int shown = 0;
   if (f) {
-    fprintf(f, "# Super Metroid 3DS %s\nframe,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room\n", g_version);
+    fprintf(f, "# Super Metroid 3DS %s\nframe,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room,audio_lock_ms,audio_spc_ms,audio_dsp_ms,audio_resample_ms\n", g_version);
     for (int i = 0; i < g_perf_count; i++) {
       const PerfSample *s = &g_perf[i];
-      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u\n", i, s->logic, s->draw, s->audio, s->work, s->shown,
-              s->state, s->area, s->room);
+      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u,%.3f,%.3f,%.3f,%.3f\n", i, s->logic, s->draw, s->audio, s->work,
+              s->shown, s->state, s->area, s->room, s->a_lock, s->a_spc, s->a_dsp, s->a_resample);
       sum += s->work;
       if (s->work > max) max = s->work;
       shown += s->shown;
@@ -254,7 +254,7 @@ void Debug_PerfToggle(void) {
   SetMessage(g_perf ? "Perf recording..." : "Perf: out of memory");
 }
 
-void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown) {
+void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]) {
   g_frame++;
   if (!g_perf) return;
   PerfSample *s = &g_perf[g_perf_count++];
@@ -262,6 +262,10 @@ void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_m
   s->draw = draw_ms;
   s->audio = audio_ms;
   s->work = work_ms;
+  s->a_lock = audio[0];
+  s->a_spc = audio[1];
+  s->a_dsp = audio[2];
+  s->a_resample = audio[3];
   s->shown = shown;
   s->state = game_state;
   s->area = area_index;

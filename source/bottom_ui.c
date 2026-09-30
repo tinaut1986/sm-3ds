@@ -245,6 +245,7 @@ static void DrawDebug(Surface s, const UiPerf *p) {
              Debug_PerfRecording() ? "PERF: RECORDING (tap to stop)" : "PERF: RECORD FRAME TIMES");
   int y = ROW_Y0 + 5 * ROW_H + 6;
   DrawTextf(s, 8, y, COL_WARN, "%s", Debug_LastMessage()); y += 14;
+  DrawTextf(s, 8, y, COL_TEXT, "audio lock %.1f spc %.1f dsp %.1f rs %.1f", p->audio_part_ms[0], p->audio_part_ms[1], p->audio_part_ms[2], p->audio_part_ms[3]); y += 12;
   DrawTextf(s, 8, y, COL_TEXT, "frames %lu   linear free %u KB", (unsigned long)p->frames, (unsigned)(linearSpaceFree() / 1024)); y += 12;
   DrawTextf(s, 8, y, COL_TEXT, "samus x %u y %u   frame ctr %u", (unsigned)samus_x_pos, (unsigned)samus_y_pos, (unsigned)frame_counter_every_frame); y += 12;
   DrawText(s, 8, y, 1, COL_DIM, "files in debug/ on the SD card");

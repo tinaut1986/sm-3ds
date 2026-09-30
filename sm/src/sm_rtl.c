@@ -6,6 +6,7 @@
 #include "funcs.h"
 #include "spc_player.h"
 #include "util.h"
+#include "audio_prof.h"
 
 struct StateRecorder;
 
@@ -698,9 +699,16 @@ void RtlSaveMusicStateToRam_Locked(void) {
   }
 }
 
+#ifdef __3DS__
+volatile uint64_t g_audio_prof_last[kAudioProf_Count];
+uint64_t g_audio_prof_cur[kAudioProf_Count];
+#endif
+
 void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
   assert(channels == 2);
+  uint64_t t_start = AUDIO_PROF_NOW();
   RtlApuLock();
+  AUDIO_PROF_ADD(kAudioProf_LockWait, t_start);
 
   RtlPopApuState_Locked();
 
@@ -712,10 +720,19 @@ void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
     }
   } else {
     SpcPlayer_GenerateSamples(g_spc_player);
+    uint64_t t_resample = AUDIO_PROF_NOW();
     dsp_getSamples(g_spc_player->dsp, audio_buffer, samples);
+    AUDIO_PROF_ADD(kAudioProf_Resample, t_resample);
   }
 
   RtlApuUnlock();
+#ifdef __3DS__
+  AUDIO_PROF_ADD(kAudioProf_Total, t_start);
+  for (int i = 0; i < kAudioProf_Count; i++) {
+    g_audio_prof_last[i] = g_audio_prof_cur[i];
+    g_audio_prof_cur[i] = 0;
+  }
+#endif
 }
 
 void RtlCheat(char c) {

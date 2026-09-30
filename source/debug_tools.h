@@ -32,7 +32,8 @@ int Debug_DumpScreen(const uint8_t *bgra);
 // (or when the buffer fills, ~60 s).
 void Debug_PerfToggle(void);
 bool Debug_PerfRecording(void);
-void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown);
+// audio[] = lock wait, SPC driver loop, DSP cycles, resample (ms, last block).
+void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]);
 
 // Last status line for the UI ("Dump 03 saved", "Perf: 1234 frames", ...).
 const char *Debug_LastMessage(void);

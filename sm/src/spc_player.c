@@ -1546,6 +1546,8 @@ void SpcPlayer_CopyVariablesFromRam(SpcPlayer *p) {
     p->channel[i].index = i;
 }
 
+#include "audio_prof.h"
+
 void SpcPlayer_GenerateSamples(SpcPlayer *p) {
   assert(p->timer_cycles <= 64);
 
@@ -1553,9 +1555,11 @@ void SpcPlayer_GenerateSamples(SpcPlayer *p) {
 
   for (;;) {
     if (p->timer_cycles >= 64) {
+      uint64_t t_spc = AUDIO_PROF_NOW();
       Spc_Loop_Part2(p, p->timer_cycles >> 6);
       Spc_Loop_Part1(p);
       p->timer_cycles &= 63;
+      AUDIO_PROF_ADD(kAudioProf_SpcLoop, t_spc);
     }
 
     // sample rate 32000
@@ -1565,8 +1569,10 @@ void SpcPlayer_GenerateSamples(SpcPlayer *p) {
 
     p->timer_cycles += n;
 
+    uint64_t t_dsp = AUDIO_PROF_NOW();
     for (int i = 0; i < n; i++)
       dsp_cycle(p->dsp);
+    AUDIO_PROF_ADD(kAudioProf_DspCycles, t_dsp);
 
     if (p->dsp->sampleOffset == 534)
       break;
