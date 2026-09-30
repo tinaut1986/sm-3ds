@@ -39,9 +39,11 @@ Task format: `- [ ] **ID** title`, then *Spec* (what) and *Done when*
   - creates saves with `mkdir("saves")`, a relative path: the likely cause of
     "saves work in emulator, not on hardware".
   - has save/load/replay/reset hotkeys commented out.
-- `sm` submodule originally pointed to `CharlesAverill/sm-3ds-lib` (snesrev/sm
-  main + 4 commits: build options for native/emulated, hard-coded version, no
-  double frame check). Now repointed to our `tinaut1986/sm` branch `3ds`.
+- `sm/` was a submodule of `CharlesAverill/sm-3ds-lib` (snesrev/sm main + 4
+  commits: build options for native/emulated, hard-coded version, no double
+  frame check). It is now vendored as a plain directory from its `d4e4f42`.
+- License: snesrev/sm is MIT (GitHub shows "Other" only because the Opus BSD
+  text is appended). Same terms as sm-3ds; keep `sm/LICENSE.txt`.
 - snesrev/sm upstream is dormant since 2023-04 (`main`); branches `devel` and
   `stable` exist and are older. Its README calls it "early version, has bugs".
 - The game uses Mode 7 in a few scenes (Ceres, `QueueMode7Transfers` in
@@ -94,10 +96,8 @@ Lessons from mzm that apply directly:
 
 ## Phase 0: baseline and ownership
 
-- [x] **P0.1** Own the game submodule.
-  Done 2026-09-30: `sm` -> `https://github.com/tinaut1986/sm.git`, branch `3ds`
-  (CharlesAverill/sm-3ds-lib pushed there; a separate fork was impossible, see
-  decisions log).
+- [x] **P0.1** Own the game code.
+  Done 2026-09-30: vendored into `sm/` (see decisions log).
 - [ ] **P0.2** Build upstream and run it.
   *Spec:* `make sdl && make -j FULL_NATIVE=1 cia`, with a locally supplied
   ROM in `romfs/` (never committed).
@@ -110,9 +110,10 @@ Lessons from mzm that apply directly:
   and `FULL_NATIVE`. Record in a table below.
   *Done when:* table filled in.
 - [ ] **P0.4** Establish game-logic correctness on PC.
-  *Spec:* build `../sm` (snesrev) on Linux; play or replay with the
-  native-vs-ROM comparison on; note mismatches. Check whether `devel`/`stable`
-  or active forks carry fixes that `sm-3ds-lib` lacks.
+  *Spec:* build the PC version from `sm/` on Linux; play or replay with the
+  native-vs-ROM comparison on; note mismatches. Check whether snesrev's
+  `devel`/`stable` branches or active forks of snesrev/sm carry fixes that
+  `sm/` lacks.
   *Done when:* a short list of known game-logic gaps exists in the decisions
   log (may be empty).
 
@@ -205,12 +206,13 @@ Lessons from mzm that apply directly:
 
 - 2026-09-30: Base on `CharlesAverill/sm-3ds` rather than a raw fork of
   `snesrev/sm`, because it already has a working 3DS toolchain, audio and
-  input. `../sm` (snesrev fork) kept as PC reference.
+  input.
 - 2026-09-30: Tracking = this file for roadmap/specs, GitHub issues for
   playtest bugs. No heavier spec framework.
-- 2026-09-30: GitHub allows one fork per repo network per account. sm-3ds-lib
-  is in the snesrev/sm network and `tinaut1986/sm` already existed, so the game
-  code lives on branch `3ds` of `tinaut1986/sm` instead of its own fork.
+- 2026-09-30: Game code vendored into `sm/` instead of a submodule, so the
+  whole port lives in one repo (`tinaut1986/sm-3ds`) and game fixes are plain
+  commits here. Pulling later snesrev changes, if any ever appear, is a manual
+  diff. The temporary `tinaut1986/sm` fork was deleted.
 - 2026-09-30: Branch/release model copied from mzm: `main` stable,
   `release/vX.Y.Z` accumulates, topic branches merge back `--no-ff`, tags
   trigger the CIA build (Beta unless reachable from `main`). First line:

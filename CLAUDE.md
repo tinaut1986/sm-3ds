@@ -21,7 +21,7 @@ decisions log. The next session starts from that file, not from chat history.
 | Path | Origin | Notes |
 |---|---|---|
 | `source/` | CharlesAverill/sm-3ds | 3DS frontend: `main.c`, SDL2-based. Ours to rewrite. |
-| `sm/` (submodule) | `tinaut1986/sm`, branch `3ds` | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Branch `3ds` = CharlesAverill/sm-3ds-lib (snesrev/sm main + 4 commits). GitHub allows one fork per network, so it lives as a branch in our snesrev fork. Game-code changes are committed there, then the submodule pointer is bumped here. |
+| `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
 | `SDL/` (submodule) | libsdl-org/SDL, SDL2 branch | Planned to be dropped in favour of libctru + citro3d directly (see PLAN). |
 | `romfs/` | | Upstream packs `sm.smc` here. We must NOT ship that. See PLAN P1. |
 
@@ -29,9 +29,6 @@ Other local checkouts:
 
 - `../mzm`: the Zero Mission 3DS port (`tinaut1986/mzm`). Reference code, see
   the reuse map in PLAN.
-- `../sm`: a plain fork of `snesrev/sm` (`tinaut1986/sm`). Useful for building
-  the original PC version on Linux, including its native-vs-emulated
-  frame-comparison mode, and for diffing against `sm-3ds-lib`.
 
 ## What `snesrev/sm` is (and is not)
 
@@ -50,13 +47,11 @@ frame by frame. Consequences:
 
 ## Git and GitHub
 
-- **Every push, PR, issue and release goes to the owner's repos**
-  (`tinaut1986/sm-3ds`, `tinaut1986/sm`). Never to CharlesAverill or snesrev.
-  - Here: `origin` = `tinaut1986/sm-3ds`, `upstream` = `CharlesAverill/sm-3ds`.
-  - In `sm/` and `../sm`: `origin` = `tinaut1986/sm`, `upstream` = `snesrev/sm`,
-    `charles` = `CharlesAverill/sm-3ds-lib`.
-  - Push URLs of `upstream`/`charles` are set to `DISABLED` as a safety net
-    (local config; redo it in a fresh clone with
+- **Every push, PR, issue and release goes to `tinaut1986/sm-3ds`.** Never to
+  CharlesAverill or snesrev.
+  - `origin` = `tinaut1986/sm-3ds`, `upstream` = `CharlesAverill/sm-3ds`.
+  - The push URL of `upstream` is set to `DISABLED` as a safety net (local
+    config; redo it in a fresh clone with
     `git remote set-url --push upstream DISABLED`).
 - `gh repo set-default tinaut1986/sm-3ds` has been run (`remote.origin.gh-resolved=base`).
   Re-run it in a fresh clone, otherwise `gh` targets the fork parent.
