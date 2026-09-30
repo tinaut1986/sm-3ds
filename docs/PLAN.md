@@ -180,6 +180,13 @@ Lessons from mzm that apply directly:
 
 - [ ] **P2.1** Profile. Port mzm's perf instrumentation; split frame time into
   game logic, PPU, audio, present. Write `docs/perf.md` with the numbers.
+- [x] **P2.0** Cheap CPU wins found by profiling (2026-09-30).
+  `snes_handle_pos_stuff` was 37-52 % of the frame on the host profile: it ran
+  154k times per frame, once per 2 master cycles, and only acts at hPos 0, 512
+  and 1024. `snes_handle_scanline` visits just those. Verified identical
+  (RAM, VRAM, CGRAM, OAM, pixels, audio hash) against the old loop for 4000
+  frames on the host; 5.0 s -> 3.4 s there. Also: table-driven top-screen
+  copy (5.0 -> 2.8 ms on a New 3DS).
 - [ ] **P2.2** Audio off the main thread: run the SPC/DSP on the syscore
   (Old 3DS) or core 2 (New 3DS), fed by a ring buffer. Evaluate cheaper DSP
   paths (interpolation, echo) behind an option if still too slow.
@@ -268,3 +275,10 @@ Lessons from mzm that apply directly:
   (`sm/src/snes/ppu.c`), the SPC/DSP audio and a per-pixel copy to the top
   framebuffer. Adaptive frameskip keeps game speed but does not make it
   cheaper; the next data point is the timing split shown on the Status tab.
+
+- 2026-09-30: Decided NOT to optimise the software PPU drawing: the GPU
+  renderer (P2.3) replaces it, and the CPU PPU only remains as a fallback. The
+  work that matters for Old 3DS is what the GPU cannot take: game logic,
+  emulator stepping and the DSP audio (~4.9 ms per block on a New 3DS).
+  Baseline before P2.0 on a New 3DS, Landing Site, 1655 frames: logic 9.2 ms
+  without PPU drawing, 19.0 ms with it, 58 % of frames skipped.
