@@ -80,13 +80,11 @@ static uint16_t g_def;   // the door definition of the warp in progress
 #endif
 static int g_target_x, g_target_y;   // where Samus should stand, pixels; -1 = unknown
 static bool g_fixed_target;
-static bool g_target_vertical;
-static bool g_face_left;         // came in through a door on the right wall   // door in a ceiling or floor: she arrives in the air
+static bool g_target_vertical;   // door in a ceiling or floor: she arrives in the air
+static bool g_face_left;         // came in through a door on the right wall
 static int g_pending_frames;
 static bool g_left_gameplay;      // saw the transition start (game_state != 8)
 static int g_fixups;
-
-#define VX 32
 
 typedef enum { kBlockAir = 0, kBlockSpecialAir = 3 /* water, sand... */, kBlockShootableAir = 4, kBlockSolid = 8 } BlockType;
 
