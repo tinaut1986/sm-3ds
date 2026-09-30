@@ -171,10 +171,27 @@ Lessons from mzm that apply directly:
   by mtime. Tested on the host only; not yet on hardware. Missing: built-in
   viewer tools on the PC side (`tools/`), HDMA table dump, warp/teleport,
   scene recorder, compile-time gating like mzm's `DEBUG_TOOLS=1`.
-- [ ] **P1.9** Redo the bottom UI in the style of this game, based on mzm's
-  (`port_bottom_ui_3ds.c`): proper tabs with icons, live map from SM RAM,
-  item/equipment status, options with modals, debug tab. Current one
-  (`source/bottom_ui.c`) is a functional stopgap.
+- [ ] **P1.9** Bottom UI in the style of mzm's (`port_bottom_ui_3ds.c`, 5.5k
+  lines, citro2d), rewritten compactly for SM data, in stages. Current
+  `source/bottom_ui.c` is the stopgap. Keep all drawing behind a few
+  primitives (rect, text, icon) so it can move to citro2d with P1.3/P1.4.
+  - **A. Framework + Status:** tab bar with icons, items/equipment, energy,
+    ammo, boss and area progress, read from SM RAM (`variables.h`).
+  - **B. Cheats (god mode etc.):** write RAM after each `RtlRunFrame`: refill
+    health/reserves and ammo for god mode, give items/beams/suits, set tanks,
+    unlock map. Must also be recorded with `StateRecorder_RecordPatchByte` when
+    replay/save states are involved (see `RtlCheat` in `sm_rtl.c`).
+  - **C. Map tab:** live map from `map_tiles_explored` (RAM `$7F7`) and the room
+    headers in ROM (area, map x/y, width, height); Samus marker; area switch;
+    zoom/pan.
+  - **D. Warp:** room list by area, and tap-on-map to warp. Like mzm, warp to a
+    *door*, not a room: set `door_def_ptr` to a door definition whose
+    destination is the target room and let the game run its own transition
+    (`door_transition_*`). Needs a door-def scan of bank `$83`. Risk: transition
+    state consistency; test on hardware.
+  - **E. Debug tab:** what exists now plus HDMA/PPU dumps and the scene tools.
+  - Gating: debug tabs stay in every build until the first stable release, then
+    go behind `DEBUG_TOOLS=1` like mzm.
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
