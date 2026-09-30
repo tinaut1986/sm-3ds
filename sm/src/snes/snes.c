@@ -164,6 +164,21 @@ void snes_handle_pos_stuff(Snes *snes) {
   }
 }
 
+// Runs one whole scanline (hPos 0 -> 1364) and leaves hPos at 0 of the next
+// line. snes_handle_pos_stuff only does something at hPos 0, 512 and 1024, so
+// instead of stepping all 682 positions we visit just those, with hPos set to
+// the same value as before (ppu.c latches it). Must be entered with hPos == 0.
+void snes_handle_scanline(Snes *snes) {
+  snes->hPos = 0;
+  snes_handle_pos_stuff(snes);
+  snes->hPos = 512;
+  snes_handle_pos_stuff(snes);
+  snes->hPos = 1024;
+  snes_handle_pos_stuff(snes);
+  snes->hPos = 1362;   // last step of the line: wraps hPos and advances vPos
+  snes_handle_pos_stuff(snes);
+}
+
 #define IS_ADR(x) (x == 0xfffff)
 
 void snes_catchupApu(Snes* snes) {

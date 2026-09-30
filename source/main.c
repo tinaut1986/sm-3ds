@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "SDL2/SDL.h"
 #include <3ds.h>
 
@@ -17,6 +18,12 @@
 #include "src/config.h"
 #include "src/util.h"
 #include "src/spc_player.h"
+#include "src/audio_prof.h"
+
+#include "bottom_ui.h"
+#include "debug_tools.h"
+#include "rom_loader.h"
+#include "version.h"
 
 enum Button {
   BTN_A = 0,
@@ -46,7 +53,7 @@ bool g_new_ppu = true;
 bool g_other_image;
 struct SpcPlayer *g_spc_player;
 
-static uint8_t g_pixels[256 * 4 * 240];
+static uint8_t g_pixels[256 * 4 * 240] __attribute__((aligned(16)));
 static uint8_t g_my_pixels[256 * 4 * 240];
 
 int g_got_mismatch_count;
@@ -56,7 +63,7 @@ static SDL_Window *g_window;
 static SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 
-static uint8 g_paused, g_turbo, g_replay_turbo = true;
+static uint8 g_turbo, g_replay_turbo = true;
 static uint8 g_gamepad_buttons;
 static int g_input1_state;
 static bool g_display_perf;
@@ -64,16 +71,19 @@ static int g_curr_fps;
 static int g_ppu_render_flags = 0;
 static int g_snes_width = 256, g_snes_height = 240;
 static int g_sdl_audio_mixer_volume = SDL_MIX_MAXVOLUME;
+static volatile float g_audio_ms;   // last audio block, written by the audio thread
 
 extern Snes *g_snes;
 
 void NORETURN Die(const char *error) {
   fprintf(stderr, "Error: %s\n", error);
+  Debug_Log("FATAL: %s", error);
   exit(1);
 }
 
 void Warning(const char *error) {
   fprintf(stderr, "Warning: %s\n", error);
+  Debug_Log("warning: %s", error);
 }
 
 void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
@@ -82,94 +92,41 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
     memcpy((uint8_t *)pixel_buffer + y * pitch, ppu_pixels + y * 256 * 4, 256 * 4);
 }
 
+// Copies the 256x224 PPU output to the top screen, scaled to 274x240 (nearest,
+// aspect-correct) and rotated: the 3DS framebuffer is column-major with the
+// origin at the bottom-left. Source pixels are 0x00RRGGBB, the framebuffer
+// wants R,G,B,A from the high byte down, so one shift does the conversion.
 static void DrawPpuFrame(void) {
-    u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-    uint8_t *src = g_pixels;
-
-    const int src_w = 256;
-    const int src_h = 224;
-
-    const int fb_w  = 400;
-    const int fb_h  = 240;
-
-    // Aspect-correct uniform scale
-    const float scale = (float)fb_h / (float)src_h;  // 240 / 224
-
-    const int dst_w = (int)(src_w * scale);           // ~274
-    const int dst_h = fb_h;                            // 240
-
-    const int x_off = (fb_w - dst_w) / 2;
-    const int y_off = 0;
-
-    for (int dy = 0; dy < dst_h; dy++) {
-        int sy = (int)(dy / scale);
-        if (sy >= src_h) continue;
-
-        for (int dx = 0; dx < dst_w; dx++) {
-            int sx = (int)(dx / scale);
-            if (sx >= src_w) continue;
-
-            uint8_t *s = &src[(sy * src_w + sx) * 4];
-
-            uint8_t b = s[0];
-            uint8_t g = s[1];
-            uint8_t r = s[2];
-
-            int fb_x = dx + x_off;
-            int fb_y = fb_h - 1 - (dy + y_off);
-
-            u32 idx = (fb_x * fb_h + fb_y) * 4;
-
-            fb[idx + 1] = b;
-            fb[idx + 2] = g;
-            fb[idx + 3] = r;
+    enum { SRC_W = 256, SRC_H = 224, FB_W = 400, FB_H = 240, DST_W = 274 };
+    static uint16_t xmap[DST_W];
+    static const uint32_t *rows[FB_H];   // source row for each destination row
+    static bool init;
+    if (!init) {
+        const float scale = (float)FB_H / (float)SRC_H;
+        for (int dx = 0; dx < DST_W; dx++) xmap[dx] = (uint16_t)((int)(dx / scale) % SRC_W);
+        for (int dy = 0; dy < FB_H; dy++) {
+            int sy = (int)(dy / scale);
+            rows[dy] = (const uint32_t *)g_pixels + (sy < SRC_H ? sy : SRC_H - 1) * SRC_W;
         }
+        init = true;
+    }
+
+    uint32_t *fb = (uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
+    const int x_off = (FB_W - DST_W) / 2;
+    for (int dx = 0; dx < DST_W; dx++) {
+        uint32_t *col = fb + (x_off + dx) * FB_H + (FB_H - 1);   // dy = 0 is the last word
+        const int sx = xmap[dx];
+        for (int dy = 0; dy < FB_H; dy++)
+            col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
     }
 }
 
-static void DrawBottomScreen(void) {
-    u8 *fb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
-    uint8_t *src = g_pixels;
+uint64_t AudioProf_Now(void) {
+  return svcGetSystemTick();
+}
 
-    const int src_w = 256;
-    const int src_h = 224;
-
-    const int fb_w  = 320;
-    const int fb_h  = 240;
-
-    // Aspect-correct uniform scale
-    const float scale = (float)fb_h / (float)src_h;  // 320 / 224
-
-    const int dst_w = (int)(src_w * scale);           // ~274
-    const int dst_h = fb_h;                            // 240
-
-    const int x_off = (fb_w - dst_w) / 2;
-    const int y_off = 0;
-
-    for (int dy = 0; dy < dst_h; dy++) {
-        int sy = (int)(dy / scale);
-        if (sy >= src_h) continue;
-
-        for (int dx = 0; dx < dst_w; dx++) {
-            int sx = (int)(dx / scale);
-            if (sx >= src_w) continue;
-
-            uint8_t *s = &src[(sy * src_w + sx) * 4];
-
-            uint8_t b = s[0];
-            uint8_t g = s[1];
-            uint8_t r = s[2];
-
-            int fb_x = dx + x_off;
-            int fb_y = fb_h - 1 - (dy + y_off);
-
-            u32 idx = (fb_x * fb_h + fb_y) * 4;
-
-            fb[idx + 1] = b;
-            fb[idx + 2] = g;
-            fb[idx + 3] = r;
-        }
-    }
+static float TicksToMs(u64 ticks) {
+  return (float)((double)ticks * 1000.0 / SYSCLOCK_ARM11);
 }
 
 static SDL_mutex *g_audio_mutex;
@@ -186,11 +143,25 @@ void RtlApuUnlock(void) {
   SDL_UnlockMutex(g_audio_mutex);
 }
 
+// Separate from the audio mutex, which the audio callback holds for a whole
+// block: see RtlPushApuState.
+static SDL_mutex *g_apu_queue_mutex;
+
+void RtlApuQueueLock(void) {
+  SDL_LockMutex(g_apu_queue_mutex);
+}
+
+void RtlApuQueueUnlock(void) {
+  SDL_UnlockMutex(g_apu_queue_mutex);
+}
+
 static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
   if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
+      u64 t0 = svcGetSystemTick();
       RtlRenderAudio((int16 *)g_audiobuffer, g_frames_per_block, g_audio_channels);
+      g_audio_ms = TicksToMs(svcGetSystemTick() - t0);
       g_audiobuffer_cur = g_audiobuffer;
       g_audiobuffer_end = g_audiobuffer + g_frames_per_block * g_audio_channels * sizeof(int16);
     }
@@ -280,6 +251,29 @@ enum {
   kDefaultSamples = 2048,
 };
 
+// The ROM is missing or wrong: say so on screen and wait for START.
+static void ShowRomError(const RomInfo *info) {
+  gfxInitDefault();
+  consoleInit(GFX_TOP, NULL);
+  printf("Super Metroid 3DS %s\n\n", APP_VERSION);
+  printf("%s\n\n", RomLoader_StatusText(info->status));
+  printf("Put your ROM in:\n  %s\n\n", ROM_DATA_DIR);
+  printf("Needed: Super Metroid (Japan, USA)\n  .smc or .sfc, sha1:\n  %s\n", kRomExpectedSha1);
+  if (info->status == ROM_BAD_HASH) {
+    printf("\nFound: %s\n  sha1: %s\n", info->name, info->sha1);
+    if (info->rejected > 1) printf("  (+%d more rejected)\n", info->rejected - 1);
+  }
+  printf("\nPress START to exit.\n");
+  while (aptMainLoop()) {
+    hidScanInput();
+    if (hidKeysDown() & KEY_START) break;
+    gfxFlushBuffers();
+    gfxSwapBuffers();
+    gspWaitForVBlank();
+  }
+  gfxExit();
+}
+
 // #undef main
 int main(int argc, char** argv) {
   // Use default config - no config file on 3DS
@@ -291,6 +285,14 @@ int main(int argc, char** argv) {
   g_config.audio_freq = kDefaultFreq;
   g_config.audio_channels = kDefaultChannels;
   g_config.audio_samples = kDefaultSamples;
+
+  RomInfo rom;
+  if (RomLoader_Find(&rom) != ROM_OK) {
+    ShowRomError(&rom);
+    return 1;
+  }
+  // Saves, save states and dumps use paths relative to the data folder.
+  chdir(ROM_DATA_DIR);
 
   // Initialize SDL
   if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
@@ -309,13 +311,11 @@ int main(int argc, char** argv) {
   if (rc)
     while(true);
 
-  // Load ROM from romfs
-  const char* filename = "romfs:/sm.smc";
-  Snes *snes = SnesInit(filename);
+  Snes *snes = SnesInit(rom.path);
 
   if(snes == NULL) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "Unable to load ROM: %s\nMake sure sm.smc is in romfs/", filename);
+    char buf[600];
+    snprintf(buf, sizeof(buf), "Unable to load ROM: %s", rom.path);
     Die(buf);
     return 1;
   }
@@ -350,8 +350,13 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
+  if (!BottomUi_Init(&ui_rom))
+    Warning("romfs:/font.bmp missing or invalid: bottom screen text disabled");
+
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
+  g_apu_queue_mutex = SDL_CreateMutex();
   if (!g_audio_mutex) Die("No mutex");
 
   g_spc_player = SpcPlayer_Create();
@@ -373,7 +378,7 @@ int main(int argc, char** argv) {
   }
 
   mkdir("saves", 0755);
-  RtlReadSram();
+  Debug_Init(APP_VERSION);
 
   PpuBeginDrawing(snes->snes_ppu, g_pixels, 256 * 4, 0);
   // PpuBeginDrawing(snes->my_ppu, g_my_pixels, 256 * 4, 0);
@@ -383,7 +388,16 @@ int main(int argc, char** argv) {
   bool running = true;
   uint32 lastTick = SDL_GetTicks();
   uint32 frameCtr = 0;
-  uint8 audiopaused = true;
+  bool audio_running = false;
+
+  UiPerf perf = { .is_new3ds = false };
+  APT_CheckNew3DS(&perf.is_new3ds);
+  u64 fps_window_start = svcGetSystemTick(), frame_start = fps_window_start;
+  uint32 logic_window = 0, shown_window = 0;
+  uint8 is_replay = 0;
+  bool skip_render = false;      // this frame is late: run the logic, draw nothing
+  int skipped_in_a_row = 0;
+  enum { kMaxSkipInARow = 2 };   // never show fewer than 20 fps
 
   printf("Super Metroid starting...\n");
 
@@ -398,37 +412,127 @@ int main(int argc, char** argv) {
       case SDL_JOYBUTTONUP:
         HandleCommand(event.jbutton.button, false);
         break;
-      // case SDL_FINGERUP: // swap between emulated and native
-      //   SwapEmulatedNative();
+      // Touch coordinates arrive normalised to the bottom screen (0..1).
+      case SDL_FINGERDOWN:
+        BottomUi_TouchDown((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
+        break;
+      case SDL_FINGERMOTION:
+        BottomUi_TouchMove((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
+        break;
+      case SDL_FINGERUP:
+        BottomUi_TouchUp();
+        break;
       case SDL_QUIT:
         running = false;
         break;
       }
     }
 
-    if (g_paused != audiopaused) {
-      audiopaused = g_paused;
+    bool want_audio = g_ui.audio_on && !g_ui.paused;
+    if (want_audio != audio_running) {
+      audio_running = want_audio;
       if (g_audio_device)
-        SDL_PauseAudioDevice(g_audio_device, audiopaused);
+        SDL_PauseAudioDevice(g_audio_device, !audio_running);
+    }
+    g_turbo = g_ui.turbo;
+
+    if (g_ui.req_reset) RtlReset(1);
+    if (g_ui.req_save_state) RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
+    if (g_ui.req_load_state) RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+    g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
+    if (g_ui.req_dump) {
+      Debug_DumpScreen(g_pixels);
+      BottomUi_Toast(Debug_LastMessage());
+      g_ui.req_dump = false;
     }
 
-    if (g_paused) {
-      SDL_Delay(16);
+    u64 t_logic = 0, t_draw = 0;
+    bool presented = false;
+    if (!g_ui.paused) {
+      // PPU drawing happens inside RtlRunFrame, so decide before running it.
+      bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
+      bool draw = g_ui.render_on && !turbo_skip && !(g_ui.frameskip && skip_render);
+      g_snes->disableRender = !draw;
+
+      u64 t0 = svcGetSystemTick();
+      int inputs = g_input1_state | g_gamepad_buttons;
+      is_replay = RtlRunFrame(inputs);
+      t_logic = svcGetSystemTick() - t0;
+      frameCtr++;
+      logic_window++;
+
+      if (draw) {
+        t0 = svcGetSystemTick();
+        DrawPpuFrame();
+        t_draw = svcGetSystemTick() - t0;
+        presented = true;
+      }
+    } else {
+      presented = true;   // keep the bottom screen alive while paused
+    }
+
+    perf.frames = frameCtr;
+    perf.audio_ms = g_audio_ms;
+    perf.audio_part_ms[0] = TicksToMs(g_audio_prof_last[kAudioProf_LockWait]);
+    perf.audio_part_ms[1] = TicksToMs(g_audio_prof_last[kAudioProf_SpcLoop]);
+    perf.audio_part_ms[2] = TicksToMs(g_audio_prof_last[kAudioProf_DspCycles]);
+    perf.audio_part_ms[3] = TicksToMs(g_audio_prof_last[kAudioProf_Resample]);
+    if (!g_ui.paused) {
+      // Light smoothing so the numbers are readable.
+      perf.logic_ms += (TicksToMs(t_logic) - perf.logic_ms) * 0.1f;
+      if (t_draw) perf.draw_ms += (TicksToMs(t_draw) - perf.draw_ms) * 0.1f;
+    }
+
+    // A skipped frame must not touch or swap the (double buffered) screens:
+    // swapping without drawing would show the frame before last.
+    bool swapped = false;
+    if (presented) {
+      swapped = true;
+      BottomUi_DrawTopOverlay(&perf);
+      BottomUi_Frame(&perf);
+      gfxFlushBuffers();
+      gfxSwapBuffers();
+      shown_window++;
+    } else if (BottomUi_Frame(&perf)) {
+      // Nothing new on the top screen (skipped frame, or PPU render off), but
+      // the UI changed: swap the bottom screen only.
+      gfxFlushBuffers();
+      gfxScreenSwapBuffers(GFX_BOTTOM, false);
+      swapped = true;
+    }
+
+    // Measure how long the whole iteration took, before the pacing delay.
+    u64 now = svcGetSystemTick();
+    float work_ms = TicksToMs(now - frame_start);
+    perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
+    if (!g_ui.paused)
+      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms);
+    float window_ms = TicksToMs(now - fps_window_start);
+    if (window_ms >= 1000.0f) {
+      perf.fps = shown_window * 1000.0f / window_ms;
+      perf.game_fps = logic_window * 1000.0f / window_ms;
+      fps_window_start = now;
+      logic_window = shown_window = 0;
+    }
+
+    if (g_ui.paused) {
+      if (swapped) gspWaitForVBlank();
+      else SDL_Delay(16);
+      frame_start = svcGetSystemTick();
       continue;
     }
 
-    int inputs = g_input1_state | g_gamepad_buttons;
-    uint8 is_replay = RtlRunFrame(inputs);
-
-    frameCtr++;
-    g_snes->disableRender = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
-
-    if (!g_snes->disableRender)
-      DrawPpuFrame();
-    // DrawBottomScreen();
-
-    gfxFlushBuffers();
-    gfxSwapBuffers();
+    // With time to spare, let the display pace us. Two swaps inside one vblank
+    // leave the next draw in the buffer that is being scanned out, which shows
+    // as torn, half-painted screens (seen first on the bottom UI).
+    if (swapped && work_ms < 15.0f) {
+      gspWaitForVBlank();
+      lastTick = SDL_GetTicks();   // locked to the display: drop accumulated drift
+      skip_render = false;
+      skipped_in_a_row = 0;
+      frame_start = svcGetSystemTick();
+      continue;
+    }
 
     // Frame delay for 60 fps
     static const uint8 delays[3] = { 17, 17, 16 };
@@ -442,15 +546,23 @@ int main(int argc, char** argv) {
         delta = 500;
       }
       SDL_Delay(delta);
-    } else if (curTick - lastTick > 500) {
-      lastTick = curTick;
+      skip_render = false;
+      skipped_in_a_row = 0;
+    } else {
+      // Already late for the next frame: skip drawing it, but not forever.
+      skip_render = (curTick - lastTick) >= 4 && skipped_in_a_row < kMaxSkipInARow;
+      skipped_in_a_row = skip_render ? skipped_in_a_row + 1 : 0;
+      if (curTick - lastTick > 500) lastTick = curTick;
     }
+    frame_start = svcGetSystemTick();
   }
 
   // Cleanup
+  BottomUi_Exit();
   SDL_PauseAudioDevice(g_audio_device, 1);
   SDL_CloseAudioDevice(g_audio_device);
   SDL_DestroyMutex(g_audio_mutex);
+  SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
   SDL_DestroyTexture(g_texture);
   SDL_DestroyRenderer(g_renderer);

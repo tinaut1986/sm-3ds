@@ -954,9 +954,7 @@ void RunOneFrameOfGame_Emulated(void) {
 void DrawFrameToPpu(void) {
   g_snes->hPos = g_snes->vPos = 0;
   while (!g_snes->cpu->nmiWanted) {
-    do {
-      snes_handle_pos_stuff(g_snes);
-    } while (g_snes->hPos != 0);
+    snes_handle_scanline(g_snes);
     if (g_snes->vIrqEnabled && (g_snes->vPos - 1) == g_snes->vTimer) {
       Vector_IRQ();
     }

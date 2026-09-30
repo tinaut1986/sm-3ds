@@ -102,8 +102,9 @@ Lessons from mzm that apply directly:
   *Spec:* `make sdl && make -j FULL_NATIVE=1 cia`, with a locally supplied
   ROM in `romfs/` (never committed).
   *Done when:* it boots in Azahar and on hardware.
-  Status: builds locally without a ROM (needed a `<sys/stat.h>` include for
-  current GCC). Not yet run.
+  Status: builds locally (needed a `<sys/stat.h>` include for current GCC).
+  2026-09-30: the CIA with the ROM baked in booted on a New 3DS (no bottom
+  screen at all). Emulator and Old 3DS not tried yet.
 - [ ] **P0.3** Measure the baseline.
   *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
@@ -123,6 +124,10 @@ Lessons from mzm that apply directly:
   `sdmc:/3ds/Super Metroid 3DS/`, any `.smc`/`.sfc`, strip a 512-byte copier
   header if present, verify sha1, clear error screen otherwise. Remove the ROM
   from `romfs/`. *Done when:* CIA built without a ROM boots with the ROM on SD.
+  Status 2026-09-30: implemented on `feat/rom-from-sd-bottom-ui`
+  (`source/rom_loader.c`, error screen in `main.c`); CIA is 2.2 MB without the
+  ROM. Not yet run on hardware. The emulator core already skips a 512-byte
+  header; the loader also strips it before hashing.
 - [ ] **P1.2** Saves on SD with absolute paths (same folder), SRAM flushed on
   save and on exit/home menu. *Done when:* save at a station, power off, power
   on, continue works on hardware.
@@ -133,6 +138,9 @@ Lessons from mzm that apply directly:
   a texture, scale with citro3d; stop drawing the game on the bottom screen.
   *Done when:* no per-pixel CPU copy remains in the frontend.
 - [ ] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay (from mzm).
+  Status 2026-09-30: 804 MHz is switched on at boot on New 3DS (toggle in the
+  Options tab); FPS/timing overlay and bottom-screen status exist
+  (`source/bottom_ui.c`). Frame pacing is still upstream's SDL_Delay loop.
 - [ ] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
   version, `build-release.yml` with beta/stable channel, CIA-only release, a
   README install section. *Done when:* a tag on a release branch produces a
@@ -144,11 +152,58 @@ Lessons from mzm that apply directly:
   the ROM.
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
+  Status 2026-09-30: touch tabs Status/Options/Debug with pause, turbo, audio,
+  FPS overlay, save state slots 0-9, reset. No remap, no config file yet.
+
+- [ ] **P1.8** Debug tooling like mzm's (`../mzm/docs/3ds-debug-tools.md`):
+  log to SD with marks, screen dumps (top framebuffer, PPU VRAM/CGRAM/OAM/regs,
+  WRAM), Samus/room state dump, all into `debug/` in the data folder and
+  fetchable over FTP. Needs a real crash handler too: Luma's "generic" dumps
+  carry no useful stack, so log to SD before risky calls and hook asserts.
+  *Done when:* a crash or a visual bug can be diagnosed from files on the SD.
+  Status 2026-09-30: first cut in `source/debug_tools.c`, all under `debug/`
+  in the data folder, reached from the Debug tab: log to SD with marks
+  (`sm-log-NN.txt`), screen dump set (`sm-dump-NN-{top.rgb,vram,cgram,oam,
+  highoam,wram}.bin`, `-ppu.txt`, `-game.txt`; top.rgb is 256x240 RGB8),
+  frame-time recorder (`sm-perf-NN.csv`, up to 3600 frames, per-frame logic/
+  draw/audio/work ms, game state, area, room) and `__assert_func` replaced so an
+  assert leaves `sm-crash.txt` before aborting. Ten rotating slots each; order
+  by mtime. Tested on the host only; not yet on hardware. Missing: built-in
+  viewer tools on the PC side (`tools/`), HDMA table dump, warp/teleport,
+  scene recorder, compile-time gating like mzm's `DEBUG_TOOLS=1`.
+- [ ] **P1.9** Bottom UI in the style of mzm's (`port_bottom_ui_3ds.c`, 5.5k
+  lines, citro2d), rewritten compactly for SM data, in stages. Current
+  `source/bottom_ui.c` is the stopgap. Keep all drawing behind a few
+  primitives (rect, text, icon) so it can move to citro2d with P1.3/P1.4.
+  - **A. Framework + Status:** tab bar with icons, items/equipment, energy,
+    ammo, boss and area progress, read from SM RAM (`variables.h`).
+  - **B. Cheats (god mode etc.):** write RAM after each `RtlRunFrame`: refill
+    health/reserves and ammo for god mode, give items/beams/suits, set tanks,
+    unlock map. Must also be recorded with `StateRecorder_RecordPatchByte` when
+    replay/save states are involved (see `RtlCheat` in `sm_rtl.c`).
+  - **C. Map tab:** live map from `map_tiles_explored` (RAM `$7F7`) and the room
+    headers in ROM (area, map x/y, width, height); Samus marker; area switch;
+    zoom/pan.
+  - **D. Warp:** room list by area, and tap-on-map to warp. Like mzm, warp to a
+    *door*, not a room: set `door_def_ptr` to a door definition whose
+    destination is the target room and let the game run its own transition
+    (`door_transition_*`). Needs a door-def scan of bank `$83`. Risk: transition
+    state consistency; test on hardware.
+  - **E. Debug tab:** what exists now plus HDMA/PPU dumps and the scene tools.
+  - Gating: debug tabs stay in every build until the first stable release, then
+    go behind `DEBUG_TOOLS=1` like mzm.
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
 - [ ] **P2.1** Profile. Port mzm's perf instrumentation; split frame time into
   game logic, PPU, audio, present. Write `docs/perf.md` with the numbers.
+- [x] **P2.0** Cheap CPU wins found by profiling (2026-09-30).
+  `snes_handle_pos_stuff` was 37-52 % of the frame on the host profile: it ran
+  154k times per frame, once per 2 master cycles, and only acts at hPos 0, 512
+  and 1024. `snes_handle_scanline` visits just those. Verified identical
+  (RAM, VRAM, CGRAM, OAM, pixels, audio hash) against the old loop for 4000
+  frames on the host; 5.0 s -> 3.4 s there. Also: table-driven top-screen
+  copy (5.0 -> 2.8 ms on a New 3DS).
 - [ ] **P2.2** Audio off the main thread: run the SPC/DSP on the syscore
   (Old 3DS) or core 2 (New 3DS), fed by a ring buffer. Evaluate cheaper DSP
   paths (interpolation, echo) behind an option if still too slow.
@@ -217,3 +272,56 @@ Lessons from mzm that apply directly:
   `release/vX.Y.Z` accumulates, topic branches merge back `--no-ff`, tags
   trigger the CIA build (Beta unless reachable from `main`). First line:
   `release/v0.1.0`, matching the version already in `resources/AppInfo`.
+- 2026-09-30: Bottom screen is software-drawn straight into the framebuffer
+  with `romfs/font.bmp` (8x8 ASCII grid), not citro2d like mzm: the game still
+  goes through SDL, and this needs no GPU state. Redraws only on change or
+  every 15 frames (the bottom screen is double buffered, so two frames per
+  change). Revisit when P1.3/P1.4 move presentation to citro3d. Touch comes
+  from SDL finger events, because calling `hidScanInput` ourselves would make
+  SDL miss button edges.
+- 2026-09-30: ROM lives in `sdmc:/3ds/Super Metroid 3DS/` (any `.smc`/`.sfc`,
+  first one whose headerless sha1 matches). Only the JU ROM is accepted; a
+  translation-patched ROM is rejected on purpose until we decide how to handle
+  those.
+- 2026-09-30: Load state crashed on the console: `StateRecorder_Load` asserted a
+  hard-coded state size (275493, x86-64). The 3DS writes 275559, so `assert`
+  called `abort()`. Now computed at runtime; incompatible states are refused.
+  Found by loading the console's `save0.sav` in a host ASAN harness, not from
+  the Luma dump (a "generic" dump only has the registers of an unrelated thread).
+- 2026-09-30: Everything is still CPU: game logic, the software PPU
+  (`sm/src/snes/ppu.c`), the SPC/DSP audio and a per-pixel copy to the top
+  framebuffer. Adaptive frameskip keeps game speed but does not make it
+  cheaper; the next data point is the timing split shown on the Status tab.
+
+- 2026-09-30: Decided NOT to optimise the software PPU drawing: the GPU
+  renderer (P2.3) replaces it, and the CPU PPU only remains as a fallback. The
+  work that matters for Old 3DS is what the GPU cannot take: game logic,
+  emulator stepping and the DSP audio (~4.9 ms per block on a New 3DS).
+  Baseline before P2.0 on a New 3DS, Landing Site, 1655 frames: logic 9.2 ms
+  without PPU drawing, 19.0 ms with it, 58 % of frames skipped.
+- 2026-09-30: After P2.0, New 3DS (804 MHz), Landing Site, 2025 frames, no
+  frame needed skipping: logic+PPU 11.4 ms avg (was 19.0), top copy 2.8 ms,
+  work per frame 15.3 ms avg / 23.1 p95 / 28.8 max, 22 % of frames over 16.7 ms
+  (absorbed by pacing, so it still shows 60). Headroom ~1.4 ms: nothing to spare
+  for Old 3DS. Audio block 4.8 ms on its own thread. Raw CSV not committed.
+- 2026-09-30: Audio findings (New 3DS, 1461 frames, all on): of the 4.97 ms audio
+  block, DSP cycles are 4.69, SPC driver loop 0.08, resample 0.15, mutex wait
+  ~0. SDL already runs the audio thread on the system core (core 1, 30 % CPU
+  cap), so the 4.7 ms wall is ~1.5 ms of CPU: the 90x gap to the host (54 us)
+  was mostly that cap. The real cost to the game thread was the lock: the
+  audio callback holds the APU mutex for a whole block and the game thread
+  took it every frame in RtlPushApuState, so it stalled up to a block (logic
+  p95 12 ms with audio on vs 1.1 with it off). Fix: separate small lock for the
+  port queue (RtlApuQueueLock); audio output verified bit-identical on the host.
+  The DSP is still the budget problem for Old 3DS (30 % of core 1 = ~5 ms per
+  frame, and the DSP alone is ~1.5 ms of CPU on New 3DS).
+- 2026-09-30: Bottom screen tearing ("flashes", half-painted triangles): the loop
+  never waited for vblank, so two swaps in one vblank left the next draw in the
+  buffer being scanned out. Now `gspWaitForVBlank` after a swap when the frame
+  took < 15 ms, and the pacing resyncs to it.
+- 2026-09-30: After the APU queue lock + vblank pacing, New 3DS, Landing Site,
+  1116 frames, all on: logic p95 9.99 ms (was 19.97), work avg 13.7 / p95 15.4 /
+  max 18.3 ms (was 23.7 / 29.6), no frame over 20 ms, no frame skipped. The
+  average did not move, only the stalls went away. Remaining per frame: logic
+  ~1 ms + PPU ~8.4 ms + top copy 2.8 ms on the game thread; DSP ~1.5 ms CPU on
+  the system core.

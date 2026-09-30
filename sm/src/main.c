@@ -213,6 +213,18 @@ void RtlApuUnlock(void) {
   SDL_UnlockMutex(g_audio_mutex);
 }
 
+// Separate from the audio mutex, which the audio callback holds for a whole
+// block: see RtlPushApuState.
+static SDL_mutex *g_apu_queue_mutex;
+
+void RtlApuQueueLock(void) {
+  SDL_LockMutex(g_apu_queue_mutex);
+}
+
+void RtlApuQueueUnlock(void) {
+  SDL_UnlockMutex(g_apu_queue_mutex);
+}
+
 static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
   if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
   while (len != 0) {
@@ -401,6 +413,7 @@ int main(int argc, char** argv) {
     return 1;
 
   g_audio_mutex = SDL_CreateMutex();
+  g_apu_queue_mutex = SDL_CreateMutex();
   if (!g_audio_mutex) Die("No mutex");
 
   g_spc_player = SpcPlayer_Create();
@@ -555,6 +568,7 @@ int main(int argc, char** argv) {
   SDL_PauseAudioDevice(g_audio_device, 1);
   SDL_CloseAudioDevice(g_audio_device);
   SDL_DestroyMutex(g_audio_mutex);
+  SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
 
   g_renderer_funcs.Destroy();

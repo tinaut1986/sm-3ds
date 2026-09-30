@@ -6,6 +6,7 @@
 #include "funcs.h"
 #include "spc_player.h"
 #include "util.h"
+#include "audio_prof.h"
 
 struct StateRecorder;
 
@@ -75,6 +76,19 @@ static void LoadSnesState(SaveLoadFunc *func, void *ctx) {
 
 static void SaveSnesState(SaveLoadFunc *func, void *ctx) {
   snes_saveload(g_snes, func, ctx);
+}
+
+static void countFunc(void *ctx, void *data, size_t data_size) {
+  *(size_t *)ctx += data_size;
+}
+
+// Size of a serialized state on this build. It depends on the padding of the
+// emulator structs, so it differs between e.g. x86-64 (275493) and 32-bit ARM
+// (275559); states are not portable across those.
+static size_t SnesStateSize(void) {
+  size_t n = 0;
+  SaveSnesState(&countFunc, &n);
+  return n;
 }
 
 typedef struct StateRecorder {
@@ -177,7 +191,7 @@ int GetFileSize(FILE *f) {
   return r;
 }
 
-void StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
+bool StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
   uint32 hdr[16] = { 0 };
 
   bool is_old = false;
@@ -193,6 +207,12 @@ void StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
 
   } else {
     assert(0);
+  }
+
+  // Refuse a state written by an incompatible build before touching anything.
+  if (!replay_mode && hdr[6] != SnesStateSize()) {
+    printf("Incompatible save state: %u bytes, expected %u\n", (unsigned)hdr[6], (unsigned)SnesStateSize());
+    return false;
   }
 
   sr->total_frames = hdr[1];
@@ -229,8 +249,6 @@ void StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
     sr->replay_frame_counter = hdr[8];
     sr->replay_mode = (sr->replay_frame_counter != 0);
 
-    assert(hdr[6] == 275493);
-
     ByteArray arr = { 0 };
     ByteArray_Resize(&arr, hdr[6]);
     ReadFromFile(f, arr.data, arr.size);
@@ -251,6 +269,7 @@ void StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
   // Temporarily fix reset state
 //  if (g_snes->cpu->k == 0x82 && g_snes->cpu->pc == 0xf716)
 //    g_snes->cpu->pc = 0xf71c;
+  return true;
 }
 
 void StateRecorder_Save(StateRecorder *sr, FILE *f, bool saving_with_bug) {
@@ -465,9 +484,14 @@ void RtlSaveLoad(int cmd, int slot) {
       return;
     }
     RtlApuLock();
-    StateRecorder_Load(&state_recorder, f, cmd == kSaveLoad_Replay);
-    ppu_copy(g_snes->my_ppu, g_snes->ppu);
+    bool loaded = StateRecorder_Load(&state_recorder, f, cmd == kSaveLoad_Replay);
+    if (loaded)
+      ppu_copy(g_snes->my_ppu, g_snes->ppu);
     RtlApuUnlock();
+    if (!loaded) {
+      fclose(f);
+      return;
+    }
     RtlSynchronizeWholeState();
     fclose(f);
 
@@ -585,8 +609,11 @@ static bool IsFrameEmpty(ApuWriteEnt *w) {
   return (w->ports[0] == 255) && (w->ports[1] == 255) && (w->ports[2] == 255) && (w->ports[3] == 255);
 }
 
+// The queue has its own small lock so the game thread can push its per-frame
+// port writes without waiting for the audio thread, which holds the big APU
+// lock for a whole audio block. Lock order: RtlApuLock, then the queue lock.
 void RtlPushApuState(void) {
-  RtlApuLock();
+  RtlApuQueueLock();
   if (!is_uploading_apu) {
     // Strive for the queue to be empty.
     if (g_apu_queue_size == 0) {
@@ -594,7 +621,7 @@ void RtlPushApuState(void) {
     } else {
       if (g_apu_time_since_empty >= 32 && IsFrameEmpty(&g_apu_write)) {
         g_apu_time_since_empty -= 4;
-        RtlApuUnlock();
+        RtlApuQueueUnlock();
         return;
       }
       g_apu_time_since_empty++;
@@ -615,7 +642,7 @@ void RtlPushApuState(void) {
   } else {
     g_apu_queue_size = 0;
   }
-  RtlApuUnlock();
+  RtlApuQueueUnlock();
 }
 
 static void RtlPopApuState_Locked(void) {
@@ -623,6 +650,7 @@ static void RtlPopApuState_Locked(void) {
     return;
 
   uint8 *input_ports = g_use_my_apu_code ? g_spc_player->input_ports : g_snes->apu->inPorts;
+  RtlApuQueueLock();
   if (g_apu_queue_size != 0) {
     ApuWriteEnt *w = &g_apu_write_ents[(g_apu_write_ent_pos - g_apu_queue_size--) & (kApuMaxQueueSize - 1)];
     for (int i = 0; i != 4; i++) {
@@ -630,11 +658,14 @@ static void RtlPopApuState_Locked(void) {
         input_ports[i] = w->ports[i];
     }
   }
+  RtlApuQueueUnlock();
 }
 
 static void RtlResetApuQueue(void) {
+  RtlApuQueueLock();
   g_apu_write_ent_pos = g_apu_time_since_empty = g_apu_queue_size = 0;
   memset(&g_apu_write, 0xff, sizeof(g_apu_write));
+  RtlApuQueueUnlock();
 }
 
 void RtlApuUpload(const uint8 *p) {
@@ -675,9 +706,16 @@ void RtlSaveMusicStateToRam_Locked(void) {
   }
 }
 
+#ifdef __3DS__
+volatile uint64_t g_audio_prof_last[kAudioProf_Count];
+uint64_t g_audio_prof_cur[kAudioProf_Count];
+#endif
+
 void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
   assert(channels == 2);
+  uint64_t t_start = AUDIO_PROF_NOW();
   RtlApuLock();
+  AUDIO_PROF_ADD(kAudioProf_LockWait, t_start);
 
   RtlPopApuState_Locked();
 
@@ -689,10 +727,19 @@ void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
     }
   } else {
     SpcPlayer_GenerateSamples(g_spc_player);
+    uint64_t t_resample = AUDIO_PROF_NOW();
     dsp_getSamples(g_spc_player->dsp, audio_buffer, samples);
+    AUDIO_PROF_ADD(kAudioProf_Resample, t_resample);
   }
 
   RtlApuUnlock();
+#ifdef __3DS__
+  AUDIO_PROF_ADD(kAudioProf_Total, t_start);
+  for (int i = 0; i < kAudioProf_Count; i++) {
+    g_audio_prof_last[i] = g_audio_prof_cur[i];
+    g_audio_prof_cur[i] = 0;
+  }
+#endif
 }
 
 void RtlCheat(char c) {
