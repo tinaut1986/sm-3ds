@@ -2,8 +2,9 @@
 
 Living document. Read it at the start of every session; update it at the end.
 
-**Active release branch:** `release/v0.1.0` (no tags yet). All topic branches so
-far are merged into it and deleted.
+**Active release branch:** `release/v0.1.0`. First beta `v0.1.0` tagged
+2026-10-01 (GitHub release "Beta v0.1.0", CIA + QR). All topic branches so far are
+merged into it and deleted.
 
 ## Next up (updated 2026-10-01)
 
@@ -15,13 +16,11 @@ order that makes sense:
 
 1. **P2.3** GPU PPU renderer: write `docs/gpu-ppu-design.md` first. Biggest win
    (~8.4 ms PPU + 2.8 ms copy per frame on New 3DS) and the base for stereo 3D.
-2. **P1.6** only the first beta tag is left (`v0.1.0` on `release/v0.1.0`); the
-   version, `ftp` target, build assistant and README are done.
-3. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
+2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
    no Old 3DS numbers at all).
-4. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
-5. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present); fits with P2.3.
-6. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
+3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
+4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present); fits with P2.3.
+5. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
   finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
@@ -163,11 +162,12 @@ Lessons from mzm that apply directly:
   Done 2026-09-30, checked on hardware: 804 MHz at boot (Options toggle, saved),
   vblank-locked pacing with adaptive frameskip, FPS/timing overlay on the top
   screen, timing split on the Debug tab.
-- [ ] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
+- [x] **P1.6** Build/CI/release: copy mzm's Makefile targets, git-derived
   version, `build-release.yml` with beta/stable channel, CIA-only release, a
   README install section. *Done when:* a tag on a release branch produces a
   "Beta" GitHub release with the CIA.
-  Status 2026-10-01: all done except the proof: no tag pushed yet. Version from
+  Done 2026-10-01: tag `v0.1.0` on `release/v0.1.0` produced "Beta v0.1.0" with
+  `sm-3ds-v0.1.0.cia` and the QR (Actions run 36790298623). Version from
   git (mzm's scheme, `make print-version`; `build/version.h` is generated,
   `resources/AppInfo` has no version any more), `ftp` target, `build_3ds.sh`
   assistant (LAN scan + FTP upload, tested against the console), README rewritten
