@@ -2,11 +2,11 @@
 
 Living document. Read it at the start of every session; update it at the end.
 
-**Active release branch:** `release/v0.1.2` (renamed from `release/v0.1.1` after
-tagging the beta `v0.1.1` on 2026-10-01: GPU renderer on by default, Old 3DS at ~60 fps
-in gameplay, cheaper audio, exit and soft-reset crashes fixed). `v0.1.0` was the first
-beta. All topic branches so far are merged and deleted (`feat/gpu-ppu` still exists on
-the remote, merged).
+**Active release branch:** `release/v0.1.3` (renamed from `release/v0.1.2` after the
+first stable release `v0.1.2` on 2026-10-01: merged into `main`, GitHub "Release
+v0.1.2", built without the debug tools). Betas `v0.1.0` and `v0.1.1` came before it.
+All topic branches are merged and deleted (`feat/gpu-ppu` still exists on the remote,
+merged).
 
 ## Next up (updated 2026-10-01)
 
