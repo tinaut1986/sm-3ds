@@ -288,7 +288,8 @@ Lessons from mzm that apply directly:
 - [ ] **P5.1** Full 100% playthrough on hardware, bugs filed as issues.
 - [ ] **P5.2** Any-% and known sequence breaks (wall jumps, shinespark,
   mockball) behave like the original.
-- [ ] **P5.3** First stable release (minor bump; ask first).
+- [x] **P5.3** First stable release. Done 2026-10-01 as `v0.1.2` (the owner chose a patch
+  number, not a minor bump): Release builds come without DEBUG_TOOLS, betas keep them.
 
 ---
 
