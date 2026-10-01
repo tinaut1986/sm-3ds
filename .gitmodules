@@ -2,6 +2,3 @@
 	path = SDL
 	url = https://github.com/libsdl-org/SDL.git
 	branch = SDL2
-[submodule "sm"]
-	path = sm
-	url = git@github.com:CharlesAverill/sm-3ds-lib.git

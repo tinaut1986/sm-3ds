@@ -97,3 +97,8 @@ source/lang/parser/parser*.*pp
 source/lang/parser/*.output
 source/lang/parser/*.report
 source/lang/parser/*.hh
+*.sfc
+*.SMC
+*.SFC
+.3ds_ftp_ip
+__pycache__/
