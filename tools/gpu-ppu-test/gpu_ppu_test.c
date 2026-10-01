@@ -257,6 +257,14 @@ int main(int argc, char **argv) {
       if (i % 100 == 0) printf("%s\n", label);
       g_input = (i % 60 < 6) ? (i % 120 < 60 ? START : A) : 0;
       if (game_state == 8) g_input = 0;
+      // MASH_B=N: from the file-select map on, B on every other frame for N frames.
+      static int mash_left = -1;
+      if (getenv("MASH_B") && mash_left < 0 && game_state == 5) mash_left = atoi(getenv("MASH_B"));
+      if (mash_left > 0) {
+        mash_left--;
+        g_input = (i & 1) ? 0x01 : 0;
+        if (i % 20 == 0) printf("mash: frame %d state %02x coroutine %04x\n", i, (unsigned)game_state, (unsigned)coroutine_state_0);
+      }
       TestFrame(label, i % 10 == 0);
     }
     Report();
