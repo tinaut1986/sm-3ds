@@ -10,9 +10,11 @@
 // It reproduces what the CPU renderer (PpuDrawWholeLine, mode 1) draws, including
 // its quirks: BG3 priority-1 tiles always on top, the first sprite in OAM order wins
 // over later ones whatever their priority. Not reproduced: the 32 sprites / 34 tiles
-// per line limits. A layer window that hides part of a line is drawn by cutting the
-// layer's quads to the visible spans. Frames it cannot draw (mode 7, a colour window
-// that splits a line while clip or prevent-math use it, VRAM written mid-frame, ...)
+// per line limits. A colour window that splits a line becomes rectangles of clip /
+// no-math per band. Mode 7 (one 1024x1024 plane, any matrix per line) is drawn as one
+// affine quad per line. A layer window that hides part of a line is drawn by cutting the
+// layer's quads to the visible spans. Frames it cannot draw (mode 7 EXTBG, VRAM written
+// mid-frame, ...)
 // are refused, and the caller draws them with the CPU.
 #pragma once
 
@@ -49,6 +51,9 @@ enum {
   kGpuQuadFlipY = 2,
   kGpuQuadObj = 4,    // sprite: drawn first, the first sprite on a pixel wins
   kGpuQuadMath = 8,   // colour math applies where this quad is the visible pixel
+  // Mode 7: the texel comes from ax/ay/adx/ady/ardx/ardy below instead of sx/sy.
+  kGpuQuadAffine = 16,
+  kGpuQuadBorder = 32,   // affine: transparent outside the 1024x1024 plane (else it wraps)
 };
 
 typedef struct {
@@ -57,6 +62,11 @@ typedef struct {
   uint8_t tex;          // index into GpuFrame.tex
   uint8_t level;        // priority 1..15, higher wins over lower (the backdrop is 0)
   uint8_t flags;
+  // kGpuQuadAffine: plane position of the quad's top-left pixel, its step per pixel and
+  // per row, in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: pixel
+  // (x + i, y + r) shows texel ((ax + adx*i + ardx*r) >> 8, (ay + ady*i + ardy*r) >> 8),
+  // both & 1023.
+  int32_t ax, ay, adx, ady, ardx, ardy;
 } GpuQuad;
 
 // Lines that share every register except the BG scrolls. Within a band, a pixel's
@@ -80,9 +90,17 @@ typedef struct {
   uint16_t fixed;          // BGR555
   int main_first, main_count;   // quads; sprites come first
   int sub_first, sub_count;
+  // A colour window that splits lines: rectangles where, on top of `clip` and `math`,
+  // the main colour is clipped to black and/or colour math is prevented.
+  int cw_first, cw_count;
 } GpuBand;
 
-enum { kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224 };
+typedef struct {
+  int16_t x, y, w, h;
+  bool clip, no_math;
+} GpuCwRect;
+
+enum { kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224, kGpuMaxCwRects = 1024 };
 
 typedef struct {
   GpuTex *tex[kGpuMaxTex];
@@ -91,6 +109,8 @@ typedef struct {
   int quad_count;
   GpuBand bands[kGpuMaxBands];
   int band_count;
+  GpuCwRect cw[kGpuMaxCwRects];
+  int cw_count;
 } GpuFrame;
 
 // Implemented by the backend. Texels start out as zero (transparent).
@@ -108,7 +128,7 @@ void GpuPpu_Invalidate(void);
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason);
 
 typedef struct {
-  int surfaces, tiles_decoded, sprites, screen_rows_composed;
+  int surfaces, tiles_decoded, sprites, screen_rows_composed, m7_cells_decoded;
   // Time per stage of the last build, in g_gpu_ppu_clock units (0 without a clock):
   // line analysis + bands, VRAM/CGRAM diff, sprites, BG surfaces and quads, shadow copy.
   uint64_t t_lines, t_diff, t_sprites, t_bg, t_shadow;

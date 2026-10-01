@@ -16,10 +16,14 @@ WORK=${WORK:-/tmp/sm-gpu-ppu-test}
 mkdir -p "$WORK/saves"
 S=$ROOT/sm
 SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c")
-gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -g -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/SDL/include" \
-    -I"$ROOT/SDL/build/include" -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE -w $SRCS \
-    "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" \
-    "$ROOT/tools/gpu-ppu-test/gpu_ppu_test.c" -o "$WORK/gpu_ppu_test" -lm
+# NO_BUILD=1: reuse $WORK/gpu_ppu_test (tools/test copies one build to every test)
+if [ -z "$NO_BUILD" ]; then
+  gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -g -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/SDL/include" \
+      -I"$ROOT/SDL/build/include" -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE -w $SRCS \
+      "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" \
+      "$ROOT/tools/gpu-ppu-test/gpu_ppu_test.c" -o "$WORK/gpu_ppu_test" -lm
+fi
+[ "$2" = build ] && exit 0   # tools/test: compile only
 rm -f "$WORK"/diff-*.ppm
 if [ "$MODE" = state ] || [ "$MODE" = pbomb ]; then
   cp "$(realpath "$3")" "$WORK/saves/save9.sav"

@@ -167,7 +167,7 @@ void SmWarp_AfterFrame(void) {
   // standing facing the screen while Samus_Func16 plays the load fanfare for about six
   // seconds with the controls locked. End that state now, the way PlaySamusFanfare does when
   // it finishes: normal gameplay handlers, a standing pose facing into the room, and the
-  // room's music (the fanfare would have queued it).
+  // room's music.
   frame_handler_alfa = FUNC16(Samus_FrameHandlerAlfa_Func11);
   frame_handler_beta = FUNC16(Samus_FrameHandlerBeta_Func17);
   substate = 0;
@@ -175,6 +175,19 @@ void SmWarp_AfterFrame(void) {
   samus_pose_x_dir = g_face_left ? 4 : 8;
   samus_prev_pose = samus_last_different_pose = samus_pose;
   samus_prev_pose_x_dir = samus_last_different_pose_x_dir = samus_pose_x_dir;
+  // Music: start from an empty queue, then queue what entering the room through a door
+  // would. The load queued the fanfare (a stop held for 360 frames) and the area's bank;
+  // on top of that, a second warp within those 6 s overflowed the 8-entry queue, which
+  // has no full check: read == write with entries left in it, and the next door then
+  // waited forever in DoorTransition_WaitForMusicToClear (2DS freeze in Maridia,
+  // 2026-10-01). LoadRoomMusic compares with the bank actually uploaded, so a bank upload
+  // dropped here is queued again.
+  for (int i = 0; i < 8; i++) music_queue_track[i] = music_queue_delay[i] = 0;
+  music_queue_read_pos = music_queue_write_pos;
+  music_timer = 0;
+  music_entry = 0;
+  LoadRoomMusic();
+  UpdateMusicTrackIndex();
   PlayRoomMusicTrackAfterAFrames(16);
   const uint16_t arrive_x = samus_x_pos, arrive_y = samus_y_pos;
   (void)arrive_x; (void)arrive_y;   // only printed by the host test

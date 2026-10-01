@@ -224,7 +224,7 @@ EMPTY :=
 SPACE := $(EMPTY) $(EMPTY)
 OUTPUT_FILE := $(OUTPUT_DIR)/$(subst $(SPACE),,$(APP_TITLE))
 
-.PHONY: $(BUILD) clean all format clean_sdl print-version ftp
+.PHONY: $(BUILD) clean all format clean_sdl print-version ftp test
 
 #---------------------------------------------------------------------------------
 # Initial Targets
@@ -240,6 +240,11 @@ cia: $(BUILD) $(OUTPUT_DIR)
 
 print-version:
 	@echo $(VERSION)
+
+# Host regression tests (tools/test/README.md). Needs the ROM: make test SM_ROM=/path/rom.sfc
+# Add TEST_ARGS=--full for the teleport test too.
+test:
+	@tools/test/run.sh $(TEST_ARGS) "$(SM_ROM)"
 
 # Build the CIA and upload it to the console's FTP server as
 # cias/sm-3ds-<VERSION>.cia (install it from there with FBI).

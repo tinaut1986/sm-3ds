@@ -581,4 +581,35 @@ Lessons from mzm that apply directly:
   `kGameStateFuncs` with 0xffff. Now it sets `coroutine_state_0 = 3` (Vector_RESET_Async)
   there too. Reproduced and checked on the host: `MASH_B=400 tools/gpu-ppu-test/run.sh
   ROM boot SRAM` (B every other frame from the file-select map on). Not GPU related.
+- 2026-10-01: Mode 7 on the GPU (title, intro, Ceres; the 2DS showed ~22-30 fps there on
+  the CPU renderer). SM only uses one matrix per frame, but rows are emitted per line,
+  so perspective would work too. Host: new game from power-on through Ceres (9000
+  frames) and every room identical to the CPU renderer, nothing refused any more.
+  Bug found on the way: VRAM change marks are cleared after every frame built, so the
+  mode 7 plane must take note of them on every frame, not only on mode 7 frames.
+- 2026-10-01: Norfair heat (demo in the intro, 2DS ~36 fps): BG2/BG3 vertical scroll on
+  every line made the frame build compose 193 rows per layer on the CPU (~15 ms). Now one
+  quad per scroll run however many (the GPU never waits on the 2DS); composing is only
+  the fallback when quads would not fit. Mode 7 rows with linear starts merge into one
+  quad (title: 224 -> 1).
+- 2026-10-01: Ceres exploding (escape cutscene, DF45, 269 frames at ~23 fps on the 2DS)
+  used a colour window that splits lines with prevent-math "inside". Now drawn on the
+  GPU as per-band clip / no-math rectangles. Reproduced on the host with
+  `CERES_BOOM=1 tools/gpu-ppu-test/run.sh ROM boot EMPTY.srm 10500` (new game, then
+  game_state 0x20 in DF45). With that, no frame of a new game through Ceres, the demo,
+  every room, a power bomb or the file-select screens is refused any more.
+- 2026-10-01: Maridia water (per-line horizontal scroll): submit ~7 ms on the 2DS because
+  per-line quads alternated the two priority textures (a texture switch and a new draw
+  batch per quad). Runs are now emitted priority 0 first, then 1.
+- 2026-10-01: Freeze at a door in Maridia (2DS; game logic stuck, frontend fine): the
+  teleport stacked music queue entries (load fanfare: a stop held 360 frames, plus the
+  room music) and a second warp within 6 s overflowed the 8-entry queue, which has no
+  full check; HasQueuedMusic then stayed true and DoorTransition_WaitForMusicToClear never
+  finished. Diagnosed from the WRAM in a screen dump. The warp now empties the queue on
+  arrival and queues what a door would. Only the teleport (a debug tool) could do this.
+- 2026-10-01: Host regression suite, `make test SM_ROM=...` (tools/test/README.md):
+  DSP fuzz, GPU list vs CPU renderer (every room, new game through Ceres exploding, power
+  bomb, soft resets), music queue under repeated warps, audio hash, optional warp test.
+  ~90 s. Expected hashes in tools/test/expected.txt (`--update` after an intended change).
+  Run it before merging anything that touches the game, the renderer or the audio.
 

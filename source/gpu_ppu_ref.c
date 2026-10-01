@@ -23,8 +23,18 @@ static void DrawRow(const GpuFrame *f, int first, int count, int row, Px *px) {
       const bool obj = qd->flags & kGpuQuadObj;
       if (obj ? p->obj : qd->level <= p->level) continue;
       const int dx = x - qd->x;
-      const int tx = (qd->sx + ((qd->flags & kGpuQuadFlipX) ? qd->w - 1 - dx : dx)) & (t->w - 1);
-      const uint16_t v = t->px[GpuTexelIndex(tx, ty, t->w)];
+      uint16_t v;
+      if (qd->flags & kGpuQuadAffine) {
+        // Mode 7, the CPU renderer's arithmetic: wraps at 32 bits, and with the large
+        // field anything outside 0..1023 (either way) is transparent.
+        const uint32_t xpos = (uint32_t)qd->ax + (uint32_t)qd->adx * (uint32_t)dx + (uint32_t)qd->ardx * (uint32_t)dy;
+        const uint32_t ypos = (uint32_t)qd->ay + (uint32_t)qd->ady * (uint32_t)dx + (uint32_t)qd->ardy * (uint32_t)dy;
+        if ((qd->flags & kGpuQuadBorder) && (xpos | ypos) > 0x3ffff) continue;
+        v = t->px[GpuTexelIndex((xpos >> 8) & 1023, (ypos >> 8) & 1023, t->w)];
+      } else {
+        const int tx = (qd->sx + ((qd->flags & kGpuQuadFlipX) ? qd->w - 1 - dx : dx)) & (t->w - 1);
+        v = t->px[GpuTexelIndex(tx, ty, t->w)];
+      }
       if (!(v & 1)) continue;
       p->r = v >> 11;
       p->g = (v >> 6) & 31;
@@ -59,12 +69,23 @@ void GpuRef_DrawFrame(const GpuFrame *f, uint8_t *out, int pitch) {
       memset(sub, 0, sizeof(sub));
       DrawRow(f, b->main_first, b->main_count, row, main);
       DrawRow(f, b->sub_first, b->sub_count, row, sub);
+      bool clip[256], no_math[256];
+      memset(clip, b->clip, sizeof(clip));
+      memset(no_math, 0, sizeof(no_math));
+      for (int i = b->cw_first; i < b->cw_first + b->cw_count; i++) {
+        const GpuCwRect *c = &f->cw[i];
+        if (row < c->y || row >= c->y + c->h) continue;
+        for (int x = c->x; x < c->x + c->w && x < 256; x++) {
+          clip[x] |= c->clip;
+          no_math[x] |= c->no_math;
+        }
+      }
       const int fr = b->fixed & 31, fg = (b->fixed >> 5) & 31, fb = (b->fixed >> 10) & 31;
       for (int x = 0; x < 256; x++) {
         const Px *p = &main[x];
-        int r = b->clip ? 0 : p->r, g = b->clip ? 0 : p->g, bl = b->clip ? 0 : p->b;
+        int r = clip[x] ? 0 : p->r, g = clip[x] ? 0 : p->g, bl = clip[x] ? 0 : p->b;
         const uint8_t *m = map;
-        if (b->math && p->math) {
+        if (b->math && p->math && !no_math[x]) {
           int r2 = fr, g2 = fg, b2 = fb;
           if (b->add_subscreen && sub[x].set) {
             r2 = sub[x].r, g2 = sub[x].g, b2 = sub[x].b;
