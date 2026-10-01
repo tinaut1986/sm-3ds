@@ -10,8 +10,10 @@
 // It reproduces what the CPU renderer (PpuDrawWholeLine, mode 1) draws, including
 // its quirks: BG3 priority-1 tiles always on top, the first sprite in OAM order wins
 // over later ones whatever their priority. Not reproduced: the 32 sprites / 34 tiles
-// per line limits. Frames it cannot draw (mode 7, windows that split a line, VRAM
-// written mid-frame, ...) are refused, and the caller draws them with the CPU.
+// per line limits. A layer window that hides part of a line is drawn by cutting the
+// layer's quads to the visible spans. Frames it cannot draw (mode 7, a colour window
+// that splits a line while clip or prevent-math use it, VRAM written mid-frame, ...)
+// are refused, and the caller draws them with the CPU.
 #pragma once
 
 #include <stdbool.h>

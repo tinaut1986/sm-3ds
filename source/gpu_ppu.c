@@ -67,11 +67,21 @@ static void WinCalc(Win *win, const PpuLineState *st, int layer) {
 
 typedef struct {
   uint8_t main, sub;     // layers that draw on this line (TM/TS minus fully windowed)
+  uint8_t partial[2];    // of those, layers a window hides on part of the line, per screen
   bool clip, math_ok;    // colour window outcome, uniform over the line
 } LineInfo;
 
-// Fills `info`; returns NULL if the line can be drawn, else why not.
-static const char *AnalyzeLine(const PpuLineState *st, LineInfo *info) {
+// Where a partially windowed layer is visible on a line: up to 3 pixel spans [x0, x1).
+// Kept apart from LineInfo, which is part of the band key: the spans may change on every
+// line of a band (power bomb, the file-select map) without splitting it.
+typedef struct {
+  uint8_t n;
+  int16_t x[3][2];
+} WinSpans;
+static WinSpans g_spans[kPpuCaptureLines][2][5];   // [line][screen][layer]
+
+// Fills `info` (and g_spans[line]); returns NULL if the line can be drawn, else why not.
+static const char *AnalyzeLine(const PpuLineState *st, LineInfo *info, int line) {
   memset(info, 0, sizeof(*info));
   if (st->forcedBlank) return NULL;
   if (st->mode != 1) return "mode is not 1";
@@ -82,14 +92,35 @@ static const char *AnalyzeLine(const PpuLineState *st, LineInfo *info) {
       if (!(on & (1 << layer)) || !(st->screenWindowed[sub] & (1 << layer))) continue;
       Win w;
       WinCalc(&w, st, layer);
-      if (w.nr > 1) return "window splits a line";
-      if (w.bits & 1) on &= ~(1 << layer);
+      // Segment i is [edges[i], edges[i+1]); its bit set means the window hides it.
+      const uint8_t all = (uint8_t)((1 << w.nr) - 1);
+      if ((w.bits & all) == all) {
+        on &= ~(1 << layer);
+      } else if (w.bits & all) {
+        WinSpans *sp = &g_spans[line][sub][layer];
+        sp->n = 0;
+        for (int i = 0; i < w.nr; i++) {
+          if (w.bits & (1 << i)) continue;
+          if (sp->n && sp->x[sp->n - 1][1] == w.edges[i]) {   // joins the previous span
+            sp->x[sp->n - 1][1] = w.edges[i + 1];
+          } else {
+            if (sp->n == 3) return "window splits a line in more than 3";
+            sp->x[sp->n][0] = w.edges[i];
+            sp->x[sp->n][1] = w.edges[i + 1];
+            sp->n++;
+          }
+        }
+        info->partial[sub] |= 1 << layer;
+      }
     }
     if (sub) info->sub = on; else info->main = on;
   }
+  // The colour window only matters when clip or prevent-math is "inside" or "outside"
+  // (modes 1, 2); "never" and "always" do not look at it.
+  const bool cw_used = st->clipMode == 1 || st->clipMode == 2 || st->preventMathMode == 1 || st->preventMathMode == 2;
   Win cw;
   WinCalc(&cw, st, 5);
-  if (cw.nr > 1) return "colour window splits a line";
+  if (cw_used && cw.nr > 1) return "colour window splits a line";
   static const uint8_t kCwBitsMod[8] = { 0x00, 0xff, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00 };
   const uint32_t bits = (cw.bits & 1) ? 0xff : 0;
   const uint32_t clip_math = ((bits & kCwBitsMod[st->clipMode]) ^ kCwBitsMod[st->clipMode + 4]) |
@@ -110,6 +141,9 @@ static void MakeKey(LineKey *k, const PpuLineState *st, const LineInfo *info) {
   k->st = *st;
   for (int i = 0; i < 4; i++) k->st.bgLayer[i].hScroll = k->st.bgLayer[i].vScroll = 0;
   if (!st->objPriority) k->st.oamAdr = 0;
+  // Window bounds: their effect is in `info` (layers on/off, colour window) or, for a
+  // layer windowed on part of the line, in g_spans.
+  k->st.window1left = k->st.window1right = k->st.window2left = k->st.window2right = 0;
   k->st.evenFrame = false;
   k->st.mosaicSize = 0;
   memset(k->st.m7matrix, 0, sizeof(k->st.m7matrix));
@@ -466,6 +500,36 @@ static bool AddQuad(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int l
   return true;
 }
 
+static const LineInfo *g_info;   // per line, for the frame being built
+
+static bool SameSpans(const WinSpans *a, const WinSpans *b) {
+  return a->n == b->n && !memcmp(a->x, b->x, a->n * sizeof(a->x[0]));
+}
+
+// AddQuad for `layer` on screen `scr`: where a window hides that layer on part of the
+// lines, the quad is cut into the visible rectangles (rows with the same spans grouped),
+// each keeping the texels it showed, flips included.
+static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags, int scr,
+                       int layer) {
+  // Bands share LineInfo, so the band's first row tells whether the layer is partial.
+  if (!(g_info[y + 1].partial[scr] & (1 << layer))) return AddQuad(t, x, y, w, h, sx, sy, level, flags);
+  for (int r0 = y; r0 < y + h;) {
+    const WinSpans *sp = &g_spans[r0 + 1][scr][layer];
+    int r1 = r0 + 1;
+    while (r1 < y + h && SameSpans(sp, &g_spans[r1 + 1][scr][layer])) r1++;
+    for (int i = 0; i < sp->n; i++) {
+      const int x0 = sp->x[i][0] > x ? sp->x[i][0] : x;
+      const int x1 = sp->x[i][1] < x + w ? sp->x[i][1] : x + w;
+      if (x0 >= x1) continue;
+      const int qsx = (flags & kGpuQuadFlipX) ? sx + (x + w) - x1 : sx + (x0 - x);
+      const int qsy = (flags & kGpuQuadFlipY) ? sy + (y + h) - r1 : sy + (r0 - y);
+      if (!AddQuad(t, x0, r0, x1 - x0, r1 - r0, qsx, qsy, level, flags)) return false;
+    }
+    r0 = r1;
+  }
+  return true;
+}
+
 static bool EmitSprites(int y0, int y1, bool main) {
   for (int i = 0; i < g_sprite_count; i++) {
     const Sprite *sp = &g_sprites[i];
@@ -477,7 +541,7 @@ static bool EmitSprites(int y0, int y1, bool main) {
       const int h = r1 - r0, skip = r0 - top;
       // With a vertical flip the quad's last row shows texel row ay + size-1-skip-(h-1).
       const int sy = sp->vflip ? sp->ay + sp->size - h - skip : sp->ay + skip;
-      if (!AddQuad(&g_atlas, sp->x, r0, sp->size, h, sp->ax, sy, sp->level, flags)) return false;
+      if (!AddQuadWin(&g_atlas, sp->x, r0, sp->size, h, sp->ax, sy, sp->level, flags, main ? 0 : 1, 4)) return false;
     }
   }
   return true;
@@ -490,7 +554,7 @@ static const uint8_t kBgLevel[3][2] = { { 8, 12 }, { 7, 11 }, { 1, 15 } };
 static uint32_t g_composed[3][kGpuRows];   // frame number each screen-texture row was composed in
 
 // One BG layer over the band's lines [l0, l1] (output rows l0-1 .. l1-1).
-static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, int l0, int l1, bool math) {
+static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, int l0, int l1, bool math, int scr) {
   Surface *s = GetSurface(&cap->line[l0].bgLayer[layer], layer < 2 ? 4 : 2);
   if (!s) return "out of texture memory";
   SyncSurface(s, ppu);
@@ -509,7 +573,8 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
         b++;
       // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
       for (int prio = 0; prio < 2; prio++)
-        if (!AddQuad(&s->tex[prio], 0, a - 1, 256, b - a + 1, bg->hScroll, a + bg->vScroll, kBgLevel[layer][prio], flags))
+        if (!AddQuadWin(&s->tex[prio], 0, a - 1, 256, b - a + 1, bg->hScroll, a + bg->vScroll, kBgLevel[layer][prio],
+                        flags, scr, layer))
           return "too many quads";
       a = b + 1;
     }
@@ -543,7 +608,8 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   GpuBackend_TexWritten(t[0], l0 - 1, l1);
   GpuBackend_TexWritten(t[1], l0 - 1, l1);
   for (int prio = 0; prio < 2; prio++)
-    if (!AddQuad(&g_screen_tex[layer][prio], 0, l0 - 1, 256, l1 - l0 + 1, 0, l0 - 1, kBgLevel[layer][prio], flags))
+    if (!AddQuadWin(&g_screen_tex[layer][prio], 0, l0 - 1, 256, l1 - l0 + 1, 0, l0 - 1, kBgLevel[layer][prio], flags,
+                    scr, layer))
       return "too many quads";
   return NULL;
 }
@@ -564,7 +630,7 @@ static const char *EmitScreen(const Ppu *ppu, const PpuLineCapture *cap, uint8_t
   }
   const uint64_t t0 = Clock();
   for (int layer = 0; layer < 3; layer++)
-    if ((layers & (1 << layer)) && (err = EmitBg(ppu, cap, layer, l0, l1, main && st->mathEnabled[layer])))
+    if ((layers & (1 << layer)) && (err = EmitBg(ppu, cap, layer, l0, l1, main && st->mathEnabled[layer], main ? 0 : 1)))
       break;
   g_stats.t_bg += Clock() - t0;
   return err;
@@ -587,7 +653,8 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   if (cap->last_line < kGpuRows) { *reason = "frame shorter than 224 lines"; return false; }
   if (cap->midframe_data_writes) { *reason = "VRAM/CGRAM/OAM written mid-frame"; return false; }
   for (int l = 1; l <= kGpuRows; l++)
-    if ((*reason = AnalyzeLine(&cap->line[l], &info[l]))) return false;
+    if ((*reason = AnalyzeLine(&cap->line[l], &info[l], l))) return false;
+  g_info = info;
   if (!g_atlas.px && !GpuBackend_TexCreate(&g_atlas, kAtlasW, kAtlasH)) { *reason = "out of texture memory"; return false; }
 
   g_frame_no++;

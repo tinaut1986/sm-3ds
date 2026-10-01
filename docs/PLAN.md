@@ -568,3 +568,14 @@ Lessons from mzm that apply directly:
   0.04, sprites 0.5, BG 0.5, cgram copy 0.02), submit 1.0. A palette change re-decoding
   629 tiles now costs 4.3 ms (was up to 15). Audio: 0 late callbacks in steady play.
   Exit clean. Remaining headroom ~5.5 ms per frame for WIDE and stereo.
+- 2026-10-01: GPU renderer on by default in every build (production CIAs have no Debug
+  tab to switch it): 2DS ~60 fps against ~25 with the CPU renderer, and refused frames
+  go to the CPU renderer anyway. Superseded: "off by default" in the GPU entry above.
+- 2026-10-01: Crash on the 2DS (Luma dump, pc = 0, lr in RunOneFrameOfGameInner) while
+  pressing B repeatedly on the file-select screens: `SoftReset` (sm_81.c) only sets
+  `game_state = 0xffff`, which `RunOneFrameOfGame_Both` turns into a reset; the
+  FULL_NATIVE path (`RtlRunFrameCompare`, RM_MINE) did not, so the next frame indexed
+  `kGameStateFuncs` with 0xffff. Now it sets `coroutine_state_0 = 3` (Vector_RESET_Async)
+  there too. Reproduced and checked on the host: `MASH_B=400 tools/gpu-ppu-test/run.sh
+  ROM boot SRAM` (B every other frame from the file-select map on). Not GPU related.
+

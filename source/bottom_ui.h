@@ -43,7 +43,7 @@ typedef struct {
   bool audio_on;
   bool fps_overlay;      // small FPS counter on the top screen
   bool render_on;        // false: skip PPU drawing, to measure its cost
-  bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can
+  bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can; on by default
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   int save_slot;         // 0..9, for save states
   // One-shot requests, consumed by the main loop.

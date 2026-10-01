@@ -5,6 +5,7 @@
 # Usage: tools/gpu-ppu-test/run.sh ROM state STATE.sav [FRAMES]
 #        tools/gpu-ppu-test/run.sh ROM rooms [FRAMES] [ROOM_HEX]
 #        tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav [FRAMES]   (power bomb, every frame to pb-NNN.ppm)
+#        tools/gpu-ppu-test/run.sh ROM boot SRAM.srm [FRAMES]     (continue the first file, test from the load)
 # Mismatching frames are written to $WORK/diff-NN.ppm (CPU | GPU | difference).
 # Built 32-bit with -malign-double so console save states load (docs/debug-tools.md).
 set -e
@@ -24,6 +25,11 @@ if [ "$MODE" = state ] || [ "$MODE" = pbomb ]; then
   cp "$(realpath "$3")" "$WORK/saves/save9.sav"
   rm -f "$WORK"/pb-*.ppm
   cd "$WORK" && ./gpu_ppu_test "$ROM" $MODE "$3" ${4:-60} 2>&1 | grep -v "^Warning\|Unable\|v1=\|\*\*\* "
+elif [ "$MODE" = boot ]; then
+  # boot SRAM [FRAMES]: continue the first file of that SRAM and test from the load on
+  rm -f "$WORK"/saves/*
+  cp "$(realpath "$3")" "$WORK/saves/sm.srm"
+  cd "$WORK" && ./gpu_ppu_test "$ROM" boot ${4:-1500} 2>&1 | grep -v "^Warning\|Unable\|v1=\|\*\*\* \|RomPtr - Invalid"
 else
   cd "$WORK" && ./gpu_ppu_test "$ROM" rooms ${3:-20} $4 2>&1 | grep -v "^Warning\|Unable\|v1=\|\*\*\* "
 fi

@@ -1049,6 +1049,12 @@ void RtlRunFrameCompare(uint16 input, int run_what) {
     // g_snes->runningWhichVersion = 0xff;
     RunOneFrameOfGame();
     DrawFrameToPpu();
+    // 3DS port: SoftReset (B on the file-select screens, among others) only sets
+    // game_state to 0xffff, and RunOneFrameOfGame_Both turns that into a reset. Without
+    // this, the next frame indexed kGameStateFuncs with 0xffff and jumped to garbage
+    // (2DS crash, pc = 0, 2026-10-01). Coroutine state 3 runs Vector_RESET_Async.
+    if (game_state == 0xffff)
+      coroutine_state_0 = 3;
     // g_snes->runningWhichVersion = 0;
   } else {
     g_use_my_apu_code = true;
