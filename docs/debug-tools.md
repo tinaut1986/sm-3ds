@@ -27,7 +27,11 @@ release workflow passes `DEBUG_TOOLS=1` while every release is a beta (PLAN P5.3
 | STATES | 10 save-state slots (all builds). |
 
 DEBUG TOOLS window: SCREEN DUMP, FRAME DUMP, LOG TO SD, LOG MARK, PERF RECORDER,
-PPU RENDER (off = measure the game without the PPU), GIVE ALL, FULL HEAL.
+PPU RENDER (off = measure the game without the PPU), GIVE ALL, FULL HEAL, RENDERER
+(CPU / GPU, see docs/gpu-ppu-design.md) and GPU CHECK (draws the next frame with both
+renderers: a dump set whose `-top.rgb` is the CPU's and `-gpu.rgb` the GPU's, and a
+toast with how many pixels differ). Dumps and frame captures are always drawn by the
+CPU renderer, even with RENDERER on GPU.
 
 A loaded state or a reset turns MAX off without restoring (the state brings its own
 values) and forgets the forced maps.
@@ -46,6 +50,7 @@ or least recently written, so sort a listing by time, not by name.
 | `sm-dump-NN-ppu.txt` | PPU register state at the end of the frame |
 | `sm-dump-NN-game.txt` | game state, room, Samus |
 | `sm-dump-NN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
+| `sm-dump-NN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
 | `sm-log-NN.txt` | the SD log, one per LOG TO SD session |
 | `sm-perf-NN.csv` | frame-time recorder |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |

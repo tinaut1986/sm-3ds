@@ -14,8 +14,10 @@ cycle, save states load, the bottom UI (status, map, cheats, options, debug) and
 teleport work. Do not re-propose those as pending. What is actually open, in the
 order that makes sense:
 
-1. **P2.3** GPU PPU renderer: write `docs/gpu-ppu-design.md` first. Biggest win
-   (~8.4 ms PPU + 2.8 ms copy per frame on New 3DS) and the base for stereo 3D.
+1. **P2.3/P2.4** GPU PPU renderer: implemented on `feat/gpu-ppu`
+   (`docs/gpu-ppu-design.md`), pixel-identical to the CPU renderer on the PC over every
+   room, **never run on hardware yet**: switch RENDERER to GPU on the Debug tab, use
+   GPU CHECK, report what the calibration line and the toast say.
 2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
    no Old 3DS numbers at all).
 3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
@@ -228,7 +230,9 @@ Lessons from mzm that apply directly:
   lock. Open: the DSP itself (~1.5 ms CPU per frame on New 3DS, likely over the
   30 % core-1 budget on Old 3DS). Options: cheaper interpolation/echo behind a
   quality setting, or core 2 on New 3DS.
-- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`):
+- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
+  Status 2026-10-01: designed and implemented (see the doc); open: hardware.
+  Original spec:
   tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
   draw order/depth, colour math as blending, HDMA as per-scanline register
   tables (split strips or shader lookup), windows via stencil/scissor.
@@ -243,6 +247,8 @@ Lessons from mzm that apply directly:
   map.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
+  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host) and GPU CHECK
+  (console). Host: 2560 frames over every room identical; hardware not run.
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
@@ -490,3 +496,13 @@ Lessons from mzm that apply directly:
   line), so the stamp says which part wrote. Console save states load on the PC
   only in a 32-bit `-malign-double` build: that layout matches the 3DS's
   (275559 bytes); x86-64 is 275555 now.
+- 2026-10-01: GPU renderer architecture (docs/gpu-ppu-design.md): capture the
+  registers per line instead of drawing, build a draw list from the capture,
+  and fall back to the CPU renderer *from the same capture* (ppu_replayLines),
+  so a refused frame costs nothing extra and looks exactly like today. Verified
+  on the host by comparing normal render == capture replay == draw list run
+  in software (gpu_ppu_ref.c), on every room. The citro3d backend calibrates
+  what cannot be checked off the console (readback byte order, depth test
+  direction, render-target and transfer orientation) at start-up. Lazily
+  initialised and off by default, so the CPU path is untouched until the
+  RENDERER tool is used.
