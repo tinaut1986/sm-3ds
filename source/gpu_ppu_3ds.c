@@ -156,6 +156,39 @@ static void PushQuad(float x0, float y0, float x1, float y1, float z, float u0, 
 // The GPU reads the vertices only once the frame is submitted, so the cache is flushed
 // once per frame (EndFrame) rather than per batch: each flush is a system call, and a
 // frame has dozens of batches (2DS: ~3 ms of submit time per frame).
+// Like PushQuad, with the texture coordinates given at the left and right edges (the same
+// on top and bottom): an affine (mode 7) row.
+static void PushRowUV(float x0, float y0, float x1, float y1, float z, float ul, float vl, float ur, float vr) {
+  if (g_nverts + 6 > kMaxVerts) return;
+  Vtx *v = &g_vbo[g_nverts];
+  v[0] = (Vtx){ x0, y0, z, ul, vl };
+  v[1] = (Vtx){ x1, y0, z, ur, vr };
+  v[2] = (Vtx){ x0, y1, z, ul, vl };
+  v[3] = (Vtx){ x1, y0, z, ur, vr };
+  v[4] = (Vtx){ x1, y1, z, ur, vr };
+  v[5] = (Vtx){ x0, y1, z, ul, vl };
+  g_nverts += 6;
+}
+
+// Mode 7 row: the GPU samples pixel i at its centre, so the coordinate at the left edge
+// is half a step before the position of pixel 0. A small bias keeps exact texel
+// boundaries on the right side of the GPU's limited precision: with every value a
+// multiple of 64 (identity or simple scales) positions are quarter texels, and 1/8 texel
+// is safe; otherwise half a unit (1/512 texel).
+static void PushAffine(const GpuQuad *qd) {
+  enum { kPlane = 1024 * 256 };
+  const double bias = ((qd->ax | qd->ay | qd->adx | qd->ady) & 63) == 0 ? 32.0 : 0.5;
+  double px = qd->ax, py = qd->ay;
+  if (!(qd->flags & kGpuQuadBorder)) {   // it wraps: only the position within the plane matters
+    px = (double)((uint32_t)qd->ax % kPlane);
+    py = (double)((uint32_t)qd->ay % kPlane);
+  }
+  const double lx = px - 0.5 * qd->adx + bias, ly = py - 0.5 * qd->ady + bias;
+  const double rx = lx + (double)qd->adx * qd->w, ry = ly + (double)qd->ady * qd->w;
+  PushRowUV(qd->x, qd->y, qd->x + qd->w, qd->y + 1, LevelZ(qd->level), (float)(lx / kPlane), (float)(1.0 - ly / kPlane),
+            (float)(rx / kPlane), (float)(1.0 - ry / kPlane));
+}
+
 static void BatchDraw(void) {
   const int n = g_nverts - g_batch_first;
   if (n <= 0) return;
@@ -195,6 +228,7 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
   C3D_AlphaTest(true, GPU_GREATER, 0);
   int q = first;
   const GpuTex *bound = NULL;
+  int bound_wrap = -1;   // the texture's wrap mode: 0 repeat, 1 clamp to a transparent border
   int state = -1;   // 0 sprites, 1 sprites with math, 2 BG, 3 BG with math
   BatchBegin();
   for (; q < first + count; q++) {
@@ -202,11 +236,17 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
     const GpuTex *t = f->tex[qd->tex];
     const bool obj = qd->flags & kGpuQuadObj, math = track_math && (qd->flags & kGpuQuadMath);
     const int st = (obj ? 0 : 2) + math;
-    if (t != bound || st != state) {
+    const int wrap = (qd->flags & kGpuQuadBorder) ? 1 : 0;
+    if (t != bound || st != state || wrap != bound_wrap) {
       BatchDraw();
-      if (t != bound) {
-        C3D_TexBind(0, (C3D_Tex *)t->impl);
+      if (t != bound || wrap != bound_wrap) {
+        C3D_Tex *tex = (C3D_Tex *)t->impl;
+        const GPU_TEXTURE_WRAP_PARAM w = wrap ? GPU_CLAMP_TO_BORDER : GPU_REPEAT;
+        tex->border = 0;
+        C3D_TexSetWrap(tex, w, w);
+        C3D_TexBind(0, tex);
         bound = t;
+        bound_wrap = wrap;
       }
       if (st != state) {
         state = st;
@@ -220,6 +260,10 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
           C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
         }
       }
+    }
+    if (qd->flags & kGpuQuadAffine) {
+      PushAffine(qd);
+      continue;
     }
     float u0 = (float)qd->sx / t->w, u1 = (float)(qd->sx + qd->w) / t->w;
     float v0 = TexV(t, qd->sy), v1 = TexV(t, qd->sy + qd->h);

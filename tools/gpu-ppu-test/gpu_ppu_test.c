@@ -141,6 +141,36 @@ static void TestFrame(const char *label, bool check_capture) {
   if (!built) {
     g_refused++;
     NoteRefusal(why);
+    if (getenv("MODE7_SURVEY") && strstr(why, "mode")) {
+      // One line per distinct Mode 7 setup: modes on the frame's lines, whether the
+      // matrix changes between lines, field/fill/extbg, layers and colour math.
+      static char seen7[128][160];
+      int modes = 0, m7lines = 0, matrix_changes = 0, first = 0;
+      for (int l = 1; l <= g_cap.last_line && l < kPpuCaptureLines; l++) {
+        const PpuLineState *t = &g_cap.line[l];
+        if (t->forcedBlank) continue;
+        modes |= 1 << t->mode;
+        if (t->mode != 7) continue;
+        if (!first) first = l;
+        if (m7lines && memcmp(t->m7matrix, g_cap.line[first].m7matrix, 8 * 2)) matrix_changes++;
+        m7lines++;
+      }
+      if (first) {
+        const PpuLineState *m = &g_cap.line[first];
+        char key[160];
+        snprintf(key, sizeof(key), "modes %02x m7 lines %d matrix varies on %d | large %d fill %d extbg %d flip %d%d | main %02x sub %02x math %d%d%d%d%d%d add %d",
+                 modes, m7lines, matrix_changes ? 1 : 0, m->m7largeField, m->m7charFill, m->m7extBg, m->m7xFlip,
+                 m->m7yFlip, m->screenEnabled[0], m->screenEnabled[1], m->mathEnabled[0], m->mathEnabled[1],
+                 m->mathEnabled[2], m->mathEnabled[3], m->mathEnabled[4], m->mathEnabled[5], m->addSubscreen);
+        int k;
+        for (k = 0; k < 128 && seen7[k][0] && strcmp(seen7[k], key); k++) {}
+        if (k < 128 && !seen7[k][0]) {
+          strcpy(seen7[k], key);
+          printf("%s: %s | m7 %d %d %d %d %d %d\n", label, key, m->m7matrix[0], m->m7matrix[1], m->m7matrix[2],
+                 m->m7matrix[3], m->m7matrix[4], m->m7matrix[5]);
+        }
+      }
+    }
     if (getenv("WINDOW_SURVEY") && strstr(why, "window")) {
       // One line per distinct window setup: which layers are windowed where, the
       // colour-window modes, and the window bounds on a sample of lines.

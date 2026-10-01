@@ -10,9 +10,11 @@
 // It reproduces what the CPU renderer (PpuDrawWholeLine, mode 1) draws, including
 // its quirks: BG3 priority-1 tiles always on top, the first sprite in OAM order wins
 // over later ones whatever their priority. Not reproduced: the 32 sprites / 34 tiles
-// per line limits. A layer window that hides part of a line is drawn by cutting the
+// per line limits. Mode 7 (one 1024x1024 plane, any matrix per line) is drawn as one
+// affine quad per line. A layer window that hides part of a line is drawn by cutting the
 // layer's quads to the visible spans. Frames it cannot draw (mode 7, a colour window
-// that splits a line while clip or prevent-math use it, VRAM written mid-frame, ...)
+// that splits a line while clip or prevent-math use it, mode 7 EXTBG, VRAM written
+// mid-frame, ...)
 // are refused, and the caller draws them with the CPU.
 #pragma once
 
@@ -49,6 +51,9 @@ enum {
   kGpuQuadFlipY = 2,
   kGpuQuadObj = 4,    // sprite: drawn first, the first sprite on a pixel wins
   kGpuQuadMath = 8,   // colour math applies where this quad is the visible pixel
+  // Mode 7: the texel comes from ax/ay/adx/ady below instead of sx/sy (one row tall).
+  kGpuQuadAffine = 16,
+  kGpuQuadBorder = 32,   // affine: transparent outside the 1024x1024 plane (else it wraps)
 };
 
 typedef struct {
@@ -57,6 +62,10 @@ typedef struct {
   uint8_t tex;          // index into GpuFrame.tex
   uint8_t level;        // priority 1..15, higher wins over lower (the backdrop is 0)
   uint8_t flags;
+  // kGpuQuadAffine: plane position of the quad's leftmost pixel and its step per pixel,
+  // in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: the pixel at
+  // x + i shows texel ((ax + adx*i) >> 8, (ay + ady*i) >> 8), both & 1023.
+  int32_t ax, ay, adx, ady;
 } GpuQuad;
 
 // Lines that share every register except the BG scrolls. Within a band, a pixel's
@@ -108,7 +117,7 @@ void GpuPpu_Invalidate(void);
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason);
 
 typedef struct {
-  int surfaces, tiles_decoded, sprites, screen_rows_composed;
+  int surfaces, tiles_decoded, sprites, screen_rows_composed, m7_cells_decoded;
   // Time per stage of the last build, in g_gpu_ppu_clock units (0 without a clock):
   // line analysis + bands, VRAM/CGRAM diff, sprites, BG surfaces and quads, shadow copy.
   uint64_t t_lines, t_diff, t_sprites, t_bg, t_shadow;
