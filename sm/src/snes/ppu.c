@@ -250,6 +250,7 @@ static inline void ClearBackdrop(PpuPixelPrioBufs *buf) {
 }
 
 PpuLineCapture *g_ppu_line_capture;
+uint8_t *g_ppu_vram_dirty;
 
 void ppu_saveLineState(const Ppu *ppu, PpuLineState *st) {
   memcpy(st->bgLayer, ppu->bgLayer, sizeof(st->bgLayer));
@@ -1568,14 +1569,22 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
     }
     case 0x18: {
       // TODO: vram access during rendering (also cgram and oam)
-      uint16_t vramAdr = ppu_getVramRemap(ppu);
-      ppu->vram[vramAdr & 0x7fff] = (ppu->vram[vramAdr & 0x7fff] & 0xff00) | val;
+      uint16_t vramAdr = ppu_getVramRemap(ppu) & 0x7fff;
+      uint16_t word = (ppu->vram[vramAdr] & 0xff00) | val;
+      if (word != ppu->vram[vramAdr]) {
+        ppu->vram[vramAdr] = word;
+        if (g_ppu_vram_dirty) g_ppu_vram_dirty[vramAdr >> 3] = 1;
+      }
       if(!ppu->vramIncrementOnHigh) ppu->vramPointer += ppu->vramIncrement;
       break;
     }
     case 0x19: {
-      uint16_t vramAdr = ppu_getVramRemap(ppu);
-      ppu->vram[vramAdr & 0x7fff] = (ppu->vram[vramAdr & 0x7fff] & 0x00ff) | (val << 8);
+      uint16_t vramAdr = ppu_getVramRemap(ppu) & 0x7fff;
+      uint16_t word = (ppu->vram[vramAdr] & 0x00ff) | (val << 8);
+      if (word != ppu->vram[vramAdr]) {
+        ppu->vram[vramAdr] = word;
+        if (g_ppu_vram_dirty) g_ppu_vram_dirty[vramAdr >> 3] = 1;
+      }
       if(ppu->vramIncrementOnHigh) ppu->vramPointer += ppu->vramIncrement;
       break;
     }

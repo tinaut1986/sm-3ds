@@ -20,6 +20,7 @@
 #include "src/snes/snes.h"
 #include "src/spc_player.h"
 #include "src/variables.h"
+#include "src/funcs.h"
 #include "gpu_ppu.h"
 #include "gpu_ppu_ref.h"
 #include "sm_map.h"
@@ -197,6 +198,29 @@ int main(int argc, char **argv) {
       char label[32];
       snprintf(label, sizeof(label), "frame %d", i);
       TestFrame(label, i % 10 == 0);
+    }
+    Report();
+    return g_capture_bad || g_gpu_bad;
+  }
+  if (!strcmp(argv[2], "pbomb")) {
+    // A power bomb explodes where Samus stands; every frame is checked, and the normal
+    // render is written as pb-NNN.ppm (CPU | GPU list | difference).
+    if (!RtlSaveLoad(kSaveLoad_Load, 9)) return 4;
+    GpuPpu_Invalidate();
+    const int frames = argc > 4 ? atoi(argv[4]) : 240;
+    for (int i = 0; i < frames; i++) {
+      if (i == 2) {
+        power_bomb_explosion_x_pos = samus_x_pos;
+        power_bomb_explosion_y_pos = samus_y_pos;
+        EnableHdmaObjects();
+        SpawnPowerBombExplosion();
+      }
+      char label[32];
+      snprintf(label, sizeof(label), "frame %d", i);
+      TestFrame(label, true);
+      char name[32];
+      snprintf(name, sizeof(name), "pb-%03d.ppm", i);
+      DumpTriptych(name, g_a, g_c);
     }
     Report();
     return g_capture_bad || g_gpu_bad;

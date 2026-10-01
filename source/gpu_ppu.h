@@ -97,8 +97,8 @@ void GpuBackend_TexFree(GpuTex *t);
 // The CPU changed texels in rows [y0, y1); flush them to where the GPU reads them.
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
 
-// Forget every cached texture, e.g. after loading a state. Cheap; the next frame
-// decodes what it needs.
+// Forget every cached texture. Required whenever VRAM changes other than through the
+// PPU's data port (a loaded state, a reset). Cheap; the next frame decodes what it needs.
 void GpuPpu_Invalidate(void);
 
 // Builds `out` for the frame in `cap`. Returns false when the frame needs the CPU
@@ -107,5 +107,11 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
 
 typedef struct {
   int surfaces, tiles_decoded, sprites, screen_rows_composed;
+  // Time per stage of the last build, in g_gpu_ppu_clock units (0 without a clock):
+  // line analysis + bands, VRAM/CGRAM diff, sprites, BG surfaces and quads, shadow copy.
+  uint64_t t_lines, t_diff, t_sprites, t_bg, t_shadow;
 } GpuPpuStats;
+
+// Optional clock for the stage times above (the 3DS frontend sets svcGetSystemTick).
+extern uint64_t (*g_gpu_ppu_clock)(void);
 const GpuPpuStats *GpuPpu_LastStats(void);

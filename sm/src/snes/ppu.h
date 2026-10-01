@@ -201,6 +201,10 @@ typedef struct PpuLineCapture {
 
 // When set, ppu_runLine records the line state here instead of drawing.
 extern PpuLineCapture *g_ppu_line_capture;
+
+// Optional (3DS GPU renderer): one byte per 8 VRAM words, set to 1 when a VRAM data port
+// write changes a word in that group. The owner clears it. Loading a state bypasses it.
+extern uint8_t *g_ppu_vram_dirty;
 void ppu_saveLineState(const Ppu *ppu, PpuLineState *st);
 // Draws lines [first, last] with the CPU renderer from captured states, then puts
 // the PPU registers back as they were.

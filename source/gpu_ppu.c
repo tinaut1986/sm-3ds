@@ -117,22 +117,25 @@ static void MakeKey(LineKey *k, const PpuLineState *st, const LineInfo *info) {
 }
 
 // ---- Change tracking -----------------------------------------------------------------
-// VRAM and CGRAM as of the last frame the surfaces were synchronised with.
+// What changed since the last frame the surfaces were synchronised with. VRAM: the PPU
+// marks changed 8-word groups as they are written (g_ppu_vram_dirty), which replaced a
+// compare and copy of the whole 64 KB every frame (~2.9 ms on a 2DS). CGRAM is small
+// enough to diff against a copy.
 
-static uint16_t g_vram_shadow[0x8000];
 static uint16_t g_cgram_shadow[0x100];
-static bool g_shadow_valid;
+static bool g_shadow_valid;             // false: treat everything as changed
 static uint8_t g_group_dirty[0x1000];   // per 8 VRAM words
 static bool g_pal4_dirty[8], g_pal2_dirty[8];
 static GpuPpuStats g_stats;
+uint64_t (*g_gpu_ppu_clock)(void);
+static inline uint64_t Clock(void) { return g_gpu_ppu_clock ? g_gpu_ppu_clock() : 0; }
 
 static void DiffMemories(const Ppu *ppu) {
+  g_ppu_vram_dirty = g_group_dirty;   // tracking starts with the first frame built
   if (!g_shadow_valid) {
     memset(g_group_dirty, 1, sizeof(g_group_dirty));
     for (int i = 0; i < 8; i++) g_pal4_dirty[i] = g_pal2_dirty[i] = true;
   } else {
-    for (int g = 0; g < 0x1000; g++)
-      g_group_dirty[g] = memcmp(&ppu->vram[g * 8], &g_vram_shadow[g * 8], 16) != 0;
     for (int p = 0; p < 8; p++) {
       g_pal4_dirty[p] = memcmp(&ppu->cgram[p * 16], &g_cgram_shadow[p * 16], 32) != 0;
       g_pal2_dirty[p] = memcmp(&ppu->cgram[p * 4], &g_cgram_shadow[p * 4], 8) != 0;
@@ -141,9 +144,59 @@ static void DiffMemories(const Ppu *ppu) {
 }
 
 static void UpdateShadows(const Ppu *ppu) {
-  memcpy(g_vram_shadow, ppu->vram, sizeof(g_vram_shadow));
+  memset(g_group_dirty, 0, sizeof(g_group_dirty));
   memcpy(g_cgram_shadow, ppu->cgram, sizeof(g_cgram_shadow));
   g_shadow_valid = true;
+}
+
+// ---- Tile decoding -------------------------------------------------------------------
+// Table driven: a bitplane byte spreads to 8 pixels at once, palettes are converted once
+// per frame, and the Morton order of a row comes from a table. A full re-decode of a
+// 32x32 surface (palette change) took ~15 ms on a 2DS with the per-pixel version.
+
+static uint32_t g_spread[2][256];   // [hflip][byte]: pixel x of the row in bit 4x
+static uint8_t g_row_morton[8][8];  // GpuTexelIndex(x, r, 8)
+static uint16_t g_lut_bg4[8][16], g_lut_bg2[8][4], g_lut_obj[8][16];   // RGBA5551, [0] = 0
+
+static void InitDecodeTables(void) {
+  static bool done;
+  if (done) return;
+  for (int b = 0; b < 256; b++)
+    for (int x = 0; x < 8; x++) {
+      g_spread[0][b] |= (uint32_t)((b >> (7 - x)) & 1) << (4 * x);
+      g_spread[1][b] |= (uint32_t)((b >> x) & 1) << (4 * x);
+    }
+  for (int r = 0; r < 8; r++)
+    for (int x = 0; x < 8; x++) g_row_morton[r][x] = (uint8_t)GpuTexelIndex(x, r, 8);
+  done = true;
+}
+
+static void ConvertPalettes(const Ppu *ppu) {
+  for (int p = 0; p < 8; p++) {
+    g_lut_bg4[p][0] = g_lut_bg2[p][0] = g_lut_obj[p][0] = 0;
+    for (int i = 1; i < 16; i++) {
+      g_lut_bg4[p][i] = GpuRgba5551(ppu->cgram[p * 16 + i]);
+      g_lut_obj[p][i] = GpuRgba5551(ppu->cgram[128 + p * 16 + i]);
+    }
+    for (int i = 1; i < 4; i++) g_lut_bg2[p][i] = GpuRgba5551(ppu->cgram[p * 4 + i]);
+  }
+}
+
+// One 8x8 tile (2 or 4 bpp, chars at VRAM word `base`) into the 64-texel Morton block
+// `dst`. Plane 0/1 are the low/high bytes of word `row`, planes 2/3 those of `row + 8`.
+static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const uint16_t *lut, bool hflip, bool vflip) {
+  const uint32_t *spread = g_spread[hflip];
+  for (int r = 0; r < 8; r++) {
+    const int sr = vflip ? 7 - r : r;
+    const uint16_t w0 = ppu->vram[(base + sr) & 0x7fff];
+    uint32_t pix = spread[w0 & 0xff] | spread[w0 >> 8] << 1;
+    if (bpp == 4) {
+      const uint16_t w1 = ppu->vram[(base + sr + 8) & 0x7fff];
+      pix |= spread[w1 & 0xff] << 2 | spread[w1 >> 8] << 3;
+    }
+    const uint8_t *m = g_row_morton[r];
+    for (int x = 0; x < 8; x++, pix >>= 4) dst[m[x]] = lut[pix & 15];
+  }
 }
 
 // ---- BG surfaces: a whole tilemap decoded into two textures -------------------------
@@ -237,25 +290,8 @@ static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e)
   uint16_t *dst = s->tex[(e & 0x2000) ? 1 : 0].px + block;
   memset(s->tex[(e & 0x2000) ? 0 : 1].px + block, 0, 64 * sizeof(uint16_t));
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
-  const bool hflip = e & 0x4000, vflip = e & 0x8000;
-  uint16_t lut[16];
-  lut[0] = 0;
-  if (s->bpp == 4) {
-    for (int i = 1; i < 16; i++) lut[i] = GpuRgba5551(ppu->cgram[pal * 16 + i]);
-  } else {
-    for (int i = 1; i < 4; i++) lut[i] = GpuRgba5551(ppu->cgram[pal * 4 + i]);
-  }
   const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
-  for (int r = 0; r < 8; r++) {
-    const int sr = vflip ? 7 - r : r;
-    const uint16_t w0 = ppu->vram[(base + sr) & 0x7fff];
-    const uint16_t w1 = s->bpp == 4 ? ppu->vram[(base + sr + 8) & 0x7fff] : 0;
-    for (int col = 0; col < 8; col++) {
-      const int b = hflip ? col : 7 - col;
-      const int p = (w0 >> b & 1) | (w0 >> (b + 8) & 1) << 1 | (w1 >> b & 1) << 2 | (w1 >> (b + 8) & 1) << 3;
-      dst[GpuTexelIndex(col, r, 8)] = lut[p];
-    }
-  }
+  DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000);
   g_stats.tiles_decoded++;
 }
 
@@ -344,19 +380,8 @@ static AtlasEntry g_atlas_entries[128];
 static int g_atlas_entry_count, g_shelf_x, g_shelf_y, g_shelf_h;
 
 static void DecodeSpriteTile(const Ppu *ppu, int obj_adr, int tile, int pal, int dx, int dy) {
-  uint16_t lut[16];
-  lut[0] = 0;
-  for (int i = 1; i < 16; i++) lut[i] = GpuRgba5551(ppu->cgram[128 + pal * 16 + i]);
   uint16_t *dst = g_atlas.px + (((dy >> 3) * (kAtlasW >> 3) + (dx >> 3)) << 6);
-  for (int r = 0; r < 8; r++) {
-    const uint16_t *addr = &ppu->vram[(obj_adr + tile * 16 + r) & 0x7fff];
-    const uint32_t plane = addr[0] | (uint32_t)ppu->vram[(obj_adr + tile * 16 + r + 8) & 0x7fff] << 16;
-    for (int col = 0; col < 8; col++) {
-      const uint32_t bits = plane >> (7 - col);
-      const int p = (bits & 1) | ((bits >> 7) & 2) | ((bits >> 14) & 4) | ((bits >> 21) & 8);
-      dst[GpuTexelIndex(col, r, 8)] = lut[p];
-    }
-  }
+  DecodeTile(dst, ppu, obj_adr + tile * 16, 4, g_lut_obj[pal], false, false);
 }
 
 // Places a sprite's pixels in the atlas (once per distinct look per frame).
@@ -526,18 +551,23 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
 static const char *EmitScreen(const Ppu *ppu, const PpuLineCapture *cap, uint8_t layers, int l0, int l1, bool main,
                               bool *sprites_built) {
   const PpuLineState *st = &cap->line[l0];
-  const char *err;
+  const char *err = NULL;
   if (layers & 0x10) {
     if (!*sprites_built) {
-      if ((err = BuildSprites(ppu, st))) return err;
+      const uint64_t t0 = Clock();
+      err = BuildSprites(ppu, st);
+      g_stats.t_sprites += Clock() - t0;
+      if (err) return err;
       *sprites_built = true;
     }
     if (!EmitSprites(l0 - 1, l1, main)) return "too many quads";
   }
+  const uint64_t t0 = Clock();
   for (int layer = 0; layer < 3; layer++)
     if ((layers & (1 << layer)) && (err = EmitBg(ppu, cap, layer, l0, l1, main && st->mathEnabled[layer])))
-      return err;
-  return NULL;
+      break;
+  g_stats.t_bg += Clock() - t0;
+  return err;
 }
 
 static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineState *b, const LineInfo *ib) {
@@ -553,6 +583,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   out->tex_count = out->quad_count = out->band_count = 0;
   g_out = out;
   *reason = NULL;
+  uint64_t t0 = Clock();
   if (cap->last_line < kGpuRows) { *reason = "frame shorter than 224 lines"; return false; }
   if (cap->midframe_data_writes) { *reason = "VRAM/CGRAM/OAM written mid-frame"; return false; }
   for (int l = 1; l <= kGpuRows; l++)
@@ -560,7 +591,13 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   if (!g_atlas.px && !GpuBackend_TexCreate(&g_atlas, kAtlasW, kAtlasH)) { *reason = "out of texture memory"; return false; }
 
   g_frame_no++;
+  uint64_t t1 = Clock();
+  g_stats.t_lines += t1 - t0;
+  InitDecodeTables();
   DiffMemories(ppu);
+  ConvertPalettes(ppu);
+  g_stats.t_diff = Clock() - t1;
+  t0 = Clock();
   g_atlas_entry_count = g_shelf_x = g_shelf_y = g_shelf_h = 0;
   bool ok = true;
   for (int l0 = 1; l0 <= kGpuRows && ok;) {
@@ -597,6 +634,8 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     }
     l0 = l1 + 1;
   }
+  // band detection time = loop time minus what sprites and BGs took inside it
+  g_stats.t_lines += Clock() - t0 - g_stats.t_sprites - g_stats.t_bg;
   if (g_atlas_entry_count) GpuBackend_TexWritten(&g_atlas, 0, g_shelf_y + g_shelf_h);
   // Surfaces this frame did not sync have missed this frame's changes.
   for (int i = 0; i < kSurfaces; i++) {
@@ -604,7 +643,9 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     g_stats.surfaces += g_surf[i].last_frame == g_frame_no;
     if (g_surf[i].last_frame != g_frame_no) g_surf[i].fresh = true;
   }
+  t0 = Clock();
   UpdateShadows(ppu);
+  g_stats.t_shadow = Clock() - t0;
   return ok;
 }
 

@@ -489,6 +489,9 @@ int main(int argc, char** argv) {
     }
     if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
     if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
+    // A reset or a loaded state replaces VRAM without going through the PPU's data port,
+    // which is how the GPU renderer learns what changed.
+    if (g_ui.req_reset || g_ui.req_load_state) GpuPpu_Invalidate();
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
     u64 t_logic = 0, t_draw = 0;
     bool presented = false, gpu_presented = false;
