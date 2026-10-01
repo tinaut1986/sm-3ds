@@ -15,7 +15,8 @@ make -j FULL_NATIVE=1 DEBUG_TOOLS=1 cia
 `DEBUG_TOOLS` reaches the code through `build/build_config.h`, which the Makefile
 rewrites only when the value changes, so switching it rebuilds `bottom_ui.c` and
 nothing else; no `make clean` needed. A plain `make` is a production build. The CI
-release workflow passes `DEBUG_TOOLS=1` while every release is a beta (PLAN P5.3).
+release workflow passes `DEBUG_TOOLS=1` for Beta builds (tag not reachable from `main`)
+and 0 for Release ones, so stable CIAs have none of this.
 
 ## Bottom screen (debug build)
 
@@ -28,7 +29,7 @@ release workflow passes `DEBUG_TOOLS=1` while every release is a beta (PLAN P5.3
 
 DEBUG TOOLS window: SCREEN DUMP, FRAME DUMP, LOG TO SD, LOG MARK, PERF RECORDER,
 PPU RENDER (off = measure the game without the PPU), GIVE ALL, FULL HEAL, RENDERER
-(CPU / GPU, see docs/gpu-ppu-design.md) and GPU CHECK (draws the next frame with both
+(GPU by default, CPU for the session; see docs/gpu-ppu-design.md) and GPU CHECK (draws the next frame with both
 renderers: a dump set whose `-top.rgb` is the CPU's and `-gpu.rgb` the GPU's, and a
 toast with how many pixels differ). Dumps and frame captures are always drawn by the
 CPU renderer, even with RENDERER on GPU.
@@ -51,7 +52,8 @@ or least recently written, so sort a listing by time, not by name.
 | `sm-dump-NN-game.txt` | game state, room, Samus |
 | `sm-dump-NN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
 | `sm-dump-NN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
-| `sm-log-NN.txt` | the SD log, one per LOG TO SD session |
+| `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
+| `sm-exit.txt` | the steps of the last exit, in every build: if closing hangs, the last line says where |
 | `sm-perf-NN.csv` | frame-time recorder |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |
 

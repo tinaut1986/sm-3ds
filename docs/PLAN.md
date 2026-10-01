@@ -15,14 +15,19 @@ cycle, save states load, the bottom UI (status, map, cheats, options, debug) and
 teleport work. Do not re-propose those as pending. What is actually open, in the
 order that makes sense:
 
-1. **P2.3/P2.4** GPU PPU renderer (`docs/gpu-ppu-design.md`), on by default since
-   v0.1.1; 2DS at ~60 fps in gameplay. Open: Mode 7 (title, intro, Ceres: ~22-30 fps on
-   the CPU renderer at 268 MHz), a colour window that splits a line with clip/prevent
-   (maybe X-ray), New 3DS numbers after the optimisations.
-2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
-   no Old 3DS numbers at all).
-3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
-4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present); fits with P2.3.
+State at v0.1.2 (first stable): the GPU renderer is on by default and draws everything
+SM shows in a new game through Ceres, every room, power bombs and the file-select
+screens (mode 7 and windows included; nothing refused on the host). 2DS: ~60 fps in
+gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
+
+1. **P0.3** finish the baseline table: Norfair heat and Maridia water with numbers from
+   the debug log on the 2DS, Brinstar, and the New 3DS columns after the GPU work.
+2. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
+   quad set, so per-eye offsets go in the vertex positions.
+3. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
+4. Smaller: sprites decoded every frame (~0.5 ms on the 2DS), line analysis (~1.1 ms),
+   decoding only visible tiles after a palette change; the X-ray scope not yet seen on
+   hardware.
 5. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
@@ -127,8 +132,9 @@ Lessons from mzm that apply directly:
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
   and `FULL_NATIVE`. Record in a table below.
   *Done when:* table filled in.
-  Status 2026-10-01: New 3DS / Landing Site only (see the table and decisions
-  log). Tool: Debug tab -> PERF writes `debug/sm-perf-NN.csv`.
+  Status 2026-10-01: Landing Site on both, title/intro/Ceres on the 2DS (see the
+  table). Tools: the debug log (every 5 s: speed, work, logic, GPU build/submit, audio)
+  and Debug tab -> PERF (`debug/sm-perf-NN.csv`).
 - [ ] **P0.4** Establish game-logic correctness on PC.
   *Spec:* build the PC version from `sm/` on Linux; play or replay with the
   native-vs-ROM comparison on; note mismatches. Check whether snesrev's
@@ -159,8 +165,9 @@ Lessons from mzm that apply directly:
 - [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
   a texture, scale with citro3d.
   *Done when:* no per-pixel CPU copy remains in the frontend.
-  Status: the bottom screen no longer mirrors the game; the top copy is
-  table-driven (2.8 ms on New 3DS) but still CPU.
+  Status 2026-10-01: with the GPU renderer (on by default) citro3d draws and presents
+  the top screen; the table-driven CPU copy (`DrawPpuFrame`) is only used for frames
+  drawn by the CPU renderer (refused by the GPU path, or the renderer switched off).
 - [x] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay.
   Done 2026-09-30, checked on hardware: 804 MHz at boot (Options toggle, saved),
   vblank-locked pacing with adaptive frameskip, FPS/timing overlay on the top
@@ -223,10 +230,12 @@ Lessons from mzm that apply directly:
   4000 frames). Table-driven top-screen copy (5.0 -> 2.8 ms).
 - [ ] **P2.1** Profile. Split frame time into game logic, PPU, audio, present;
   write `docs/perf.md` with the numbers.
-  Status: the split exists (perf CSV, decisions log); `docs/perf.md` not written,
-  no Old 3DS numbers.
-- [ ] **P2.2** Audio cost.
-  Status 2026-10-01 (2DS): the system core gives the app 30 % and no more
+  Status: the split exists (perf CSV, the debug log, decisions log) with Old 3DS
+  numbers; `docs/perf.md` not written (the decisions log has the numbers).
+- [x] **P2.2** Audio cost. Done 2026-10-01: the S-DSP is ~40 % cheaper with the output
+  bit-identical (decisions log); 2DS audio blocks take 10-14 ms of the 16.7 ms budget,
+  no late callbacks in play, no crackling. A quality setting was not needed.
+  History, 2026-10-01 (2DS): the system core gives the app 30 % and no more
   (`APT_SetAppCpuTimeLimit` 80/70/50 -> 0xD8E05BF4, PM "not implemented"); the audio
   block takes ~16 ms of wall time for 16.7 ms of sound (DSP ~14), most callbacks miss
   their buffer: sound breaks up on Old 3DS. Needs a cheaper DSP or core 0.
@@ -235,9 +244,10 @@ Lessons from mzm that apply directly:
   lock. Open: the DSP itself (~1.5 ms CPU per frame on New 3DS, likely over the
   30 % core-1 budget on Old 3DS). Options: cheaper interpolation/echo behind a
   quality setting, or core 2 on New 3DS.
-- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
-  Status 2026-10-01: designed and implemented (see the doc); checked on a New 3DS with
-  GPU CHECK (identical within the 8-bit maths). Open: FPS comparison, Old 3DS.
+- [x] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
+  Done 2026-10-01: implemented including mode 7 and windows, on by default since
+  v0.1.1; checked on a New 3DS with GPU CHECK (identical within the 8-bit maths) and
+  played on a 2DS.
   Original spec:
   tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
   draw order/depth, colour math as blending, HDMA as per-scanline register
@@ -253,8 +263,10 @@ Lessons from mzm that apply directly:
   map.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
-  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host) and GPU CHECK
-  (console). Host: 2560 frames over every room identical; New 3DS: 6 sets, max error 8.
+  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host, in `make test`) and
+  GPU CHECK (console). Host: every room, a new game through Ceres exploding, power bombs,
+  file select identical to the CPU renderer, nothing refused; New 3DS: 6 sets, max
+  error 8. Open for "done": the remaining P0.3 spots on Old 3DS.
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
@@ -296,11 +308,11 @@ Lessons from mzm that apply directly:
 
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
-| Ceres intro | | | |
-| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. Before the build/submit work: speed ~58, shown ~48. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01, audio on (broken, see P2.2) |
+| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer | | 2026-10-01 |
+| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer) | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
 | Brinstar | | | |
-| Norfair heat room | | | |
-| Maridia water | | | |
+| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | | numbers pending from the log |
+| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after | | numbers pending from the log |
 
 ## Decisions log
 

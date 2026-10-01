@@ -1,8 +1,9 @@
 # GPU PPU renderer (P2.3 / P2.4)
 
-Status 2026-10-01: implemented, verified on the PC against the CPU renderer and on a
-New 3DS with GPU CHECK (see "Results on hardware"). On by default in every build since 2026-10-01; DEBUG_TOOLS builds can switch it off
-for the session (Debug tab -> DEBUG TOOLS -> RENDERER).
+Status 2026-10-01 (v0.1.2): implemented, including mode 7 and windows; verified on the
+PC against the CPU renderer (`make test`) and on hardware (GPU CHECK on a New 3DS,
+played on a 2DS). On by default in every build; DEBUG_TOOLS builds can switch it off for
+the session (Debug tab -> DEBUG TOOLS -> RENDERER).
 
 ## What SM uses in gameplay (FRAME DUMP captures, docs/debug-tools.md)
 
@@ -51,13 +52,19 @@ Frame building:
    0 tiles and priority 1 tiles), 256 or 512 px each way so GPU_REPEAT is the SNES
    wrap. An SNES 8x8 tile is exactly one PICA 8x8 Morton block; row 0 is at the start
    of memory and sampled at v = 1 (mzm's atlas convention, proven on hardware). Kept in
-   sync by diffing VRAM and CGRAM against shadow copies every frame: a tile is
-   re-decoded when its tilemap entry, its char data or its palette changed; a surface
-   with nothing changed is skipped.
-3. **Scroll runs**: per band and layer, lines with the same scroll become one quad
-   (up to 8 runs). With more (Maridia, Norfair heat) the layer's rows are copied on the
-   CPU into a 256x256 screen texture and drawn as one quad: mzm measured per-line
-   strips as expensive on the GPU.
+   sync with what changed since the last frame built: the PPU marks each 8-word VRAM
+   group a data-port write changes (`g_ppu_vram_dirty`; a loaded state or a reset calls
+   `GpuPpu_Invalidate`), CGRAM is diffed against a copy. A tile is re-decoded when its
+   tilemap entry, its char data or its palette changed; a surface with nothing changed is
+   skipped. Decoding is table driven (a bitplane byte spreads to 8 pixels, palettes
+   converted once per frame, Morton order from a table).
+3. **Scroll runs**: per band and layer, lines with the same scroll become one quad, however
+   many runs there are (Norfair heat and Maridia water change the scroll on every line:
+   one quad per line). The GPU never waits on a 2DS; composing those rows on the CPU (the
+   first design, after mzm) cost ~15 ms per frame. Composing into a 256x256 screen
+   texture remains only as the fallback when the quads would not fit. A layer's runs
+   are emitted priority 0 first, then priority 1: alternating them switched textures on
+   every quad (~7 ms of submit in Maridia).
 4. **Sprites**: decoded per frame into a 512x512 atlas (one entry per distinct look),
    one quad per sprite (two when it wraps past line 256), flips by texture coordinates.
 5. **Layer windows**: a window covering a whole line just hides the layer; one that hides
@@ -68,8 +75,10 @@ Frame building:
 6. **Mode 7** (title, intro, Ceres): the 1024x1024 plane is one texture whose cells are
    decoded when about to be shown and stale (map byte, tile pixels, or a colour the tile
    uses changed); one affine row per line from the CPU renderer's per-line setup
-   (`GpuQuad.ax/ay/adx/ady`, 1/256 texel), so any matrix per line works. Large-field rows
-   are cut on the CPU to the part inside the plane. Freed after 2 s without mode 7.
+   (`GpuQuad.ax/ay/adx/ady`, 1/256 texel), so any matrix per line works; consecutive rows
+   whose starts advance by the same amount merge into one quad (`ardx/ardy`; the title is
+   one quad). Large-field rows are cut on the CPU to the part inside the plane. Change
+   tracking runs every frame once the plane exists; it is freed after 2 s without mode 7.
 7. **Colour window** that splits a line while clip-to-black or prevent-math depend on it
    (modes "inside"/"outside"; "never"/"always" ignore the window): its segments become
    per-band rectangles (`GpuCwRect`); the backend clips them to black and clears the
@@ -85,6 +94,11 @@ subscreen is used: halved where it has a pixel, fixed colour unhalved where it h
 backdrop); clip-to-black as a colour-only quad. The 256x224 result is drawn scaled to
 274x240 like `DrawPpuFrame`, brightness as a constant multiply per band. citro3d
 presents the top screen; the main loop swaps only the bottom screen on those frames.
+The vertex cache is flushed once per frame (a flush per batch cost ~3 ms on a 2DS).
+Mode 7 quads use per-corner texture coordinates with a small bias for exact texel
+boundaries, and the plane texture switches between repeat and a transparent border.
+At exit nothing of citro3d is torn down: after HOME every call that waits for the GPU
+queue hangs ("Closing software").
 
 Calibrated at start-up because it cannot be checked off the console: the readback byte
 order, which depth test means "higher level wins", how a display transfer orders rows,
@@ -96,14 +110,14 @@ the left margin (`GpuPpu3ds_SetOverlay`), filled by the same code as the CPU pat
 
 ## Results on the PC (2026-10-01)
 
-`tools/gpu-ppu-test/run.sh ROM rooms 10`: warp into every room reachable by a door, 10
-frames each: 2560 frames, capture replay identical to the normal render, GPU list
-identical to the CPU renderer on every pixel, 20 frames refused (mode 7, Ceres).
-Console state (Crateria), 120 frames: identical.
+`make test` (tools/test/README.md) runs `tools/gpu-ppu-test` over every room reachable
+by a door, a new game from power-on through the title, intro, Ceres and Ceres exploding,
+a power bomb, and soft resets on the file-select screens: capture replay identical to
+the normal render, GPU list (run by `gpu_ppu_ref.c`) identical to the CPU renderer on
+every pixel, no frame refused.
 
-Host time per frame, steady state: frame build 46 us against 530 us for the CPU
-renderer (about 1/11). On the console that would be about 0.8 ms instead of 8.4 ms,
-plus the GPU's own time, which only hardware can tell.
+Host time per frame, steady state: frame build ~25-80 us against ~530 us for the CPU
+renderer. On a 2DS (268 MHz) the build is ~3 ms and the submit ~1 ms.
 
 ## Results on hardware (2026-10-01, New 3DS)
 
@@ -111,9 +125,12 @@ Six GPU CHECK sets (Crateria 98E2 and 92FD, Brinstar/Norfair B236, B40A, ADAD, B
 four identical to the CPU renderer, two with 412 and 1508 pixels off by at most 8 (the
 8-bit colour math), none by more. The calibration knobs needed no change.
 
-Power bombs draw their explosion with a window that changes per line, so those frames
-(~90 per bomb) are refused and drawn by the CPU from the capture, identical to the CPU
-renderer (`tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav`).
+## Results on hardware (2026-10-01, 2DS at 268 MHz, debug log)
+
+Landing Site: 59.8 fps without frameskip, work ~11 ms per frame (logic 5.3, build 3.0,
+submit 1.0, GPU wait 0). Title, intro and Ceres (mode 7): 50-55 fps, from 22-30 with the
+CPU renderer. Norfair heat (the intro demo) and Maridia water: fine after the scroll-run
+changes, exact numbers still to log. The GPU itself never made the CPU wait.
 
 ## Checking it on hardware
 
@@ -128,10 +145,10 @@ renderer (`tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav`).
 
 ## Next
 
-- FPS with GPU vs CPU in the P0.3 spots (the overlay works in both now); Old 3DS.
-- Windows that split lines (power bomb, X-ray) on the GPU, if those frames turn out slow.
-- Sprite per-line limits if a scene needs them.
-- Stereo 3D (phase 3): every layer is already its own quad; per-eye offsets go in
+- Stereo 3D (phase 3): every layer is already its own quad set; per-eye offsets go in
   the vertex positions.
-- Mode 7 on hardware: GPU CHECK on the title and in Ceres (texture coordinates are
-  interpolated by the GPU, so a few texels may differ at boundaries when rotated).
+- CPU cost left on Old 3DS: sprites decoded every frame (~0.5 ms), line analysis and
+  band keys (~1.1 ms), decoding only visible tiles after a palette change (~4 ms spikes).
+- GPU CHECK on the title and in Ceres: texture coordinates are interpolated by the GPU,
+  so a few texels may differ at boundaries when rotated.
+- Sprite per-line limits if a scene needs them; the X-ray scope not yet seen on hardware.
