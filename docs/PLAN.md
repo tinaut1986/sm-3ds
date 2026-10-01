@@ -197,9 +197,19 @@ Lessons from mzm that apply directly:
     "Continue" (see decisions log). Owner accepted it as a debug tool: the
     selected HUD weapon resets on each warp; `b482`, `dc19` kill an idle Samus;
     `d408` door 1 bounces to a neighbour.
-  - **E. Debug tab, open:** HDMA/PPU dumps, a scene recorder, PC-side viewers
-    for the dump files, compile-time gating (`DEBUG_TOOLS=1`) before the first
-    stable release. Tabs are still text, not mzm's 30 px icons; no modals.
+  - **F. mzm layout (2026-10-01, checked on hardware by the owner):** icon
+    tabs MAP / STATUS / DEBUG / STATES / OPTIONS with clock, wifi and battery;
+    the CHEATS tab is gone, folded into STATUS as in mzm (tap items/beams, GOD and
+    MAX buttons, MAP STATIONS boxes that unlock an area's map for warping);
+    Ceres has no box: the game has no map station and no saved explored bits for it.
+  STATES tab with 10 slots, two-tap confirm and a `saveN.txt` description;
+    OPTIONS as a cell grid with a RESET confirm window; DEBUG with a tools window
+    (SCREEN DUMP, FRAME DUMP, log, mark, perf, PPU render, give all, heal).
+    `DEBUG_TOOLS=1` gates the debug parts (`build/build_config.h`). See
+    `docs/debug-tools.md`.
+  - **E. Debug tab, still open:** a scene recorder (many frames), PC-side viewers
+    for the dump files, mzm's low-energy tab tint. The PPU/HDMA dump is done
+    (FRAME DUMP, F).
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
@@ -225,7 +235,12 @@ Lessons from mzm that apply directly:
   Hybrid like mzm: fall back to the CPU PPU for frames with unsupported state
   (Mode 7, exotic windows) and report which state caused it.
   Start by dumping PPU/HDMA state of a few representative rooms with the Debug
-  tab to see what SM actually uses in gameplay.
+  tab to see what SM actually uses in gameplay: Debug tab -> DEBUG TOOLS -> FRAME
+  DUMP on the console, or `tools/frame-capture/run.sh` on the PC from a console
+  save state (see `docs/debug-tools.md`). Rooms to capture: Landing Site (rain,
+  scroll), a Brinstar room with BG2 parallax, a Norfair heat room, Maridia water
+  (FX layer), a dark room, a boss (Kraid, Ridley), Ceres (Mode 7) and the pause
+  map.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
@@ -457,3 +472,21 @@ Lessons from mzm that apply directly:
   and minus the portlib check (no self-updater yet), in English per the language
   rule. `tools/ui-preview` crashes in `SmMap_Init` (the map tab reads the ROM,
   which the preview does not load); not fixed yet.
+- 2026-10-01: Bottom UI reorganised like mzm's (P1.9 F). Cheats moved into the
+  Status tab; the per-item toggle is missing <-> collected+equipped, and turning
+  Spazer or Plasma on unequips the other (the beam tables have no Spazer+Plasma
+  entry and end in `Unreachable()`). MAX remembers the capacities and gives them
+  back when switched off; a loaded state or reset drops that memory instead of
+  restoring it. Map unlock uses the game's own RAM (`map_station_byte_array`,
+  explored bits live for the current area and in `explored_map_tiles_saved`
+  otherwise), so the pause map and a station save see it; returning to "real"
+  restores both byte for byte (host check on a console state, all 6 areas).
+  `RtlSaveLoad`/`RtlSaveSnapshot` now return whether they worked (the save path
+  also no longer crashes when `fopen` fails).
+- 2026-10-01: FRAME DUMP: `g_ppu_write_hook` in `ppu_write` (null unless a capture
+  runs, one predictable branch per write) logs every `$21xx` write with
+  `inVblank ? -1 : vPos`. In `FULL_NATIVE` the whole frame is RunOneFrameOfGame
+  (vblank) then DrawFrameToPpu (lines, HDMA at hPos 1024, `Vector_IRQ` after a
+  line), so the stamp says which part wrote. Console save states load on the PC
+  only in a 32-bit `-malign-double` build: that layout matches the 3DS's
+  (275559 bytes); x86-64 is 275555 now.

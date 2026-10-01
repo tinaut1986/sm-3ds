@@ -1,6 +1,7 @@
 #include "sm_map.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "src/types.h"
 #include "src/sm_rtl.h"
@@ -61,16 +62,21 @@ static const uint16_t *Tilemap(int area) {
 // Cell order in both the tilemap and the explored bitmap: two 32-column screens.
 static int CellIndex(int col, int row) { return (col >= 32 ? 1024 : 0) + row * 32 + (col & 31); }
 
+// The explored bitmap of an area: live for the current one, the saved copy otherwise.
+static uint8_t *ExploredBits(int area) {
+  if (area == (int)area_index) return map_tiles_explored;
+  if (area >= 0 && area < 6) return (uint8_t *)explored_map_tiles_saved + area * 256;
+  return NULL;
+}
+
 bool SmMap_Cell(int area, int col, int row, bool *exists, bool *explored) {
   if (area < 0 || area >= kSmAreaCount || col < 0 || col >= kSmMapCols || row < 0 || row >= kSmMapRows) return false;
   const int i = CellIndex(col, row);
   // Tile 0x1F is the blank tile the game uses for "no map here".
   if (exists) *exists = (Tilemap(area)[i] & 0x3FF) != 0x1F;
   if (explored) {
-    // The current area's bits are live; the others are in the saved copies (Ceres has none).
-    const uint8_t *bits = NULL;
-    if (area == (int)area_index) bits = map_tiles_explored;
-    else if (area < 6) bits = (const uint8_t *)explored_map_tiles_saved + area * 256;
+    // Ceres has no saved copy.
+    const uint8_t *bits = ExploredBits(area);
     *explored = bits && (bits[i >> 3] & (0x80 >> (i & 7))) != 0;
   }
   return true;
@@ -111,4 +117,48 @@ bool SmMap_SamusCell(int *area, int *col, int *row) {
   if (col) *col = c;
   if (row) *row = rr;
   return true;
+}
+
+// ---- Debug map unlock ------------------------------------------------------------
+
+enum { kStationAreas = 6 };
+static SmMapDebugState g_debug_state[kStationAreas];
+static uint8_t g_real_station[kStationAreas];
+static uint8_t g_real_bits[kStationAreas][256];
+
+SmMapDebugState SmMap_DebugState(int area) {
+  return area >= 0 && area < kStationAreas ? g_debug_state[area] : kSmMapDebug_Real;
+}
+
+void SmMap_DebugCycle(int area) {
+  uint8_t *bits = ExploredBits(area);
+  if (area < 0 || area >= kStationAreas || !bits) return;
+  switch (g_debug_state[area]) {
+  case kSmMapDebug_Real:
+    g_real_station[area] = map_station_byte_array[area];
+    memcpy(g_real_bits[area], bits, 256);
+    map_station_byte_array[area] = 1;
+    g_debug_state[area] = kSmMapDebug_Station;
+    break;
+  case kSmMapDebug_Station:
+    for (int row = 0; row < kSmMapRows; row++) {
+      for (int col = 0; col < kSmMapCols; col++) {
+        bool exists;
+        SmMap_Cell(area, col, row, &exists, NULL);
+        const int i = CellIndex(col, row);
+        if (exists) bits[i >> 3] |= 0x80 >> (i & 7);
+      }
+    }
+    g_debug_state[area] = kSmMapDebug_Explored;
+    break;
+  default:
+    map_station_byte_array[area] = g_real_station[area];
+    memcpy(bits, g_real_bits[area], 256);
+    g_debug_state[area] = kSmMapDebug_Real;
+    break;
+  }
+}
+
+void SmMap_DebugForget(void) {
+  memset(g_debug_state, 0, sizeof(g_debug_state));
 }

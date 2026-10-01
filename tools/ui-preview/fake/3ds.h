@@ -11,3 +11,10 @@ u64 osGetTime(void);
 size_t linearSpaceFree(void);
 int APT_CheckNew3DS(bool *out);
 void osSetSpeedupEnable(bool e);
+typedef s32 Result;
+#define R_SUCCEEDED(r) ((Result)(r) >= 0)
+Result ptmuInit(void);
+void ptmuExit(void);
+Result PTMU_GetBatteryLevel(u8 *out);
+Result PTMU_GetBatteryChargeState(u8 *out);
+u8 osGetWifiStrength(void);

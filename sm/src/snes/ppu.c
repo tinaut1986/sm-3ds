@@ -1312,9 +1312,14 @@ uint8_t ppu_read(Ppu* ppu, uint8_t adr) {
   }
 }
 
+// 3DS port: set by the frontend's frame capture to see every register write.
+void (*g_ppu_write_hook)(uint8_t adr, uint8_t val);
+
 void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
 //  if (adr != 24 && adr != 25)
 //    printf("ppu_write(%d, %d)\n", adr, val);
+  if (g_ppu_write_hook)
+    g_ppu_write_hook(adr, val);
   switch(adr) {
     case 0x00: {
       // TODO: oam address reset when written on first line of vblank, (and when forced blank is disabled?)

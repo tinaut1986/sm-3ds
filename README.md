@@ -17,7 +17,8 @@ Early, pre-release. Tested on a New 3DS:
   not been measured yet and is expected to be slower.
 - Saves at save stations persist across power cycles; save states (10 slots)
   work.
-- The bottom screen has tabs for status, map, cheats, options and debug tools.
+- The bottom screen has tabs for the map, status, save states and options (plus
+  debug tools in test builds).
 
 Bugs found while playing go to the
 [issue tracker](https://github.com/tinaut1986/sm-3ds/issues). The roadmap is
@@ -52,7 +53,7 @@ Everything else the game writes lives in the same folder:
 | Path | What |
 |---|---|
 | `saves/sm.srm` | in-game save files (the three save slots) |
-| `saves/save0.sav` ... `save9.sav` | save states (Options tab) |
+| `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description |
 | `config.ini` | options from the bottom screen |
 | `debug/` | logs, perf CSVs and dumps from the Debug tab |
 
@@ -60,8 +61,9 @@ Everything else the game writes lives in the same folder:
 
 The 3DS buttons map to the SNES buttons of the same name (D-pad, A, B, X, Y,
 L, R, Start, Select). The game's own controller settings still apply. The
-bottom screen is operated by touch: pause, turbo, frame skip, audio, FPS
-overlay, 804 MHz mode (New 3DS), save states and reset are on the Options tab.
+bottom screen is operated by touch: save states on the States tab (tap a button
+twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
+(New 3DS) and reset on the Options tab.
 
 ## Building
 
@@ -76,13 +78,16 @@ cd sm-3ds
 ./build_3ds.sh          # interactive: build, optionally find the 3DS and send it
 ```
 
-`build_3ds.sh` builds SDL2 the first time, then the CIA
+`build_3ds.sh` asks for debug (the default: debug tab, teleport, cheats on the
+Status tab, see [`docs/debug-tools.md`](docs/debug-tools.md)) or production,
+builds SDL2 the first time, then the CIA
 (`output/SuperMetroid3DSPort.cia`). With ftpd or FBI's FTP server running on
 the console, it can scan the local network for it and upload the CIA to
 `/cias/sm-3ds-<version>.cia`. Non-interactive forms:
 
 ```sh
-./build_3ds.sh --no-ftp                  # build only
+./build_3ds.sh --no-ftp                  # build only (debug)
+./build_3ds.sh --mode prod --no-ftp      # production build
 ./build_3ds.sh --ftp 192.168.1.50        # build and upload (port 5000)
 ./build_3ds.sh --ftp                     # upload to the last IP used
 ./build_3ds.sh --help
@@ -93,6 +98,7 @@ Or with make directly (`DEVKITPRO` defaults to `/opt/devkitpro`):
 ```sh
 make sdl                                               # once
 make -j FULL_NATIVE=1 cia                              # -> output/SuperMetroid3DSPort.cia
+make -j FULL_NATIVE=1 DEBUG_TOOLS=1 cia                # with the debug tools
 make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload
 make print-version
 ```

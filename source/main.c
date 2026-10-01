@@ -445,9 +445,12 @@ int main(int argc, char** argv) {
     }
     g_turbo = g_ui.turbo;
 
-    if (g_ui.req_reset) RtlReset(1);
-    if (g_ui.req_save_state) RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
-    if (g_ui.req_load_state) RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+    if (g_ui.req_reset) {
+      RtlReset(1);
+      BottomUi_GameReset();
+    }
+    if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
+    if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
     if (g_ui.req_dump) {
       Debug_DumpScreen(g_pixels);
@@ -461,12 +464,24 @@ int main(int argc, char** argv) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
       bool draw = g_ui.render_on && !turbo_skip && !(g_ui.frameskip && skip_render);
+      // A frame capture records this frame's PPU writes, so this one is always drawn.
+      bool capture = false;
+      if (g_ui.req_frame_dump) {
+        g_ui.req_frame_dump = false;
+        capture = Debug_FrameCaptureBegin();
+        if (!capture) BottomUi_Toast(Debug_LastMessage());
+        draw |= capture;
+      }
       g_snes->disableRender = !draw;
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      if (capture) {
+        Debug_FrameCaptureEnd(g_pixels);
+        BottomUi_Toast(Debug_LastMessage());
+      }
       Cheats_AfterFrame();
       SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;

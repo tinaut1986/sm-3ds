@@ -452,13 +452,16 @@ bool RtlRunFrame(int inputs) {
   return is_replay;
 }
 
-void RtlSaveSnapshot(const char *filename, bool saving_with_bug) {
+bool RtlSaveSnapshot(const char *filename, bool saving_with_bug) {
   FILE *f = fopen(filename, "wb");
+  if (f == NULL)
+    return false;
   RtlApuLock();
   RtlSaveMusicStateToRam_Locked();
   StateRecorder_Save(&state_recorder, f, saving_with_bug);
   RtlApuUnlock();
   fclose(f);
+  return true;
 }
 
 static const char *const kBugSaves[] = {
@@ -466,12 +469,12 @@ static const char *const kBugSaves[] = {
   "Before Golden Torizo", "After Crocomire", "Baby Metroid", "Tourian Statue", "Before Ridley", "Enter Mother Brain",
 };
 
-void RtlSaveLoad(int cmd, int slot) {
+bool RtlSaveLoad(int cmd, int slot) {
   char name[128];
   if (slot >= 256) {
     int i = slot - 256;
     if (cmd == kSaveLoad_Save || i >= sizeof(kBugSaves) / sizeof(kBugSaves[0]))
-      return;
+      return false;
     sprintf(name, "saves/%s.sav", kBugSaves[i]);
   } else {
     sprintf(name, "saves/save%d.sav", slot);
@@ -483,7 +486,7 @@ void RtlSaveLoad(int cmd, int slot) {
     FILE *f = fopen(name, "rb");
     if (f == NULL) {
       printf("Failed fopen: %s\n", name);
-      return;
+      return false;
     }
     RtlApuLock();
     bool loaded = StateRecorder_Load(&state_recorder, f, cmd == kSaveLoad_Replay);
@@ -492,7 +495,7 @@ void RtlSaveLoad(int cmd, int slot) {
     RtlApuUnlock();
     if (!loaded) {
       fclose(f);
-      return;
+      return false;
     }
     RtlSynchronizeWholeState();
     fclose(f);
@@ -511,8 +514,9 @@ void RtlSaveLoad(int cmd, int slot) {
       bug_fix_counter = bug_fix_counter_BAD;
 
   } else {
-    RtlSaveSnapshot(name, false);
+    return RtlSaveSnapshot(name, false);
   }
+  return true;
 }
 
 void MemCpy(void *dst, const void *src, int size) {

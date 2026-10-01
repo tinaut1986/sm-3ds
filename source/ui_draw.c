@@ -70,6 +70,25 @@ void UiDrawButton(Surface s, Rect r, uint32_t bg, const char *label) {
   UiDrawText(s, r.x + (r.w - UiTextWidth(label, 1)) / 2, r.y + (r.h - kUiGlyphH) / 2, 1, COL_TEXT, label);
 }
 
+void UiDrawBox(Surface s, Rect r, uint32_t body, uint32_t border, bool pressed) {
+  if (pressed) {
+    body = COL_PRESSED;
+    border = RGB(210, 235, 255);
+  }
+  UiFillRect(s, r.x, r.y, r.w, r.h, border);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, body);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, 1, pressed ? border : RGB(90, 130, 180));
+}
+
+void UiDrawBoxLabel(Surface s, Rect r, uint32_t body, uint32_t border, uint32_t text, bool pressed, const char *label) {
+  UiDrawBox(s, r, body, border, pressed);
+  UiDrawText(s, r.x + (r.w - UiTextWidth(label, 1)) / 2, r.y + (r.h - kUiGlyphH) / 2 + (pressed ? 1 : 0), 1, text, label);
+}
+
+void UiDrawTextCentered(Surface s, int cx, int y, uint32_t c, const char *str) {
+  UiDrawText(s, cx - UiTextWidth(str, 1) / 2, y, 1, c, str);
+}
+
 void UiDrawBar(Surface s, int x, int y, int w, int h, int value, int max, uint32_t fill) {
   UiFillRect(s, x, y, w, h, COL_BG);
   if (max > 0 && value > 0) {

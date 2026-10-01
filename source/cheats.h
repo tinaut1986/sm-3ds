@@ -10,8 +10,8 @@
 #include <stdint.h>
 
 typedef struct {
-  bool invincible;      // energy and reserves are refilled around every frame
-  bool infinite_ammo;   // missiles, supers and power bombs refilled around every frame
+  bool invincible;   // GOD: energy and reserves are refilled around every frame
+  bool max_mode;     // MAX: capacities at their maximum and ammo refilled every frame
 } Cheats;
 
 extern Cheats g_cheats;
@@ -35,9 +35,16 @@ bool Cheats_InGameplay(void);
 void Cheats_BeforeFrame(void);
 void Cheats_AfterFrame(void);
 
-// One-shot actions. Return false (and do nothing) outside of gameplay.
-bool Cheats_FullHeal(void);       // energy, reserves and ammo up to their maximum
-bool Cheats_GiveAllItems(void);   // suits, boots, morph ball and the rest
-bool Cheats_GiveAllBeams(void);
-bool Cheats_MaxAmmo(void);        // 230 missiles, 50 super missiles, 50 power bombs
-bool Cheats_MaxEnergy(void);      // 14 energy tanks + 4 reserve tanks
+// The actions below return false (and do nothing) outside of gameplay.
+
+// Items and beams: missing -> collected and equipped -> missing. Spazer and Plasma
+// are never equipped together (the game's beam tables have no such combination).
+bool Cheats_ToggleItem(int index);
+bool Cheats_ToggleBeam(int index);
+
+// MAX on: remembers the current capacities, then 14 energy tanks, 4 reserve tanks,
+// 230/50/50 ammo, kept full. MAX off: gives the remembered capacities back.
+bool Cheats_SetMax(bool on);
+
+bool Cheats_FullHeal(void);   // energy, reserves and ammo up to their maximum
+bool Cheats_GiveAll(void);    // every item and beam, max capacities, full

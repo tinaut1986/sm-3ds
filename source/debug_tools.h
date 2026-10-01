@@ -27,6 +27,13 @@ void Debug_LogMark(void);          // "USER MARK" line with frame and room
 // set number (0-based), or -1 on failure.
 int Debug_DumpScreen(const uint8_t *bgra);
 
+// Frame capture: a dump set plus debug/sm-dump-NN-frame.txt, which lists every PPU
+// register write of one frame with its scanline, the HDMA channel setup and a
+// per-register summary. Begin right before RtlRunFrame (the frame must be drawn),
+// End right after it with the new PPU output.
+bool Debug_FrameCaptureBegin(void);
+int Debug_FrameCaptureEnd(const uint8_t *bgra);
+
 // --- Frame-time recorder ----------------------------------------------------
 // Records per-frame timings in memory, writes debug/sm-perf-NN.csv on stop
 // (or when the buffer fills, ~60 s).

@@ -272,12 +272,14 @@ def run_step(cmd, env, verbose, what):
     return proc.returncode, output
 
 
-def run_build(send_ftp=False, ftp_host="", ftp_port=5000, clean=False, dry_run=False, jobs=None, verbose=False):
+def run_build(debug=True, send_ftp=False, ftp_host="", ftp_port=5000, clean=False, dry_run=False, jobs=None,
+              verbose=False):
     jobs = jobs or os.cpu_count() or 4
 
     print(f"\n{BOLD}{CYAN}=================================================={RESET}")
     print(f"{BOLD}{WHITE} Build summary{RESET}")
     print(f"{BOLD}{CYAN}=================================================={RESET}")
+    print(f"  {BOLD}Mode:{RESET}   " + (f"{GREEN}debug (DEBUG_TOOLS=1){RESET}" if debug else "production (DEBUG_TOOLS=0)"))
     print(f"  {BOLD}Clean:{RESET}  {'yes (make clean)' if clean else 'no (incremental)'}")
     print(f"  {BOLD}FTP:{RESET}    " + (f"{YELLOW}yes ➔ {ftp_host}:{ftp_port}{RESET}" if send_ftp else "no (local CIA only)"))
     print(f"  {BOLD}Jobs:{RESET}   {jobs}")
@@ -301,7 +303,7 @@ def run_build(send_ftp=False, ftp_host="", ftp_port=5000, clean=False, dry_run=F
     if clean:
         steps.append(("Cleaning (make clean)", [make_bin, "-C", ROOT, "clean"]))
     target = "ftp" if send_ftp else "cia"
-    build_cmd = [make_bin, "-C", ROOT, f"-j{jobs}", "FULL_NATIVE=1", target]
+    build_cmd = [make_bin, "-C", ROOT, f"-j{jobs}", "FULL_NATIVE=1", f"DEBUG_TOOLS={1 if debug else 0}", target]
     if send_ftp:
         build_cmd += [f"FTP_HOST={ftp_host}", f"FTP_PORT={ftp_port}"]
     steps.append((f"Building and sending to {ftp_host}:{ftp_port}" if send_ftp else "Building the CIA", build_cmd))
@@ -441,7 +443,10 @@ def main():
   ./build_3ds.sh --ftp 192.168.1.55       # build and upload
   ./build_3ds.sh --ftp                    # upload to the last IP used
   ./build_3ds.sh --ftp 192.168.1.55:5000 --clean
+  ./build_3ds.sh --mode prod --no-ftp     # what a release build is (no debug tools)
 """)
+    parser.add_argument("-m", "--mode", choices=["debug", "test", "prod", "production", "release"],
+                        help="debug/test = DEBUG_TOOLS=1 (default), prod/production/release = DEBUG_TOOLS=0.")
     parser.add_argument("-f", "--ftp", nargs="?", const="true", default=None, metavar="IP[:PORT]",
                         help="Upload the CIA to the console's FTP server (default: last IP used).")
     parser.add_argument("--ip", metavar="IP", help="Console IP for the FTP upload.")
@@ -455,9 +460,17 @@ def main():
     args = parser.parse_args()
 
     interactive = args.interactive or (
-        args.ftp is None and args.ip is None and not args.no_ftp and not args.clean and sys.stdin.isatty())
+        args.mode is None and args.ftp is None and args.ip is None and not args.no_ftp and not args.clean
+        and sys.stdin.isatty())
+    debug = args.mode in (None, "debug", "test")
 
     if interactive:
+        mode_idx = interactive_select("Build mode?", [
+            ("Debug (recommended for testing)",
+             "Debug tab, teleport, item and map editing on the Status tab (DEBUG_TOOLS=1)."),
+            ("Production / release", "What players get: none of the above (DEBUG_TOOLS=0)."),
+        ])
+        debug = mode_idx == 0
         ftp_idx = interactive_select("Send the CIA to the 3DS over FTP?", [
             ("Yes, find the 3DS on the network",
              "Scans the local network for FTP servers (ftpd / FBI) and lets you pick one."),
@@ -472,10 +485,10 @@ def main():
             ftp_host, ftp_port = prompt_ftp_host_manual(load_last_ip(), args.port)
 
         clean_idx = interactive_select("Clean build?", [
-            ("No (incremental)", "Faster; make tracks header dependencies."),
-            ("Yes (make clean first)", "Use after changing build flags."),
+            ("No (incremental)", "Faster; switching the mode needs no clean either."),
+            ("Yes (make clean first)", "Use after changing FULL_NATIVE or the Makefile."),
         ])
-        return run_build(send_ftp=bool(ftp_host), ftp_host=ftp_host, ftp_port=ftp_port,
+        return run_build(debug=debug, send_ftp=bool(ftp_host), ftp_host=ftp_host, ftp_port=ftp_port,
                          clean=clean_idx == 1, dry_run=args.dry_run, jobs=args.jobs, verbose=args.verbose)
 
     send_ftp = args.ftp is not None or args.ip is not None
@@ -489,7 +502,7 @@ def main():
     if send_ftp:
         save_last_ip(ftp_host)
 
-    return run_build(send_ftp=send_ftp, ftp_host=ftp_host, ftp_port=ftp_port, clean=args.clean,
+    return run_build(debug=debug, send_ftp=send_ftp, ftp_host=ftp_host, ftp_port=ftp_port, clean=args.clean,
                      dry_run=args.dry_run, jobs=args.jobs, verbose=args.verbose)
 
 

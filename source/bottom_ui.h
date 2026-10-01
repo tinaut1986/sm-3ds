@@ -1,8 +1,10 @@
-// Touch UI for the bottom screen: status, options and debug tabs.
+// Touch UI for the bottom screen, laid out like ../mzm's: icon tabs for the map,
+// status, debug (DEBUG_TOOLS builds only), save states and options, with modal
+// windows over them.
 //
-// Software-drawn straight into the bottom framebuffer (RGBA8, like the game
-// on the top screen) with the 8x8 font from romfs. It only redraws when
-// something changed or every REFRESH_FRAMES frames, so it costs next to nothing.
+// Software-drawn straight into the bottom framebuffer (RGBA8, like the game on the
+// top screen) with the 5x7 font. It only redraws when something changed or every
+// REFRESH_FRAMES frames, so it costs next to nothing.
 #pragma once
 
 #include <stdbool.h>
@@ -42,6 +44,7 @@ typedef struct {
   bool req_save_state;
   bool req_load_state;
   bool req_dump;         // Debug_DumpScreen, needs the PPU output owned by main
+  bool req_frame_dump;   // Debug_FrameCapture* around the next drawn frame
 } UiOptions;
 
 extern UiOptions g_ui;
@@ -61,6 +64,12 @@ bool BottomUi_Frame(const UiPerf *perf);
 
 // Short message at the bottom of the screen for ~1.5 s.
 void BottomUi_Toast(const char *msg);
+
+// The main loop reports what it did with req_save_state / req_load_state /
+// req_reset, so the States tab can describe the slot and forget stale debug state.
+void BottomUi_StateSaved(int slot, bool ok);
+void BottomUi_StateLoaded(int slot, bool ok);
+void BottomUi_GameReset(void);
 
 // Small FPS/timing overlay on the top framebuffer (if g_ui.fps_overlay).
 void BottomUi_DrawTopOverlay(const UiPerf *perf);
