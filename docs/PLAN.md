@@ -22,13 +22,16 @@ gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
 
 1. **P0.3** finish the baseline table: Norfair heat and Maridia water with numbers from
    the debug log on the 2DS, Brinstar, and the New 3DS columns after the GPU work.
-2. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
+2. **P4.5** display options: PIXEL PERFECT / SCALED, then WIDE with the HUD over the
+   room. Before Phase 3 (owner's decision, 2026-10-01): stereo is then designed with
+   the margins already there.
+3. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
    quad set, so per-eye offsets go in the vertex positions.
-3. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
-4. Smaller: sprites decoded every frame (~0.5 ms on the 2DS), line analysis (~1.1 ms),
+4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
+5. Smaller: sprites decoded every frame (~0.5 ms on the 2DS), line analysis (~1.1 ms),
    decoding only visible tiles after a palette change; the X-ray scope not yet seen on
    hardware.
-5. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
+6. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
   finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
@@ -105,7 +108,7 @@ structure carries over but GBA-specific parts must be rewritten for SNES.
 | Bezel | `port_gba_bezel.c` | Adapt (new art, 8:7 area) |
 | RetroAchievements | `port_retroachievements_3ds.c`, `tools/gen_ra_iwram_map.py` | Adapt: network/toasts/badges as is; memory map to SNES WRAM. Hardcore stays off (unofficial port) |
 | Save states | `port_save_state.c` | Idea only. snesrev already has snapshot code in `sm_cpu_infra.c`/`sm_rtl.c` |
-| WIDE view | `port_wide_view.c` | Probably not needed: snesrev has `extended_aspect_ratio` |
+| WIDE view | `port_wide_view.c`, `platform_gpu_3ds.c` (display style / aspect) | Adapt: margins and option names. snesrev's `extended_aspect_ratio` does not help: nothing in the game reads it and `kPpuExtraLeftRight` is 0 (P4.5) |
 
 Lessons from mzm that apply directly:
 
@@ -293,6 +296,84 @@ Lessons from mzm that apply directly:
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
 - [ ] **P4.4** RetroAchievements (softcore only).
+- [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
+  the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
+  style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
+  `port_wide_view.c`).
+  *Today:* there is only one mode. Both paths scale 256x224 to 274x240 with nearest
+  sampling (x1.071, uneven rows and columns), centred, black sides
+  (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
+  *Spec, part A (display style, renderer only):*
+  - SCALED: what exists now.
+  - PIXEL PERFECT: 256x224 at 1:1, centred (72 px sides, 8 px top and bottom).
+  - Both renderers (GPU, and the CPU path for refused frames) honour it; the FPS overlay
+    and the bottom-screen tricks that use the left margin (`bottom_ui.c:970`) still fit.
+  *Spec, part B (WIDE, renderer + game):* fill the sides with the room instead of black,
+  in gameplay only (`game_state` 8, and door transitions); title, file select, pause map,
+  cutscenes and Ceres mode 7 stay 4:3. Margin per side M = 59 SNES px when SCALED (400 /
+  1.071 = 373 px), 72 when PIXEL PERFECT. No extra height: the BG tilemaps are 16 blocks
+  tall and the game rewrites one of them as it scrolls, so there is no spare row.
+  Findings (2026-10-01) that make it feasible:
+  - BG1 and BG2 use 64x32 tilemaps (`BG1SC = 0x51`, `BG2SC = 0x49`): 32 blocks of
+    16 px across, of which the game keeps only 17 current. `UpdateBgGraphicsWhenScrolling`
+    (sm_80.c) uploads the column at `layer1_x_block + 16` (scrolling right) or `+ 0`
+    (left), and `DisplayViewablePartOfRoom` loads columns 0..16 when a room is entered.
+    With M = 59 or 72, 4 or 5 more columns per side give 25 or 27 columns, which fit in
+    32 without wrapping onto themselves. Change: upload `x - m` / `x + 16 + m` there, and
+    the wider range on room load (same for BG2 when it scrolls with level data,
+    `layer2_scroll_x & 1 == 0`; a library BG2 is static and already 512 px).
+  - Outside the room (camera at a room edge, `layer1_x_pos` clamped to
+    `[0, room width - 256]`) the level-data read would wrap into the previous row: never
+    upload those columns, and draw the margin there as black.
+  - Hidden areas: the camera never enters a red scroll screen (`scrolls[]` at
+    `$7E:CD20`, 0 = red, `room_width_in_scrolls` per row), so the original never shows
+    them; WIDE can show part of them. Left visible, as mzm's WIDE does (it shows
+    whatever the room has in the margin, no scroll-bound masking). If it spoils too
+    much in play, masking red screens is a later option, not part of this task.
+  - Enemies are only processed and drawn inside the 256 px view (`EnemyMain` and the
+    active list in sm_a0.c: `x_pos + x_width` against `layer1_x_pos .. +256`, and
+    `EnemyWithNormalSpritesIsOffScreen`), so without changes they would freeze and pop
+    in at the old screen edge. Widen those checks by M while WIDE is on. This changes
+    game logic (enemies wake a few blocks earlier), as mzm's
+    `Port_WideMarginSubPixelX` does; with WIDE off it must stay bit-identical
+    (`make test` hashes unchanged). Enemy projectiles (`CheckIfEprojIsOffScreen`,
+    sm_86.c) need the same; Samus's projectiles already live to -64 / +320.
+  - Sprites: `DrawSpritemap` (sm_81.c) culls only in Y and stores the 9-bit X, so a
+    piece in the right margin (x 256..256+M) arrives in OAM as -256..-256+M, which the
+    SNES treats as off-screen left. A piece visible in the left margin starts at
+    -M-64 or later (sprites are at most 64 px wide), so the ranges never overlap while
+    M <= 96: decode x < -128 as x + 512 in the renderer, only in WIDE gameplay. Watch the 128-sprite OAM limit (more on screen at once).
+  - HUD over the room (owner's request): in the original, lines 0-31 show only the HUD
+    on black. `IrqHandler_4_Main_BeginHudDraw` (sm_80.c) sets `TM = 4` (BG3 only) and
+    colour math off for them, and `IrqHandler_6_Main_EndHudDraw` restores
+    `gameplay_TM` at line 31. Those 32 lines are inside the camera (`layer1_y_pos` is
+    screen line 0), so the room is there, just switched off. With WIDE on, the HUD lines
+    show the room under the HUD: BG3 (HUD) plus `gameplay_TM`'s BG1/BG2/OBJ, across the
+    whole width including the margins. The HUD's own 32-tile BG3 tilemap stays centred
+    (no repeat into the margins).
+    To check first, with a FRAME DUMP or the host harness: (1) the HUD's empty
+    pixels are transparent (colour 0) rather than opaque black tiles, and its tiles have
+    the BG3 priority bit so they stay above BG1 in mode 1; (2) the top tilemap row is up to date:
+    scrolling up, `UpdateBgGraphicsWhenScrolling` refreshes row `layer1_y_block + 1`,
+    not `+ 0`, so the row under the HUD may be stale. If so, refresh `+ 0` while WIDE is on
+    (rows y..y+15 are the 16 rows of the tilemap, no overlap); (3) the door-transition
+    and Draygon IRQ variants (handlers 8-26) do the same HUD split: keep their band
+    black or handle them alike; (4) readability over bright rooms.
+  - BG3 FX layers below the HUD (water, lava, fog) wrap at 256 px; that repetition in
+    the margins is expected to look right, check it.
+  - Renderer: the GPU main/sub targets are 256x256 (`gpu_ppu_3ds.c`), the frame build
+    clips at 256, and quads, backdrop, windows and colour math rectangles span 0..256.
+    WIDE needs 512x256 targets and those spans widened. The CPU renderer has
+    zelda3-style side space half wired (`extraLeftCur/extraRightCur` in ppu.c, never
+    set, `kPpuExtraLeftRight = 0`): finish it or show black margins on refused frames
+    (they should be rare in gameplay).
+  - Stereo (Phase 3): per-eye offsets need a few more pixels at the edges; size the
+    margins once for both.
+  *Done when:* the three modes (SCALED, PIXEL PERFECT, each with WIDE on or off) work in
+  both renderers; with WIDE on, a walk through Landing Site, Brinstar, a Norfair heat
+  room and Maridia shows no garbage columns or rows, the HUD over the room and not
+  repeated, no frozen or popping enemies, no sprite on the wrong side; WIDE off
+  keeps `make test` hashes; 2DS still ~60 fps in Landing Site with WIDE on.
 
 ## Phase 5: completion
 
