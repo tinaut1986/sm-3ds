@@ -244,7 +244,7 @@ print-version:
 # Host regression tests (tools/test/README.md). Needs the ROM: make test SM_ROM=/path/rom.sfc
 # Add TEST_ARGS=--full for the teleport test too.
 test:
-	@tools/test/run.sh $(TEST_ARGS) $(SM_ROM)
+	@tools/test/run.sh $(TEST_ARGS) "$(SM_ROM)"
 
 # Build the CIA and upload it to the console's FTP server as
 # cias/sm-3ds-<VERSION>.cia (install it from there with FBI).
