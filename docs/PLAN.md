@@ -2,9 +2,11 @@
 
 Living document. Read it at the start of every session; update it at the end.
 
-**Active release branch:** `release/v0.1.1` (renamed from `release/v0.1.0` after
-tagging the first beta `v0.1.0` on 2026-10-01: GitHub release "Beta v0.1.0", CIA +
-QR). All topic branches so far are merged into it and deleted.
+**Active release branch:** `release/v0.1.2` (renamed from `release/v0.1.1` after
+tagging the beta `v0.1.1` on 2026-10-01: GPU renderer on by default, Old 3DS at ~60 fps
+in gameplay, cheaper audio, exit and soft-reset crashes fixed). `v0.1.0` was the first
+beta. All topic branches so far are merged and deleted (`feat/gpu-ppu` still exists on
+the remote, merged).
 
 ## Next up (updated 2026-10-01)
 
@@ -14,9 +16,10 @@ cycle, save states load, the bottom UI (status, map, cheats, options, debug) and
 teleport work. Do not re-propose those as pending. What is actually open, in the
 order that makes sense:
 
-1. **P2.3/P2.4** GPU PPU renderer on `feat/gpu-ppu` (`docs/gpu-ppu-design.md`): matches
-   the CPU renderer on a New 3DS (6 GPU CHECK sets, nothing off by more than 8). Open:
-   FPS GPU vs CPU in the P0.3 spots (the overlay now works in GPU mode), Old 3DS.
+1. **P2.3/P2.4** GPU PPU renderer (`docs/gpu-ppu-design.md`), on by default since
+   v0.1.1; 2DS at ~60 fps in gameplay. Open: Mode 7 (title, intro, Ceres: ~22-30 fps on
+   the CPU renderer at 268 MHz), a colour window that splits a line with clip/prevent
+   (maybe X-ray), New 3DS numbers after the optimisations.
 2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
    no Old 3DS numbers at all).
 3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
