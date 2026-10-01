@@ -951,6 +951,8 @@ void RunOneFrameOfGame_Emulated(void) {
   bug_fix_counter = bug_fix_bak;
 }
 
+void (*g_rtl_before_ppu_draw)(void);
+
 void DrawFrameToPpu(void) {
   g_snes->hPos = g_snes->vPos = 0;
   while (!g_snes->cpu->nmiWanted) {
@@ -1048,6 +1050,8 @@ void RtlRunFrameCompare(uint16 input, int run_what) {
     g_use_my_apu_code = true;
     // g_snes->runningWhichVersion = 0xff;
     RunOneFrameOfGame();
+    if (g_rtl_before_ppu_draw)   // 3DS port, see sm_cpu_infra.h
+      g_rtl_before_ppu_draw();
     DrawFrameToPpu();
     // 3DS port: SoftReset (B on the file-select screens, among others) only sets
     // game_state to 0xffff, and RunOneFrameOfGame_Both turns that into a reset. Without

@@ -577,9 +577,9 @@ void DetermineWhichEnemiesToProcess(void) {  // 0xA08EB6
           v1->enemy_ptr = 0;
         } else if ((properties & 0x800) != 0
                    || (v1->ai_handler_bits & 4) != 0
-                   || (int16)(v1->x_width + v1->x_pos - layer1_x_pos) >= 0
-                   && (int16)(v1->x_width + layer1_x_pos + 256 - v1->x_pos) >= 0
-                   && (int16)(v1->y_pos + 8 - layer1_y_pos) >= 0
+                   || (int16)(v1->x_width + v1->x_pos - layer1_x_pos + g_rtl_wide_margin_left) >= 0
+                   && (int16)(v1->x_width + layer1_x_pos + 256 + g_rtl_wide_margin_right - v1->x_pos) >= 0
+                   && (int16)(v1->y_pos + 8 + g_rtl_wide_extra_top - layer1_y_pos) >= 0
                    && (int16)(layer1_y_pos + 248 - v1->y_pos) >= 0) {
           uint16 v3 = active_enemy_indexes_write_ptr;
           active_enemy_indexes[active_enemy_indexes_write_ptr >> 1] = cur_enemy_index;
@@ -1921,6 +1921,7 @@ void WriteEnemyOams(void) {  // 0xA0944A
   EnemySpawnData *ES = gEnemySpawnData(cur_enemy_index);
   uint16 x2 = ES->xpos2 + E->x_pos - layer1_x_pos;
   uint16 y2 = ES->ypos2 + E->y_pos - layer1_y_pos;
+  RtlOamSetAnchor(E->x_pos - layer1_x_pos, E->y_pos - layer1_y_pos);   // 3DS port, see g_rtl_oam_x
   if (E->shake_timer) {
     x2 += ((E->frame_counter & 2) == 0) ? 1 : -1;
     E->shake_timer--;
@@ -1964,6 +1965,7 @@ void WriteEnemyOams(void) {  // 0xA0944A
     enemy_processing_stage = 1;
     DrawSpritemapWithBaseTile(E->bank, E->spritemap_pointer, x, y, r3, r0);
   }
+  RtlOamClearAnchor();
 }
 
 void NormalEnemyFrozenAI(void) {  // 0xA0957E
@@ -3008,8 +3010,9 @@ uint16 EnemyFunc_ADA3(uint16 a) {  // 0xA0ADA3
 
 uint16 EnemyWithNormalSpritesIsOffScreen(void) {  // 0xA0ADE7
   EnemyData *E = gEnemyData(cur_enemy_index);
-  return (int16)(E->x_width + E->x_pos - layer1_x_pos) < 0 || (int16)(E->x_width + layer1_x_pos + 256 - E->x_pos) < 0 ||
-      (int16)(E->y_pos + 8 - layer1_y_pos) < 0 || (int16)(layer1_y_pos + 248 - E->y_pos) < 0;
+  const uint16 ml = g_rtl_wide_margin_left, mr = g_rtl_wide_margin_right;   // 3DS port (WIDE)
+  return (int16)(E->x_width + E->x_pos - layer1_x_pos + ml) < 0 || (int16)(E->x_width + layer1_x_pos + 256 + mr - E->x_pos) < 0 ||
+      (int16)(E->y_pos + 8 + g_rtl_wide_extra_top - layer1_y_pos) < 0 || (int16)(layer1_y_pos + 248 - E->y_pos) < 0;
 }
 
 uint16 DetermineDirectionOfSamusFromEnemy(void) {  // 0xA0AE29

@@ -677,6 +677,7 @@ CoroutineRet RunOneFrameOfGameInner(void) {
   NextRandom();
   ClearOamExt();
   oam_next_ptr = 0;
+  RtlOamXReset();   // 3DS port, see g_rtl_oam_x
   nmi_copy_samus_halves = 0;
   nmi_copy_samus_top_half_src = 0;
   nmi_copy_samus_bottom_half_src = 0;
@@ -4211,8 +4212,13 @@ void LoadLevelDataAndOtherThings(void) {  // 0x82E7D3
   DecompressToMem(Load24(&room_compr_level_data_ptr), (uint8 *)&ram7F_start);
 
   uint16 size = ram7F_start;
-  memcpy(custom_background, (uint8 *)level_data + size + (size >> 1), size);
-  memcpy(BTS, (uint8 *)level_data + size, size >> 1);
+  // 3DS port: memmove, not memcpy. For a room bigger than 0x3C00 bytes of level data the
+  // background source runs into its destination; the ROM copies downwards (word loop from
+  // the end), which is what memmove does when the destination is above the source.
+  // memcpy's result depended on the build (glibc picks a variant by alignment), so the
+  // host test hashes changed with unrelated code (2026-10-01).
+  memmove(custom_background, (uint8 *)level_data + size + (size >> 1), size);
+  memmove(BTS, (uint8 *)level_data + size, size >> 1);
 
   if (area_index == 6) {
     DecompressToMem(Load24(&tileset_tile_table_pointer), g_ram + 0xa000);
@@ -4392,8 +4398,11 @@ void LoadLevelScrollAndCre(void) {  // 0x82EA73
   DecompressToMem(Load24(&room_compr_level_data_ptr), (uint8 *)&ram7F_start);
 
   uint16 size = ram7F_start;
-  memcpy(custom_background, (uint8*)level_data + size + (size >> 1), size);
-  memcpy(BTS, (uint8 *)level_data + size, size >> 1);
+  // 3DS port: memmove, as in LoadLevelDataAndOtherThings (same descending ROM loops at
+  // $82:EA73). This is the door-transition path: with memcpy, newlib's forward copy broke
+  // the BTS of every big room entered through a door (Landing Site's door caps, 2026-10-01).
+  memmove(custom_background, (uint8 *)level_data + size + (size >> 1), size);
+  memmove(BTS, (uint8 *)level_data + size, size >> 1);
 
   if (area_index == 6) {
     DecompressToMem(Load24(&tileset_tile_table_pointer), g_ram + 0xa000);

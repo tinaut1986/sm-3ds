@@ -1105,11 +1105,13 @@ void IrqHandler_2_DisableIRQ(void) {  // 0x809680
   IrqHandler_SetResult(0, 0, 0);
 }
 
+static uint8 HudLinesTM(void);   // 3DS port, see g_rtl_wide_hud_over_room
+
 void IrqHandler_4_Main_BeginHudDraw(void) {  // 0x80968B
   WriteReg(BG3SC, 0x5A);
   WriteReg(CGWSEL, 0);
   WriteReg(CGADSUB, 0);
-  WriteReg(TM, 4);
+  WriteReg(TM, HudLinesTM());
   IrqHandler_SetResult(6, 31, 152);
 }
 
@@ -1145,7 +1147,7 @@ void IrqHandler_10_StartOfDoor_EndHud(void) {  // 0x8096F1
 }
 
 void IrqHandler_12_Draygon_BeginHud(void) {  // 0x80971A
-  WriteReg(TM, 4);
+  WriteReg(TM, HudLinesTM());
   WriteReg(CGWSEL, 0);
   WriteReg(CGADSUB, 0);
   IrqHandler_SetResult(14, 31, 152);
@@ -2624,6 +2626,24 @@ void DecompressToVRAM(uint32 src, uint16 dst_addr) {  // 0x80B271
 
 
 RtlWarpLoad g_rtl_warp_load;
+uint16 g_rtl_wide_margin_left, g_rtl_wide_margin_right;
+bool g_rtl_wide_hud_over_room;
+uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+int16 g_rtl_oam_x[128], g_rtl_oam_y[128];
+int16 g_rtl_oam_anchor_x = kRtlOamUnknown, g_rtl_oam_anchor_y = kRtlOamUnknown;
+
+void RtlOamXReset(void) {
+  for (int i = 0; i < 128; i++) g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown;
+  RtlOamClearAnchor();
+}
+
+// Main screen layers for the HUD lines: BG3 (the HUD) only, or with the 3DS port's WIDE
+// view also the room's BG1, BG2 and sprites, from the main or the sub screen (heat rooms
+// have the room on the sub screen and the FX on the main one). Colour math is off on
+// these lines, so a layer meant to be blended shows plain there.
+static uint8 HudLinesTM(void) {
+  return g_rtl_wide_hud_over_room ? (4 | ((gameplay_TM | reg_TS) & 0x13)) : 4;
+}
 
 void LoadFromLoadStation(void) {  // 0x80C437
   save_station_lockout_flag = 1;

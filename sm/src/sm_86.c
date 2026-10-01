@@ -450,6 +450,7 @@ void DrawEprojs(uint16 k, Point16U pt) {  // 0x8683D6
   uint16 r26 = LOBYTE(eproj_gfx_idx[v1]);
   uint16 R28 = eproj_gfx_idx[v1] & 0xFF00;
   uint16 r20 = pt.x + eproj_x_pos[v1] - layer1_x_pos;
+  RtlOamSetAnchor(eproj_x_pos[v1] - layer1_x_pos, eproj_y_pos[v1] - layer1_y_pos);   // 3DS port, see g_rtl_oam_x
   if (((r20 + 128) & 0xFE00) == 0) {
     uint16 v3 = pt.y + eproj_y_pos[v1] - layer1_y_pos;
     uint16 r18 = v3;
@@ -460,6 +461,7 @@ void DrawEprojs(uint16 k, Point16U pt) {  // 0x8683D6
       DrawEprojSpritemapWithBaseTile(0x8D, v2, r20, r18, r26, R28);
     }
   }
+  RtlOamClearAnchor();
 }
 
 Point16U GetValuesForScreenShaking(void) {  // 0x868427
@@ -4363,8 +4365,9 @@ static void EprojInit_SaveStationElectricity(uint16 j) {  // 0x86E6AD
 
 static uint16 CheckIfEprojIsOffScreen(uint16 k) {  // 0x86E6E0
   int v1 = k >> 1;
-  if ((int16)(eproj_x_pos[v1] - layer1_x_pos) >= 0) {
-    if ((int16)(eproj_x_pos[v1] - (layer1_x_pos + 256)) < 0
+  // 3DS port: widened by the WIDE margins.
+  if ((int16)(eproj_x_pos[v1] - layer1_x_pos + g_rtl_wide_margin_left) >= 0) {
+    if ((int16)(eproj_x_pos[v1] - (layer1_x_pos + 256 + g_rtl_wide_margin_right)) < 0
         && (int16)(eproj_y_pos[v1] - layer1_y_pos) >= 0) {
       if ((int16)(eproj_y_pos[v1] - (layer1_y_pos + 256)) < 0)
         return 0;
