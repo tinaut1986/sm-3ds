@@ -91,6 +91,8 @@ Dsp *dsp_init(uint8_t *ram);
 void dsp_free(Dsp* dsp);
 void dsp_reset(Dsp* dsp);
 void dsp_cycle(Dsp* dsp);
+// Same as dsp_cycle `n` times (n <= 64), faster; no register writes in between.
+void dsp_cycleBlock(Dsp* dsp, int n);
 uint8_t dsp_read(Dsp* dsp, uint8_t adr);
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val);
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame);
