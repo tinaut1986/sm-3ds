@@ -598,4 +598,18 @@ Lessons from mzm that apply directly:
   `CERES_BOOM=1 tools/gpu-ppu-test/run.sh ROM boot EMPTY.srm 10500` (new game, then
   game_state 0x20 in DF45). With that, no frame of a new game through Ceres, the demo,
   every room, a power bomb or the file-select screens is refused any more.
+- 2026-10-01: Maridia water (per-line horizontal scroll): submit ~7 ms on the 2DS because
+  per-line quads alternated the two priority textures (a texture switch and a new draw
+  batch per quad). Runs are now emitted priority 0 first, then 1.
+- 2026-10-01: Freeze at a door in Maridia (2DS; game logic stuck, frontend fine): the
+  teleport stacked music queue entries (load fanfare: a stop held 360 frames, plus the
+  room music) and a second warp within 6 s overflowed the 8-entry queue, which has no
+  full check; HasQueuedMusic then stayed true and DoorTransition_WaitForMusicToClear never
+  finished. Diagnosed from the WRAM in a screen dump. The warp now empties the queue on
+  arrival and queues what a door would. Only the teleport (a debug tool) could do this.
+- 2026-10-01: Host regression suite, `make test SM_ROM=...` (tools/test/README.md):
+  DSP fuzz, GPU list vs CPU renderer (every room, new game through Ceres exploding, power
+  bomb, soft resets), music queue under repeated warps, audio hash, optional warp test.
+  ~90 s. Expected hashes in tools/test/expected.txt (`--update` after an intended change).
+  Run it before merging anything that touches the game, the renderer or the audio.
 
