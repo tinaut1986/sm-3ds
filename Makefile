@@ -169,6 +169,15 @@ VERSION_H_TEXT := \#pragma once\n\#define APP_TITLE "$(APP_TITLE)"\n\#define APP
 $(shell mkdir -p $(BUILD) && printf '$(VERSION_H_TEXT)' > $(VERSION_H).tmp && \
 	(cmp -s $(VERSION_H).tmp $(VERSION_H) && rm -f $(VERSION_H).tmp || mv -f $(VERSION_H).tmp $(VERSION_H)))
 
+# Build options the frontend reads, written the same way: switching one rebuilds the
+# files that include build_config.h, with no `make clean`.
+#   DEBUG_TOOLS=1  Debug tab, teleport, item/map editing on the Status tab.
+DEBUG_TOOLS ?= 0
+BUILD_CONFIG_H := $(BUILD)/build_config.h
+BUILD_CONFIG_H_TEXT := \#pragma once\n\#define DEBUG_TOOLS $(DEBUG_TOOLS)\n
+$(shell printf '$(BUILD_CONFIG_H_TEXT)' > $(BUILD_CONFIG_H).tmp && \
+	(cmp -s $(BUILD_CONFIG_H).tmp $(BUILD_CONFIG_H) && rm -f $(BUILD_CONFIG_H).tmp || mv -f $(BUILD_CONFIG_H).tmp $(BUILD_CONFIG_H)))
+
 #---------------------------------------------------------------------------------
 # Build Variable Setup
 #---------------------------------------------------------------------------------
@@ -347,6 +356,9 @@ icon.icn: $(TOPDIR)/$(ICON) version.h
 	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_LONG_DESC)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
 
 $(OUTPUT_FILE).elf: $(OFILES) $(SDL)/build/libSDL2.a
+
+# The shader header is generated; make sure it exists before its user compiles.
+gpu_ppu_3ds.o: gpu_ppu.shbin.o
 
 $(OUTPUT_FILE).3dsx: $(OUTPUT_FILE).elf $(OUTPUT_FILE).smdh
 

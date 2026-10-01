@@ -32,6 +32,13 @@
 #define COL_SUPER   RGB(90, 200, 110)
 #define COL_PBOMB   RGB(230, 210, 80)
 #define COL_RESERVE RGB(110, 160, 240)
+#define COL_TITLE   RGB(255, 215, 0)
+#define COL_ACCENT  RGB(100, 220, 255)
+#define COL_BOX     RGB(20, 70, 130)      // default button body
+#define COL_BOX_EDGE RGB(70, 130, 210)    // default button border
+#define COL_PRESSED RGB(90, 150, 220)     // body of a button just tapped
+#define COL_MODAL   RGB(10, 14, 24)
+#define COL_MODAL_EDGE RGB(40, 70, 120)
 
 typedef struct { uint32_t *px; int w, h; } Surface;   // column-major, h px per column
 typedef struct { int x, y, w, h; } Rect;
@@ -39,7 +46,15 @@ typedef struct { int x, y, w, h; } Rect;
 // Kept for symmetry with a future citro2d backend; the 5x7 font is compiled in.
 bool UiDraw_Init(void);
 
+// The back buffer of `screen`. If a swap is still waiting for its vblank, the "back"
+// buffer is the one on screen, so this first waits for that vblank (see UiDraw_Swapped).
 Surface UiDraw_Screen(gfxScreen_t screen);
+
+// Call after every gfxSwapBuffers / gfxScreenSwapBuffers, and UiDraw_VBlankSeen after
+// waiting for a vblank. UiDraw_WaitSwapShown blocks until the last swap is on screen.
+void UiDraw_Swapped(void);
+void UiDraw_VBlankSeen(void);
+void UiDraw_WaitSwapShown(void);
 
 void UiFillRect(Surface s, int x, int y, int w, int h, uint32_t c);
 void UiFrameRect(Surface s, int x, int y, int w, int h, uint32_t c);   // 1 px outline
@@ -47,6 +62,11 @@ void UiDrawText(Surface s, int x, int y, int scale, uint32_t c, const char *str)
 void UiDrawTextf(Surface s, int x, int y, uint32_t c, const char *fmt, ...) __attribute__((format(printf, 5, 6)));
 int UiTextWidth(const char *str, int scale);
 void UiDrawButton(Surface s, Rect r, uint32_t bg, const char *label);
+// mzm-style box: 1 px border, body, 1 px bevel on top. `pressed` draws the tap flash.
+void UiDrawBox(Surface s, Rect r, uint32_t body, uint32_t border, bool pressed);
+// Box plus a centred label (nudged down 1 px while pressed).
+void UiDrawBoxLabel(Surface s, Rect r, uint32_t body, uint32_t border, uint32_t text, bool pressed, const char *label);
+void UiDrawTextCentered(Surface s, int cx, int y, uint32_t c, const char *str);
 // Horizontal bar: `value` of `max` filled, with a dark track and outline.
 void UiDrawBar(Surface s, int x, int y, int w, int h, int value, int max, uint32_t fill);
 

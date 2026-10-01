@@ -140,10 +140,16 @@ make -j FULL_NATIVE=1 cia       # -> output/SuperMetroid3DSPort.cia
 make -j FULL_NATIVE=1 ftp FTP_HOST=<3ds ip>   # build + upload to /cias/
 ```
 
+`DEBUG_TOOLS=1` adds the Debug tab, the teleport and the Status-tab cheats (a
+plain `make` leaves them out; CI passes 1 while releases are betas). It goes
+through `build/build_config.h`, so switching it needs no clean. See
+`docs/debug-tools.md`.
+
 `./build_3ds.sh` (`tools/build_3ds.py`, from mzm) wraps the same steps: it
 builds SDL if missing, can scan the LAN for the console's FTP server (port
-5000) and upload the CIA as `cias/sm-3ds-<version>.cia`. `--ftp [IP]`,
-`--no-ftp`, `--clean`, `--dry-run`; no flags = interactive menu. The last IP
+5000) and upload the CIA as `cias/sm-3ds-<version>.cia`. `--mode debug|prod`
+(debug by default), `--ftp [IP]`, `--no-ftp`, `--clean`, `--dry-run`; no flags =
+interactive menu. The last IP
 is kept in `.3ds_ftp_ip` (gitignored).
 
 `FULL_NATIVE`: run only the C game code, never the ROM on the emulated CPU.

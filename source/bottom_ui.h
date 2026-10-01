@@ -1,8 +1,10 @@
-// Touch UI for the bottom screen: status, options and debug tabs.
+// Touch UI for the bottom screen, laid out like ../mzm's: icon tabs for the map,
+// status, debug (DEBUG_TOOLS builds only), save states and options, with modal
+// windows over them.
 //
-// Software-drawn straight into the bottom framebuffer (RGBA8, like the game
-// on the top screen) with the 8x8 font from romfs. It only redraws when
-// something changed or every REFRESH_FRAMES frames, so it costs next to nothing.
+// Software-drawn straight into the bottom framebuffer (RGBA8, like the game on the
+// top screen) with the 5x7 font. It only redraws when something changed or every
+// REFRESH_FRAMES frames, so it costs next to nothing.
 #pragma once
 
 #include <stdbool.h>
@@ -16,8 +18,14 @@ typedef struct {
   float draw_ms;      // copy of the PPU output to the top screen
   float audio_ms;     // last audio block generation (audio thread)
   float audio_part_ms[4];  // of that: lock wait, SPC driver loop, DSP cycles, resample
+  uint32_t core1_limit;    // % of the system core granted to the app (audio thread)
   uint32_t frames;    // frames since boot
   bool is_new3ds;
+  // GPU renderer: frames it drew, frames it handed to the CPU and the last reason.
+  uint32_t gpu_frames, gpu_fallbacks;
+  float gpu_build_ms, gpu_wait_ms, gpu_submit_ms;   // last GPU frame: GpuPpu_BuildFrame, GPU wait, submit
+  const char *gpu_reason;
+  const char *gpu_calibration;
 } UiPerf;
 
 typedef struct {
@@ -35,6 +43,7 @@ typedef struct {
   bool audio_on;
   bool fps_overlay;      // small FPS counter on the top screen
   bool render_on;        // false: skip PPU drawing, to measure its cost
+  bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   int save_slot;         // 0..9, for save states
   // One-shot requests, consumed by the main loop.
@@ -42,6 +51,8 @@ typedef struct {
   bool req_save_state;
   bool req_load_state;
   bool req_dump;         // Debug_DumpScreen, needs the PPU output owned by main
+  bool req_frame_dump;   // Debug_FrameCapture* around the next drawn frame
+  bool req_gpu_check;    // draw the next frame both ways and compare (GPU renderer on)
 } UiOptions;
 
 extern UiOptions g_ui;
@@ -62,5 +73,16 @@ bool BottomUi_Frame(const UiPerf *perf);
 // Short message at the bottom of the screen for ~1.5 s.
 void BottomUi_Toast(const char *msg);
 
+// The main loop reports what it did with req_save_state / req_load_state /
+// req_reset, so the States tab can describe the slot and forget stale debug state.
+void BottomUi_StateSaved(int slot, bool ok);
+void BottomUi_StateLoaded(int slot, bool ok);
+void BottomUi_GameReset(void);
+
 // Small FPS/timing overlay on the top framebuffer (if g_ui.fps_overlay).
 void BottomUi_DrawTopOverlay(const UiPerf *perf);
+
+// Same overlay into a column-major RGBA8 buffer of `w` x `h` (at least 60 x 52), for
+// when the GPU renderer presents the top screen. Returns false (buffer untouched) if
+// the overlay is off.
+bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *perf);

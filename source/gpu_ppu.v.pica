@@ -1,0 +1,30 @@
+; Vertex shader for the GPU PPU renderer (gpu_ppu_3ds.c): a 2D position mapped
+; through the projection, the depth taken as is from z (the priority level, see
+; GpuPpu3ds), and a texture coordinate passed through.
+
+; Uniforms
+.fvec projection[4]
+
+; Constants
+.constf consts(0.0, 1.0, 0.5, 0.0)
+
+; Outputs
+.out outpos position
+.out outtc0 texcoord0
+
+; Inputs
+.alias inpos v0
+.alias intc  v1
+
+.proc main
+	mov r0.x, inpos.x
+	mov r0.y, inpos.y
+	mov r0.z, consts.x
+	mov r0.w, consts.y
+	dp4 outpos.x, projection[0], r0
+	dp4 outpos.y, projection[1], r0
+	mov outpos.z, inpos.z
+	dp4 outpos.w, projection[3], r0
+	mov outtc0, intc
+	end
+.end

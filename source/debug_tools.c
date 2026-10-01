@@ -10,6 +10,7 @@
 #include "src/types.h"
 #include "src/sm_rtl.h"
 #include "src/variables.h"
+#include "src/snes/dma.h"
 #include "src/snes/ppu.h"
 #include "src/snes/snes.h"
 
@@ -164,16 +165,10 @@ static void WriteGameText(FILE *f) {
           (unsigned)frame_counter_every_frame);
 }
 
-int Debug_DumpScreen(const uint8_t *bgra) {
-  mkdir(DEBUG_DIR, 0777);
-  int slot = PickSlot(DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
-
-  // Top screen, headerless RGB8, 256x240, top to bottom.
-  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, "wb");
-  if (!f) {
-    SetMessage("Dump: cannot write debug/");
-    return -1;
-  }
+// Headerless RGB8, 256x240, top to bottom.
+static bool WriteRgb(const char *fmt, int slot, const uint8_t *bgra) {
+  FILE *f = OpenSlotFile(fmt, slot, "wb");
+  if (!f) return false;
   for (int y = 0; y < 240; y++) {
     uint8_t row[256 * 3];
     for (int x = 0; x < 256; x++) {
@@ -185,7 +180,22 @@ int Debug_DumpScreen(const uint8_t *bgra) {
     fwrite(row, 1, sizeof(row), f);
   }
   fclose(f);
+  return true;
+}
 
+void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra) {
+  char fmt[64];
+  snprintf(fmt, sizeof(fmt), DEBUG_DIR "/sm-dump-%%02d-%s.rgb", suffix);
+  WriteRgb(fmt, slot, bgra);
+}
+
+int Debug_DumpScreen(const uint8_t *bgra) {
+  mkdir(DEBUG_DIR, 0777);
+  int slot = PickSlot(DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
+  if (!WriteRgb(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, bgra)) {
+    SetMessage("Dump: cannot write debug/");
+    return -1;
+  }
   const Ppu *p = g_snes->ppu;
   WriteBin(DEBUG_DIR "/sm-dump-%02d-vram.bin", slot, p->vram, sizeof(p->vram));
   WriteBin(DEBUG_DIR "/sm-dump-%02d-cgram.bin", slot, p->cgram, sizeof(p->cgram));
@@ -193,13 +203,149 @@ int Debug_DumpScreen(const uint8_t *bgra) {
   WriteBin(DEBUG_DIR "/sm-dump-%02d-highoam.bin", slot, p->highOam, sizeof(p->highOam));
   WriteBin(DEBUG_DIR "/sm-dump-%02d-wram.bin", slot, g_ram, 0x20000);
 
-  f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-ppu.txt", slot, "w");
+  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-ppu.txt", slot, "w");
   if (f) { WritePpuText(f, p); fclose(f); }
   f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-game.txt", slot, "w");
   if (f) { WriteGameText(f); fclose(f); }
+  // Files left in this slot by an older set would pass for this set's.
+  char path[96];
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-frame.txt", slot);
+  remove(path);
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-gpu.rgb", slot);
+  remove(path);
 
   Debug_Log("screen dump -> set %02d", slot);
   SetMessage("Dump set %02d saved", slot);
+  return slot;
+}
+
+// ---- Frame capture ---------------------------------------------------------
+// Every write to a PPU register ($2100-$213F) during one frame, stamped with the
+// scanline. The game logic runs first, in vblank (stamped -1); then DrawFrameToPpu
+// renders lines 0..224, and HDMA and the IRQ handler write between them. HDMA writes
+// at the end of line N, so they take effect from line N+1; the IRQ handler runs after
+// its line has been drawn and is stamped with the next one.
+
+typedef struct {
+  int16_t line;
+  uint8_t reg;      // $21xx low byte
+  uint8_t val;      // last value written
+  uint16_t count;   // consecutive writes to the same data port, folded into one entry
+} FrameWrite;
+
+enum { kFrameWritesMax = 16384 };
+static FrameWrite *g_fw;
+static int g_fw_count;
+static bool g_fw_overflow;
+
+static const char *const kPpuRegNames[0x34] = {
+  "INIDISP", "OBSEL", "OAMADDL", "OAMADDH", "OAMDATA", "BGMODE", "MOSAIC", "BG1SC",
+  "BG2SC", "BG3SC", "BG4SC", "BG12NBA", "BG34NBA", "BG1HOFS", "BG1VOFS", "BG2HOFS",
+  "BG2VOFS", "BG3HOFS", "BG3VOFS", "BG4HOFS", "BG4VOFS", "VMAIN", "VMADDL", "VMADDH",
+  "VMDATAL", "VMDATAH", "M7SEL", "M7A", "M7B", "M7C", "M7D", "M7X",
+  "M7Y", "CGADD", "CGDATA", "W12SEL", "W34SEL", "WOBJSEL", "WH0", "WH1",
+  "WH2", "WH3", "WBGLOG", "WOBJLOG", "TM", "TS", "TMW", "TSW",
+  "CGWSEL", "CGADSUB", "COLDATA", "SETINI",
+};
+
+// Data ports: a DMA upload writes them thousands of times in a row.
+static bool IsDataPort(uint8_t reg) { return reg == 0x04 || reg == 0x18 || reg == 0x19 || reg == 0x22; }
+
+static void FrameWriteHook(uint8_t reg, uint8_t val) {
+  const int16_t line = g_snes->inVblank ? -1 : (int16_t)g_snes->vPos;
+  if (g_fw_count > 0) {
+    FrameWrite *last = &g_fw[g_fw_count - 1];
+    if (last->line == line && last->reg == reg && IsDataPort(reg) && last->count < 0xFFFF) {
+      last->val = val;
+      last->count++;
+      return;
+    }
+  }
+  if (g_fw_count >= kFrameWritesMax) {
+    g_fw_overflow = true;
+    return;
+  }
+  g_fw[g_fw_count++] = (FrameWrite){ line, reg, val, 1 };
+}
+
+bool Debug_FrameCaptureBegin(void) {
+  free(g_fw);
+  g_fw = (FrameWrite *)malloc(sizeof(FrameWrite) * kFrameWritesMax);
+  g_fw_count = 0;
+  g_fw_overflow = false;
+  if (!g_fw) {
+    SetMessage("Frame dump: out of memory");
+    return false;
+  }
+  g_ppu_write_hook = FrameWriteHook;
+  return true;
+}
+
+static const char *RegName(uint8_t reg) { return reg < 0x34 ? kPpuRegNames[reg] : "?"; }
+
+static void WriteFrameText(FILE *f, int slot) {
+  fprintf(f, "# Super Metroid 3DS %s, frame capture, dump set %02d\n", g_version, slot);
+  fprintf(f, "# game_state=%02X area=%u room=%u room_ptr=%04X\n", (unsigned)game_state, (unsigned)area_index,
+          (unsigned)room_index, (unsigned)room_ptr);
+  fprintf(f, "# %d entries%s. line -1 = game logic (vblank); HDMA at line N applies from N+1.\n", g_fw_count,
+          g_fw_overflow ? " (BUFFER FULL, later writes lost)" : "");
+
+  // HDMA/DMA channel setup as the frame left it: the table start (aAdr) does not move.
+  const Dma *dma = g_snes->dma;
+  fprintf(f, "\n[hdma]\n");
+  for (int i = 0; i < 8; i++) {
+    const DmaChannel *c = &dma->channel[i];
+    fprintf(f, "ch%d hdma=%d mode=%u dest=21%02X %-8s table=%02X:%04X indirect=%d ind_bank=%02X\n", i,
+            c->hdmaActive, c->mode, c->bAdr, RegName(c->bAdr), c->aBank, c->aAdr, c->indirect, c->indBank);
+  }
+
+  // Per register: writes in vblank, writes during the visible lines, and on how many
+  // different lines. A register with visible-line writes is a per-scanline effect.
+  fprintf(f, "\n[summary] reg name vblank_writes line_writes lines first..last\n");
+  for (int reg = 0; reg < 0x40; reg++) {
+    int vbl = 0, vis = 0, lines = 0, first = -1, last = -1, prev_line = -2;
+    for (int i = 0; i < g_fw_count; i++) {
+      const FrameWrite *w = &g_fw[i];
+      if (w->reg != reg) continue;
+      if (w->line < 0) { vbl += w->count; continue; }
+      vis += w->count;
+      if (w->line != prev_line) { lines++; prev_line = w->line; }
+      if (first < 0) first = w->line;
+      last = w->line;
+    }
+    if (vbl || vis) {
+      fprintf(f, "21%02X %-8s %6d %6d %4d", reg, RegName((uint8_t)reg), vbl, vis, lines);
+      if (vis) fprintf(f, " %d..%d", first, last);
+      fputc('\n', f);
+    }
+  }
+
+  fprintf(f, "\n[writes] line reg name value [xcount]\n");
+  for (int i = 0; i < g_fw_count; i++) {
+    const FrameWrite *w = &g_fw[i];
+    fprintf(f, "%4d 21%02X %-8s %02X", w->line, w->reg, RegName(w->reg), w->val);
+    if (w->count > 1) fprintf(f, " x%u", w->count);
+    fputc('\n', f);
+  }
+}
+
+int Debug_FrameCaptureEnd(const uint8_t *bgra) {
+  g_ppu_write_hook = NULL;
+  if (!g_fw) return -1;
+  int slot = Debug_DumpScreen(bgra);
+  if (slot >= 0) {
+    FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-frame.txt", slot, "w");
+    if (f) {
+      WriteFrameText(f, slot);
+      fclose(f);
+      Debug_Log("frame capture -> set %02d, %d writes", slot, g_fw_count);
+      SetMessage("Frame dump set %02d (%d writes)", slot, g_fw_count);
+    } else {
+      SetMessage("Frame dump: cannot write debug/");
+    }
+  }
+  free(g_fw);
+  g_fw = NULL;
   return slot;
 }
 

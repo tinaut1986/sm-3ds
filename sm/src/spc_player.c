@@ -1570,8 +1570,7 @@ void SpcPlayer_GenerateSamples(SpcPlayer *p) {
     p->timer_cycles += n;
 
     uint64_t t_dsp = AUDIO_PROF_NOW();
-    for (int i = 0; i < n; i++)
-      dsp_cycle(p->dsp);
+    dsp_cycleBlock(p->dsp, n);
     AUDIO_PROF_ADD(kAudioProf_DspCycles, t_dsp);
 
     if (p->dsp->sampleOffset == 534)

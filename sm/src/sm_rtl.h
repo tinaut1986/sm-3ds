@@ -124,7 +124,7 @@ enum {
   kSaveLoad_Replay = 3,
 };
 
-void RtlSaveLoad(int cmd, int slot);
+bool RtlSaveLoad(int cmd, int slot);
 void RtlCheat(char c);
 void RtlApuLock();
 void RtlApuUnlock();
@@ -137,7 +137,7 @@ void RtlPushApuState();
 bool RtlRunFrame(int inputs);
 void RtlReadSram();
 void RtlWriteSram();
-void RtlSaveSnapshot(const char *filename, bool saving_with_bug);
+bool RtlSaveSnapshot(const char *filename, bool saving_with_bug);
 void RtlUpdateSnesPatchForBugfix();
 extern uint16 currently_installed_bug_fix_counter;
 

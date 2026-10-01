@@ -14,8 +14,9 @@ cycle, save states load, the bottom UI (status, map, cheats, options, debug) and
 teleport work. Do not re-propose those as pending. What is actually open, in the
 order that makes sense:
 
-1. **P2.3** GPU PPU renderer: write `docs/gpu-ppu-design.md` first. Biggest win
-   (~8.4 ms PPU + 2.8 ms copy per frame on New 3DS) and the base for stereo 3D.
+1. **P2.3/P2.4** GPU PPU renderer on `feat/gpu-ppu` (`docs/gpu-ppu-design.md`): matches
+   the CPU renderer on a New 3DS (6 GPU CHECK sets, nothing off by more than 8). Open:
+   FPS GPU vs CPU in the P0.3 spots (the overlay now works in GPU mode), Old 3DS.
 2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
    no Old 3DS numbers at all).
 3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
@@ -197,9 +198,19 @@ Lessons from mzm that apply directly:
     "Continue" (see decisions log). Owner accepted it as a debug tool: the
     selected HUD weapon resets on each warp; `b482`, `dc19` kill an idle Samus;
     `d408` door 1 bounces to a neighbour.
-  - **E. Debug tab, open:** HDMA/PPU dumps, a scene recorder, PC-side viewers
-    for the dump files, compile-time gating (`DEBUG_TOOLS=1`) before the first
-    stable release. Tabs are still text, not mzm's 30 px icons; no modals.
+  - **F. mzm layout (2026-10-01, checked on hardware by the owner):** icon
+    tabs MAP / STATUS / DEBUG / STATES / OPTIONS with clock, wifi and battery;
+    the CHEATS tab is gone, folded into STATUS as in mzm (tap items/beams, GOD and
+    MAX buttons, MAP STATIONS boxes that unlock an area's map for warping);
+    Ceres has no box: the game has no map station and no saved explored bits for it.
+  STATES tab with 10 slots, two-tap confirm and a `saveN.txt` description;
+    OPTIONS as a cell grid with a RESET confirm window; DEBUG with a tools window
+    (SCREEN DUMP, FRAME DUMP, log, mark, perf, PPU render, give all, heal).
+    `DEBUG_TOOLS=1` gates the debug parts (`build/build_config.h`). See
+    `docs/debug-tools.md`.
+  - **E. Debug tab, still open:** a scene recorder (many frames), PC-side viewers
+    for the dump files, mzm's low-energy tab tint. The PPU/HDMA dump is done
+    (FRAME DUMP, F).
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
@@ -213,21 +224,35 @@ Lessons from mzm that apply directly:
   Status: the split exists (perf CSV, decisions log); `docs/perf.md` not written,
   no Old 3DS numbers.
 - [ ] **P2.2** Audio cost.
-  Status 2026-10-01: SDL already runs audio on the system core; the stall on the
+  Status 2026-10-01 (2DS): the system core gives the app 30 % and no more
+  (`APT_SetAppCpuTimeLimit` 80/70/50 -> 0xD8E05BF4, PM "not implemented"); the audio
+  block takes ~16 ms of wall time for 16.7 ms of sound (DSP ~14), most callbacks miss
+  their buffer: sound breaks up on Old 3DS. Needs a cheaper DSP or core 0.
+  Earlier: SDL already runs audio on the system core; the stall on the
   game thread (APU mutex held for a whole block) is fixed with a separate queue
   lock. Open: the DSP itself (~1.5 ms CPU per frame on New 3DS, likely over the
   30 % core-1 budget on Old 3DS). Options: cheaper interpolation/echo behind a
   quality setting, or core 2 on New 3DS.
-- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`):
+- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
+  Status 2026-10-01: designed and implemented (see the doc); checked on a New 3DS with
+  GPU CHECK (identical within the 8-bit maths). Open: FPS comparison, Old 3DS.
+  Original spec:
   tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
   draw order/depth, colour math as blending, HDMA as per-scanline register
   tables (split strips or shader lookup), windows via stencil/scissor.
   Hybrid like mzm: fall back to the CPU PPU for frames with unsupported state
   (Mode 7, exotic windows) and report which state caused it.
   Start by dumping PPU/HDMA state of a few representative rooms with the Debug
-  tab to see what SM actually uses in gameplay.
+  tab to see what SM actually uses in gameplay: Debug tab -> DEBUG TOOLS -> FRAME
+  DUMP on the console, or `tools/frame-capture/run.sh` on the PC from a console
+  save state (see `docs/debug-tools.md`). Rooms to capture: Landing Site (rain,
+  scroll), a Brinstar room with BG2 parallax, a Norfair heat room, Maridia water
+  (FX layer), a dark room, a boss (Kraid, Ridley), Ceres (Mode 7) and the pause
+  map.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
+  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host) and GPU CHECK
+  (console). Host: 2560 frames over every room identical; New 3DS: 6 sets, max error 8.
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
@@ -269,7 +294,7 @@ Lessons from mzm that apply directly:
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
 | Ceres intro | | | |
-| Landing Site | | 60 fps, work 13.7 ms avg / 15.4 p95 | 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8 |
+| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. Before the build/submit work: speed ~58, shown ~48. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01, audio on (broken, see P2.2) |
 | Brinstar | | | |
 | Norfair heat room | | | |
 | Maridia water | | | |
@@ -457,3 +482,89 @@ Lessons from mzm that apply directly:
   and minus the portlib check (no self-updater yet), in English per the language
   rule. `tools/ui-preview` crashes in `SmMap_Init` (the map tab reads the ROM,
   which the preview does not load); not fixed yet.
+- 2026-10-01: Bottom UI reorganised like mzm's (P1.9 F). Cheats moved into the
+  Status tab; the per-item toggle is missing <-> collected+equipped, and turning
+  Spazer or Plasma on unequips the other (the beam tables have no Spazer+Plasma
+  entry and end in `Unreachable()`). MAX remembers the capacities and gives them
+  back when switched off; a loaded state or reset drops that memory instead of
+  restoring it. Map unlock uses the game's own RAM (`map_station_byte_array`,
+  explored bits live for the current area and in `explored_map_tiles_saved`
+  otherwise), so the pause map and a station save see it; returning to "real"
+  restores both byte for byte (host check on a console state, all 6 areas).
+  `RtlSaveLoad`/`RtlSaveSnapshot` now return whether they worked (the save path
+  also no longer crashes when `fopen` fails).
+- 2026-10-01: FRAME DUMP: `g_ppu_write_hook` in `ppu_write` (null unless a capture
+  runs, one predictable branch per write) logs every `$21xx` write with
+  `inVblank ? -1 : vPos`. In `FULL_NATIVE` the whole frame is RunOneFrameOfGame
+  (vblank) then DrawFrameToPpu (lines, HDMA at hPos 1024, `Vector_IRQ` after a
+  line), so the stamp says which part wrote. Console save states load on the PC
+  only in a 32-bit `-malign-double` build: that layout matches the 3DS's
+  (275559 bytes); x86-64 is 275555 now.
+- 2026-10-01: GPU renderer architecture (docs/gpu-ppu-design.md): capture the
+  registers per line instead of drawing, build a draw list from the capture,
+  and fall back to the CPU renderer *from the same capture* (ppu_replayLines),
+  so a refused frame costs nothing extra and looks exactly like today. Verified
+  on the host by comparing normal render == capture replay == draw list run
+  in software (gpu_ppu_ref.c), on every room. The citro3d backend calibrates
+  what cannot be checked off the console (readback byte order, depth test
+  direction, render-target and transfer orientation) at start-up. Lazily
+  initialised and off by default, so the CPU path is untouched until the
+  RENDERER tool is used.
+- 2026-10-01: GPU renderer checked on a New 3DS: six GPU CHECK sets, four identical, two
+  off by at most 8 on a few hundred pixels (8-bit colour math). FPS overlay added to the
+  GPU path as a texture. Power bomb: the owner saw "no inward wave"; the C code and the
+  ROM's shape tables only have outward stages (pre-explosion, explosion, afterglow), and
+  the owner confirmed the original only pulses outwards. Not a bug.
+- 2026-10-01: Bottom-screen flashes, worst at 268 MHz: a swap only takes effect at the
+  next vblank, and the loop waits for one only when the frame took < 15 ms. A slow frame
+  followed by a quick one (a skipped frame redrawing the UI) drew into the buffer still
+  on screen. `UiDraw_Screen` and `DrawPpuFrame` now wait for that vblank when a swap is
+  less than one refresh old (`UiDraw_Swapped`/`UiDraw_VBlankSeen` in the main loop).
+- 2026-10-01: Choppy audio at 268 MHz: SDL starts the audio thread on core 1 with
+  `APT_SetAppCpuTimeLimit(30)`; the DSP needs ~1.5 ms CPU per block at 804 MHz, ~4.5 at
+  268, i.e. ~27 % of core 1, right at the cap. main.c now asks for 80/70/50 % after
+  opening the device (mzm does the same); the granted value goes to the debug log.
+- 2026-10-01: First Old 3DS data (2DS, Landing Site 91F8, debug log): CPU renderer
+  speed ~49 / shown ~16 fps, GPU renderer speed ~58 / shown ~48 fps: the GPU renderer
+  is what makes Old 3DS playable. Audio is broken there (see P2.2: 30 % of core 1 only).
+  The GPU "draw" is still ~11 ms of CPU at 268 MHz: worth profiling.
+- 2026-10-01: Closing from HOME hung ("Closing software") with the GPU renderer on: the
+  exit trace stopped inside `GpuPpu3ds_Exit`, which submitted an empty citro3d frame to
+  wait for the GPU; after HOME, citro3d's suspend hook stops handling vblanks, so a
+  frame linked to the top screen never finishes. Exit no longer submits a frame.
+  DEBUG_TOOLS builds now start the log at boot, with a line per second on settings
+  changes, timings and audio-callback health every 5 s, and every exit step (also in
+  `debug/sm-exit.txt`, in every build).
+- 2026-10-01: S-DSP made ~40 % cheaper on the host with output bit-identical
+  (`sm/src/snes/dsp.c`, marked "3DS port"): voices run voice by voice over each block
+  between SPC driver ticks (`dsp_cycleBlock`, state in a local copy so ARM11 keeps it in
+  registers), no interpolation for voices at gain 0, an idle voice skips the envelope,
+  echo input gathered in the mix pass, one-tap FIR path (SM always uses 127,0,...,0).
+  Exactness: `tools/audio-bench/run.sh ROM rooms 120` (every room, music hash) and
+  `tools/audio-bench/dsp_fuzz.sh` (random register writes against the vendored dsp.c:
+  samples, registers and APU RAM identical). The fuzz found that voice-major order
+  differs from the original when a voice reads sample data the echo is writing; such
+  blocks fall back to one sample at a time. Host: 75 -> 44 us per frame of audio.
+  Hardware numbers pending. Why mzm never had this problem: GBA sound is a few PCM
+  channels mixed natively at ~13 kHz; here an 8-voice sampler with Gaussian
+  interpolation and echo is emulated at 32 kHz.
+- 2026-10-01: Closing still hung once: after the empty frame was removed it stopped in
+  `C3D_RenderTargetDelete`, which also waits for the GPU queue. Exit now leaves citro3d
+  alone; the process teardown frees it. Checked on the 2DS: closes.
+- 2026-10-01: GPU renderer cost on a 2DS (268 MHz, Landing Site), per frame: wait for the
+  GPU 0 ms (the GPU is never the bottleneck), submit 3 ms -> 1 ms once the vertex cache
+  flush (a syscall) moved from every batch to once per frame, build ~5.5 ms steady:
+  lines+bands 1.1, VRAM diff 2.1, sprites 1.0, BG 0.55, shadow copy 0.75; spikes of
+  7-15 ms when a palette change re-decodes a whole 32x32 surface (Landing Site does this
+  often). Changes: the PPU marks changed 8-word VRAM groups as the data port writes them
+  (`g_ppu_vram_dirty`; loads and resets call `GpuPpu_Invalidate`), replacing the 64 KB
+  diff and copy; tile decoding is table driven with palettes converted once per frame.
+  Host: identical over every room, build 46 -> 25 us. Next candidates: lines+bands,
+  sprite cache across frames, decoding only visible tiles after a palette change.
+
+
+- 2026-10-01: Result on the 2DS (Landing Site, GPU renderer, frameskip off): 59.8 fps,
+  work ~11 of 16.7 ms per frame: logic 5.3, build 3.0 (lines+bands 1.1, VRAM tracking
+  0.04, sprites 0.5, BG 0.5, cgram copy 0.02), submit 1.0. A palette change re-decoding
+  629 tiles now costs 4.3 ms (was up to 15). Audio: 0 late callbacks in steady play.
+  Exit clean. Remaining headroom ~5.5 ms per frame for WIDE and stereo.

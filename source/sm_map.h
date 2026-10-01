@@ -37,3 +37,16 @@ const SmRoom *SmMap_RoomAt(int area, int col, int row);
 
 // The room Samus is in now, or NULL.
 const SmRoom *SmMap_CurrentRoom(void);
+
+// --- Debug: unlock an area's map -------------------------------------------------
+// Areas 0-5 (Ceres has no map station). Each tap on the Status tab cycles
+//   real -> map station used (every cell shows) -> every cell explored -> real.
+// Leaving "real" remembers the area's station byte and explored bits; coming back
+// restores them. These are the game's own RAM values, so the pause map, the HUD
+// minimap and a save at a station all see them.
+typedef enum { kSmMapDebug_Real, kSmMapDebug_Station, kSmMapDebug_Explored } SmMapDebugState;
+SmMapDebugState SmMap_DebugState(int area);
+void SmMap_DebugCycle(int area);
+// Drops the remembered real states, e.g. after loading a save state or a reset,
+// which bring their own.
+void SmMap_DebugForget(void);

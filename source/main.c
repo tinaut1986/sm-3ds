@@ -19,13 +19,18 @@
 #include "src/util.h"
 #include "src/spc_player.h"
 #include "src/audio_prof.h"
+#include "src/variables.h"
 
 #include "bottom_ui.h"
 #include "cheats.h"
 #include "sm_warp.h"
 #include "debug_tools.h"
+#include "gpu_ppu.h"
+#include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
+#include "ui_draw.h"
 #include "version.h"
+#include "build_config.h"
 
 enum Button {
   BTN_A = 0,
@@ -113,6 +118,7 @@ static void DrawPpuFrame(void) {
         init = true;
     }
 
+    UiDraw_WaitSwapShown();
     uint32_t *fb = (uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
     const int x_off = (FB_W - DST_W) / 2;
     for (int dx = 0; dx < DST_W; dx++) {
@@ -121,6 +127,42 @@ static void DrawPpuFrame(void) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
     }
+}
+
+// GPU renderer state: the line capture it draws from, its draw list, and whether the
+// top screen is currently being presented by citro3d rather than by DrawPpuFrame.
+static PpuLineCapture g_line_capture;
+static GpuFrame g_gpu_frame;
+static bool g_top_by_gpu;
+
+// Debug tools -> GPU CHECK: draws the frame just shown by the GPU again with the CPU
+// renderer (from the same capture) and compares them. Writes a dump set with the CPU
+// image as -top.rgb and the GPU's as -gpu.rgb.
+static void GpuCheck(void) {
+  static uint8_t gpu_px[256 * 4 * 240];
+  memset(gpu_px, 0, sizeof(gpu_px));
+  ppu_replayLines(g_snes->ppu, &g_line_capture, 1, g_line_capture.last_line);
+  if (!GpuPpu3ds_ReadBack(gpu_px, 256 * 4)) {
+    BottomUi_Toast("GPU check: no GPU frame");
+    return;
+  }
+  int differ = 0, far = 0;
+  for (int i = 0; i < 256 * 224; i++) {
+    int d = 0;
+    for (int c = 0; c < 3; c++) {
+      const int e = abs((int)g_pixels[i * 4 + c] - (int)gpu_px[i * 4 + c]);
+      if (e > d) d = e;
+    }
+    differ += d > 0;
+    far += d > 8;
+  }
+  const int slot = Debug_DumpScreen(g_pixels);
+  if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
+  Debug_Log("GPU check -> set %02d: %d px differ, %d by more than 8; %s", slot, differ, far,
+            GpuPpu3ds_CalibrationText());
+  char msg[48];
+  snprintf(msg, sizeof(msg), "GPU check %02d: %d px off, %d >8", slot, differ, far);
+  BottomUi_Toast(msg);
 }
 
 uint64_t AudioProf_Now(void) {
@@ -157,7 +199,18 @@ void RtlApuQueueUnlock(void) {
   SDL_UnlockMutex(g_apu_queue_mutex);
 }
 
+// Audio thread health, for the periodic log line: how long a callback took against the
+// time its buffer lasts (a callback slower than that starves the DSP: broken sound), and
+// gaps between callbacks (the thread did not get the CPU in time). Reset by the reader.
+static volatile float g_cb_max_ms;
+static volatile int g_cb_count, g_cb_slow, g_cb_gaps;
+static volatile u64 g_cb_last;
+
 static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
+  const u64 cb_start = svcGetSystemTick();
+  const float buffer_ms = len * 1000.0f / (44100 * 4);   // stereo s16
+  if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
+  g_cb_last = cb_start;
   if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
@@ -179,6 +232,10 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
     len -= n;
   }
   SDL_UnlockMutex(g_audio_mutex);
+  const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
+  if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
+  g_cb_slow += cb_ms > buffer_ms;
+  g_cb_count++;
 }
 
 int idx_of_btn(enum Button b) {
@@ -284,6 +341,57 @@ static void ShowRomError(const RomInfo *info) {
   gfxExit();
 }
 
+// Notes exit progress (see the cleanup at the end of main). Kept open so a step costs
+// one write and a flush.
+static FILE *g_exit_file;
+
+static void ExitStep(const char *what) {
+  if (!g_exit_file) {
+    mkdir("debug", 0777);
+    g_exit_file = fopen("debug/sm-exit.txt", "w");
+    if (!g_exit_file) return;
+  }
+  fprintf(g_exit_file, "%llu ms: %s\n", (unsigned long long)osGetTime(), what);
+  fflush(g_exit_file);
+  Debug_Log("exit: %s", what);
+}
+
+// Debug log, once a second: settings that changed, and every 5 s the timings and the
+// audio thread's health (see AudioCallback).
+static void LogPeriodic(const UiPerf *p) {
+  static int seconds;
+  static int last_speedup = -1, last_gpu = -1, last_audio = -1, last_paused = -1;
+  if (g_ui.new3ds_speedup != last_speedup || g_ui.gpu_render != last_gpu || g_ui.audio_on != last_audio ||
+      g_ui.paused != last_paused) {
+    last_speedup = g_ui.new3ds_speedup, last_gpu = g_ui.gpu_render, last_audio = g_ui.audio_on;
+    last_paused = g_ui.paused;
+    Debug_Log("settings: cpu %s, renderer %s, audio %s%s", g_ui.new3ds_speedup ? "804" : "268",
+              g_ui.gpu_render ? "GPU" : "CPU", g_ui.audio_on ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
+  }
+  if (++seconds % 5) return;
+  Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | frameskip %s | room %04X",
+            p->game_fps, p->fps, p->frame_ms, p->logic_ms, p->draw_ms, g_ui.frameskip ? "on" : "off",
+            (unsigned)room_ptr);
+  if (g_ui.gpu_render)
+  {
+    const GpuPpuStats *st = GpuPpu_LastStats();
+    Debug_Log("gpu: frames %lu fallback %lu (%s) | build %.1f, wait for GPU %.1f, submit %.1f ms | last frame: "
+              "%d surfaces, %d tiles decoded, %d sprites, %d rows composed",
+              (unsigned long)p->gpu_frames, (unsigned long)p->gpu_fallbacks, p->gpu_reason ? p->gpu_reason : "-",
+              p->gpu_build_ms, p->gpu_wait_ms, p->gpu_submit_ms, st->surfaces, st->tiles_decoded, st->sprites,
+              st->screen_rows_composed);
+    Debug_Log("gpu build, last frame: lines+bands %.2f, vram diff %.2f, sprites %.2f, bg %.2f, shadow copy %.2f ms",
+              TicksToMs(st->t_lines), TicksToMs(st->t_diff), TicksToMs(st->t_sprites), TicksToMs(st->t_bg),
+              TicksToMs(st->t_shadow));
+  }
+  Debug_Log("audio: block %.1f ms (dsp %.1f spc %.1f lock %.1f) | callbacks %d, slowest %.1f ms, slower than "
+            "their buffer %d, late starts %d",
+            p->audio_ms, p->audio_part_ms[2], p->audio_part_ms[1], p->audio_part_ms[0], g_cb_count, g_cb_max_ms,
+            g_cb_slow, g_cb_gaps);
+  g_cb_count = g_cb_slow = g_cb_gaps = 0;
+  g_cb_max_ms = 0;
+}
+
 // #undef main
 int main(int argc, char** argv) {
   // Use default config - no config file on 3DS
@@ -371,7 +479,7 @@ int main(int argc, char** argv) {
   g_spc_player = SpcPlayer_Create();
   SpcPlayer_Initialize(g_spc_player);
 
-  SDL_AudioSpec want = { 0 }, have;
+  SDL_AudioSpec want = { 0 }, have = { 0 };
   want.freq = 44100;
   want.format = AUDIO_S16;
   want.channels = 2;
@@ -385,9 +493,32 @@ int main(int argc, char** argv) {
     g_frames_per_block = (534 * have.freq) / 32000;
     g_audiobuffer = (uint8 *)malloc(g_frames_per_block * have.channels * sizeof(int16));
   }
+  // SDL put the audio thread on the system core with a 30 % time limit. The DSP needs
+  // about 1.5 ms of CPU per block at 804 MHz, so at 268 MHz (Old 3DS, or the speedup
+  // off) it sits right at that limit and the sound breaks up. Ask for more, like mzm:
+  // the largest share the system grants.
+  static const u32 kCore1Limits[] = { 80, 70, 50 };
+  u32 core1_limit = 0;
+  Result core1_rc[3] = { 0 };
+  for (size_t i = 0; i < sizeof(kCore1Limits) / sizeof(kCore1Limits[0]); i++)
+    if (R_SUCCEEDED(core1_rc[i] = APT_SetAppCpuTimeLimit(kCore1Limits[i]))) break;
+  APT_GetAppCpuTimeLimit(&core1_limit);
 
   mkdir("saves", 0755);
   Debug_Init(APP_VERSION);
+#if DEBUG_TOOLS
+  // Debug builds log from boot, so a playtest always leaves a log behind.
+  Debug_LogSetEnabled(true);
+#endif
+  {
+    bool n3ds = false;
+    APT_CheckNew3DS(&n3ds);
+    Debug_Log("console %s, audio device %s (%d Hz, %d samples)", n3ds ? "New 3DS" : "Old 3DS/2DS",
+              g_audio_device ? "open" : "FAILED", have.freq, have.samples);
+    Debug_Log("core 1 time limit: asked 80 -> %08lX, 70 -> %08lX, 50 -> %08lX; granted %lu %%",
+              (unsigned long)core1_rc[0], (unsigned long)core1_rc[1], (unsigned long)core1_rc[2],
+              (unsigned long)core1_limit);
+  }
 
   PpuBeginDrawing(snes->snes_ppu, g_pixels, 256 * 4, 0);
   // PpuBeginDrawing(snes->my_ppu, g_my_pixels, 256 * 4, 0);
@@ -399,7 +530,8 @@ int main(int argc, char** argv) {
   uint32 frameCtr = 0;
   bool audio_running = false;
 
-  UiPerf perf = { .is_new3ds = false };
+  UiPerf perf = { .is_new3ds = false, .core1_limit = core1_limit };
+  g_gpu_ppu_clock = svcGetSystemTick;
   APT_CheckNew3DS(&perf.is_new3ds);
   u64 fps_window_start = svcGetSystemTick(), frame_start = fps_window_start;
   uint32 logic_window = 0, shown_window = 0;
@@ -432,6 +564,7 @@ int main(int argc, char** argv) {
         BottomUi_TouchUp();
         break;
       case SDL_QUIT:
+        ExitStep("quit event");
         running = false;
         break;
       }
@@ -445,28 +578,53 @@ int main(int argc, char** argv) {
     }
     g_turbo = g_ui.turbo;
 
-    if (g_ui.req_reset) RtlReset(1);
-    if (g_ui.req_save_state) RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
-    if (g_ui.req_load_state) RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
-    g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
-    if (g_ui.req_dump) {
-      Debug_DumpScreen(g_pixels);
-      BottomUi_Toast(Debug_LastMessage());
-      g_ui.req_dump = false;
+    if (g_ui.req_reset) {
+      RtlReset(1);
+      BottomUi_GameReset();
     }
-
+    if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
+    if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
+    // A reset or a loaded state replaces VRAM without going through the PPU's data port,
+    // which is how the GPU renderer learns what changed.
+    if (g_ui.req_reset || g_ui.req_load_state) GpuPpu_Invalidate();
+    g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
     u64 t_logic = 0, t_draw = 0;
-    bool presented = false;
+    bool presented = false, gpu_presented = false;
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
       bool draw = g_ui.render_on && !turbo_skip && !(g_ui.frameskip && skip_render);
+      // Dumps and frame captures need this frame's CPU-rendered pixels, so the frame is
+      // drawn, and drawn by the CPU (the GPU check draws it both ways).
+      bool capture = false, dump = g_ui.req_dump, gpu_check = g_ui.req_gpu_check && g_ui.gpu_render;
+      g_ui.req_dump = g_ui.req_gpu_check = false;
+      if (g_ui.req_frame_dump) {
+        g_ui.req_frame_dump = false;
+        capture = Debug_FrameCaptureBegin();
+        if (!capture) BottomUi_Toast(Debug_LastMessage());
+      }
+      draw |= capture || dump || gpu_check;
+      bool gpu = draw && g_ui.gpu_render && !capture && !dump;
+      if (gpu && !GpuPpu3ds_Init()) {
+        gpu = g_ui.gpu_render = false;
+        BottomUi_Toast("GPU renderer failed to start");
+      }
       g_snes->disableRender = !draw;
+      g_ppu_line_capture = gpu ? &g_line_capture : NULL;
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      g_ppu_line_capture = NULL;
+      if (capture) {
+        Debug_FrameCaptureEnd(g_pixels);
+        BottomUi_Toast(Debug_LastMessage());
+      }
+      if (dump) {
+        Debug_DumpScreen(g_pixels);
+        BottomUi_Toast(Debug_LastMessage());
+      }
       Cheats_AfterFrame();
       SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
@@ -475,7 +633,34 @@ int main(int argc, char** argv) {
 
       if (draw) {
         t0 = svcGetSystemTick();
-        DrawPpuFrame();
+        const char *why = NULL;
+        const u64 t_build = svcGetSystemTick();
+        const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
+        if (built) {
+          perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
+          static uint32_t overlay_px[64 * 64];
+          GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame);
+          float wait_ms, submit_ms;
+          GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
+          perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
+          perf.gpu_submit_ms += (submit_ms - perf.gpu_submit_ms) * 0.1f;
+          gpu_presented = true;
+          perf.gpu_frames++;
+          if (gpu_check) GpuCheck();
+        } else {
+          if (gpu) {
+            // The GPU path refused this frame: draw it with the CPU from the capture.
+            perf.gpu_fallbacks++;
+            perf.gpu_reason = why;
+            ppu_replayLines(g_snes->ppu, &g_line_capture, 1, g_line_capture.last_line);
+            if (gpu_check) BottomUi_Toast(why);
+          }
+          // The GPU may still be presenting its last frame into the framebuffer.
+          if (g_top_by_gpu) GpuPpu3ds_WaitIdle();
+          DrawPpuFrame();
+        }
+        g_top_by_gpu = gpu_presented;
         t_draw = svcGetSystemTick() - t0;
         presented = true;
       }
@@ -489,6 +674,7 @@ int main(int argc, char** argv) {
     perf.audio_part_ms[1] = TicksToMs(g_audio_prof_last[kAudioProf_SpcLoop]);
     perf.audio_part_ms[2] = TicksToMs(g_audio_prof_last[kAudioProf_DspCycles]);
     perf.audio_part_ms[3] = TicksToMs(g_audio_prof_last[kAudioProf_Resample]);
+    perf.gpu_calibration = GpuPpu3ds_CalibrationText();
     if (!g_ui.paused) {
       // Light smoothing so the numbers are readable.
       perf.logic_ms += (TicksToMs(t_logic) - perf.logic_ms) * 0.1f;
@@ -496,21 +682,30 @@ int main(int argc, char** argv) {
     }
 
     // A skipped frame must not touch or swap the (double buffered) screens:
-    // swapping without drawing would show the frame before last.
+    // swapping without drawing would show the frame before last. While the GPU
+    // renderer owns the top screen, citro3d swaps it and only the bottom is ours.
     bool swapped = false;
-    if (presented) {
+    if (presented && !g_top_by_gpu) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
       BottomUi_Frame(&perf);
       gfxFlushBuffers();
       gfxSwapBuffers();
+      UiDraw_Swapped();
       shown_window++;
-    } else if (BottomUi_Frame(&perf)) {
-      // Nothing new on the top screen (skipped frame, or PPU render off), but
-      // the UI changed: swap the bottom screen only.
-      gfxFlushBuffers();
-      gfxScreenSwapBuffers(GFX_BOTTOM, false);
-      swapped = true;
+    } else {
+      if (presented) {
+        swapped = true;
+        shown_window++;
+      }
+      if (BottomUi_Frame(&perf)) {
+        // Nothing new on the top screen from us (skipped frame, PPU render off, or the
+        // GPU presents it), but the UI changed: swap the bottom screen only.
+        gfxFlushBuffers();
+        gfxScreenSwapBuffers(GFX_BOTTOM, false);
+        UiDraw_Swapped();
+        swapped = true;
+      }
     }
 
     // Measure how long the whole iteration took, before the pacing delay.
@@ -525,11 +720,16 @@ int main(int argc, char** argv) {
       perf.game_fps = logic_window * 1000.0f / window_ms;
       fps_window_start = now;
       logic_window = shown_window = 0;
+      LogPeriodic(&perf);
     }
 
     if (g_ui.paused) {
-      if (swapped) gspWaitForVBlank();
-      else SDL_Delay(16);
+      if (swapped) {
+        gspWaitForVBlank();
+        UiDraw_VBlankSeen();
+      } else {
+        SDL_Delay(16);
+      }
       frame_start = svcGetSystemTick();
       continue;
     }
@@ -539,6 +739,7 @@ int main(int argc, char** argv) {
     // as torn, half-painted screens (seen first on the bottom UI).
     if (swapped && work_ms < 15.0f) {
       gspWaitForVBlank();
+      UiDraw_VBlankSeen();
       lastTick = SDL_GetTicks();   // locked to the display: drop accumulated drift
       skip_render = false;
       skipped_in_a_row = 0;
@@ -569,17 +770,27 @@ int main(int argc, char** argv) {
     frame_start = svcGetSystemTick();
   }
 
-  // Cleanup
+  // Cleanup. Each step is noted in debug/sm-exit.txt first: closing from the HOME menu
+  // has been seen to hang on "Closing software", and the file shows the step it hung in.
+  ExitStep("loop left");
+  GpuPpu3ds_Exit();
+  ExitStep("gpu done");
   BottomUi_Exit();
+  ExitStep("ui done");
   SDL_PauseAudioDevice(g_audio_device, 1);
+  ExitStep("audio paused");
   SDL_CloseAudioDevice(g_audio_device);
+  ExitStep("audio closed");
   SDL_DestroyMutex(g_audio_mutex);
   SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
   SDL_DestroyTexture(g_texture);
   SDL_DestroyRenderer(g_renderer);
   SDL_DestroyWindow(window);
+  ExitStep("window destroyed");
   SDL_Quit();
+  ExitStep("SDL_Quit done, returning");
+  if (g_exit_file) fclose(g_exit_file);
 
   return 0;
 }

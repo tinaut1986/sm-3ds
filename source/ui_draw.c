@@ -9,7 +9,25 @@
 
 bool UiDraw_Init(void) { return true; }   // the font is compiled in (ui_font.c)
 
+// A swap takes effect at the next vblank; until then the buffer gfxGetFramebuffer hands
+// out is still being scanned out, and drawing into it shows as flashes and torn panels.
+// That happens when a slow frame (no vblank wait) is followed by a quick one, e.g. a
+// skipped frame that redraws the UI.
+static u64 g_swap_tick;   // 0 = the last swap has been shown
+
+void UiDraw_Swapped(void) { g_swap_tick = svcGetSystemTick(); }
+
+void UiDraw_VBlankSeen(void) { g_swap_tick = 0; }
+
+void UiDraw_WaitSwapShown(void) {
+  if (!g_swap_tick) return;
+  // Some vblank has certainly happened if a whole refresh (59.8 Hz) has passed.
+  if (svcGetSystemTick() - g_swap_tick < SYSCLOCK_ARM11 / 59) gspWaitForVBlank();
+  g_swap_tick = 0;
+}
+
 Surface UiDraw_Screen(gfxScreen_t screen) {
+  UiDraw_WaitSwapShown();
   u16 w, h;   // libctru reports the rotated size: w = 240, h = width in pixels
   u8 *fb = gfxGetFramebuffer(screen, GFX_LEFT, &w, &h);
   return (Surface){ (uint32_t *)fb, h, w };
@@ -68,6 +86,25 @@ void UiDrawTextf(Surface s, int x, int y, uint32_t c, const char *fmt, ...) {
 void UiDrawButton(Surface s, Rect r, uint32_t bg, const char *label) {
   UiFillRect(s, r.x, r.y, r.w, r.h, bg);
   UiDrawText(s, r.x + (r.w - UiTextWidth(label, 1)) / 2, r.y + (r.h - kUiGlyphH) / 2, 1, COL_TEXT, label);
+}
+
+void UiDrawBox(Surface s, Rect r, uint32_t body, uint32_t border, bool pressed) {
+  if (pressed) {
+    body = COL_PRESSED;
+    border = RGB(210, 235, 255);
+  }
+  UiFillRect(s, r.x, r.y, r.w, r.h, border);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, body);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, 1, pressed ? border : RGB(90, 130, 180));
+}
+
+void UiDrawBoxLabel(Surface s, Rect r, uint32_t body, uint32_t border, uint32_t text, bool pressed, const char *label) {
+  UiDrawBox(s, r, body, border, pressed);
+  UiDrawText(s, r.x + (r.w - UiTextWidth(label, 1)) / 2, r.y + (r.h - kUiGlyphH) / 2 + (pressed ? 1 : 0), 1, text, label);
+}
+
+void UiDrawTextCentered(Surface s, int cx, int y, uint32_t c, const char *str) {
+  UiDrawText(s, cx - UiTextWidth(str, 1) / 2, y, 1, c, str);
 }
 
 void UiDrawBar(Surface s, int x, int y, int w, int h, int value, int max, uint32_t fill) {
