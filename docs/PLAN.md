@@ -587,4 +587,15 @@ Lessons from mzm that apply directly:
   frames) and every room identical to the CPU renderer, nothing refused any more.
   Bug found on the way: VRAM change marks are cleared after every frame built, so the
   mode 7 plane must take note of them on every frame, not only on mode 7 frames.
+- 2026-10-01: Norfair heat (demo in the intro, 2DS ~36 fps): BG2/BG3 vertical scroll on
+  every line made the frame build compose 193 rows per layer on the CPU (~15 ms). Now one
+  quad per scroll run however many (the GPU never waits on the 2DS); composing is only
+  the fallback when quads would not fit. Mode 7 rows with linear starts merge into one
+  quad (title: 224 -> 1).
+- 2026-10-01: Ceres exploding (escape cutscene, DF45, 269 frames at ~23 fps on the 2DS)
+  used a colour window that splits lines with prevent-math "inside". Now drawn on the
+  GPU as per-band clip / no-math rectangles. Reproduced on the host with
+  `CERES_BOOM=1 tools/gpu-ppu-test/run.sh ROM boot EMPTY.srm 10500` (new game, then
+  game_state 0x20 in DF45). With that, no frame of a new game through Ceres, the demo,
+  every room, a power bomb or the file-select screens is refused any more.
 

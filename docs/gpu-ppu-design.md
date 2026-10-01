@@ -70,10 +70,12 @@ Frame building:
    uses changed); one affine row per line from the CPU renderer's per-line setup
    (`GpuQuad.ax/ay/adx/ady`, 1/256 texel), so any matrix per line works. Large-field rows
    are cut on the CPU to the part inside the plane. Freed after 2 s without mode 7.
-7. **Refused** (CPU fallback): modes other than 1 and 7, mode 7 EXTBG or tile-0 fill, OBJ interlace, a colour window that
-   splits a line while clip-to-black or prevent-math depend on it (modes "inside" or
-   "outside"; "never"/"always" ignore the window), VRAM/CGRAM/OAM written during the
-   lines, out of quads/textures.
+7. **Colour window** that splits a line while clip-to-black or prevent-math depend on it
+   (modes "inside"/"outside"; "never"/"always" ignore the window): its segments become
+   per-band rectangles (`GpuCwRect`); the backend clips them to black and clears the
+   "math applies" stencil bit where math is prevented. Ceres exploding uses it.
+8. **Refused** (CPU fallback): modes other than 1 and 7, mode 7 EXTBG or tile-0 fill, OBJ
+   interlace, VRAM/CGRAM/OAM written during the lines, out of quads/textures.
 
 citro3d backend: depth = priority level (BG quads pass where theirs is greater),
 stencil bit 0 = a sprite owns the pixel (first in OAM order wins), bit 1 = colour math

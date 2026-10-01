@@ -70,7 +70,16 @@ typedef struct {
   uint8_t main, sub;     // layers that draw on this line (TM/TS minus fully windowed)
   uint8_t partial[2];    // of those, layers a window hides on part of the line, per screen
   bool clip, math_ok;    // colour window outcome, uniform over the line
+  bool cw_split;         // ... unless the colour window splits it: then see g_cw
 } LineInfo;
+
+// A colour window that splits a line: its segments, each clipped to black and/or with
+// colour math prevented (kept outside the band key, like g_spans).
+typedef struct {
+  uint8_t n;
+  struct { int16_t x0, x1; bool clip, no_math; } seg[5];
+} CwSegs;
+static CwSegs g_cw[kPpuCaptureLines];
 
 // Where a partially windowed layer is visible on a line: up to 3 pixel spans [x0, x1).
 // Kept apart from LineInfo, which is part of the band key: the spans may change on every
@@ -124,8 +133,26 @@ static const char *AnalyzeLine(const PpuLineState *st, LineInfo *info, int line)
   const bool cw_used = st->clipMode == 1 || st->clipMode == 2 || st->preventMathMode == 1 || st->preventMathMode == 2;
   Win cw;
   WinCalc(&cw, st, 5);
-  if (cw_used && cw.nr > 1) return "colour window splits a line";
   static const uint8_t kCwBitsMod[8] = { 0x00, 0xff, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00 };
+  if (cw_used && cw.nr > 1) {
+    // Per segment, as PpuDrawWholeLine does with the colour window's bits.
+    CwSegs *cs = &g_cw[line];
+    cs->n = 0;
+    for (int i = 0; i < cw.nr; i++) {
+      const uint32_t b = ((cw.bits >> i) & 1) ? 0xff : 0;
+      const uint32_t cm = ((b & kCwBitsMod[st->clipMode]) ^ kCwBitsMod[st->clipMode + 4]) |
+                          ((b & kCwBitsMod[st->preventMathMode]) ^ kCwBitsMod[st->preventMathMode + 4]) << 8;
+      cs->seg[cs->n].x0 = cw.edges[i];
+      cs->seg[cs->n].x1 = cw.edges[i + 1];
+      cs->seg[cs->n].clip = !(cm & 1);
+      cs->seg[cs->n].no_math = !(cm & 0x100);
+      cs->n++;
+    }
+    info->clip = false;
+    info->math_ok = true;
+    info->cw_split = true;
+    return NULL;
+  }
   const uint32_t bits = (cw.bits & 1) ? 0xff : 0;
   const uint32_t clip_math = ((bits & kCwBitsMod[st->clipMode]) ^ kCwBitsMod[st->clipMode + 4]) |
                              ((bits & kCwBitsMod[st->preventMathMode]) ^ kCwBitsMod[st->preventMathMode + 4]) << 8;
@@ -889,6 +916,24 @@ static const char *EmitScreen(const Ppu *ppu, const PpuLineCapture *cap, uint8_t
   return err;
 }
 
+// The colour window's clip / no-math segments over lines [l0, l1] as rectangles, lines
+// with the same segments grouped.
+static bool EmitCwRects(GpuFrame *out, int l0, int l1) {
+  for (int a = l0; a <= l1;) {
+    const CwSegs *cs = &g_cw[a];
+    int b = a;
+    while (b + 1 <= l1 && g_cw[b + 1].n == cs->n && !memcmp(g_cw[b + 1].seg, cs->seg, cs->n * sizeof(cs->seg[0]))) b++;
+    for (int i = 0; i < cs->n; i++) {
+      if (!cs->seg[i].clip && !cs->seg[i].no_math) continue;
+      if (out->cw_count >= kGpuMaxCwRects) return false;
+      out->cw[out->cw_count++] = (GpuCwRect){ cs->seg[i].x0, (int16_t)(a - 1), (int16_t)(cs->seg[i].x1 - cs->seg[i].x0),
+                                              (int16_t)(b - a + 1), cs->seg[i].clip, cs->seg[i].no_math };
+    }
+    a = b + 1;
+  }
+  return true;
+}
+
 static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineState *b, const LineInfo *ib) {
   LineKey ka, kb;
   MakeKey(&ka, a, ia);
@@ -899,7 +944,7 @@ static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineSta
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason) {
   static LineInfo info[kPpuCaptureLines];
   memset(&g_stats, 0, sizeof(g_stats));
-  out->tex_count = out->quad_count = out->band_count = 0;
+  out->tex_count = out->quad_count = out->band_count = out->cw_count = 0;
   g_out = out;
   *reason = NULL;
   uint64_t t0 = Clock();
@@ -948,6 +993,9 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       b->backdrop_math = st->mathEnabled[5];
       b->clip = inf->clip;
       b->math = inf->math_ok && any_math;
+      b->cw_first = out->cw_count;
+      if (inf->cw_split && !EmitCwRects(out, l0, l1)) { *reason = "too many colour window rectangles"; ok = false; break; }
+      b->cw_count = out->cw_count - b->cw_first;
       b->add_subscreen = st->addSubscreen;
       b->subtract = st->subtractColor;
       b->half = st->halfColor;

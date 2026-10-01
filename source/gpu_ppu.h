@@ -10,10 +10,10 @@
 // It reproduces what the CPU renderer (PpuDrawWholeLine, mode 1) draws, including
 // its quirks: BG3 priority-1 tiles always on top, the first sprite in OAM order wins
 // over later ones whatever their priority. Not reproduced: the 32 sprites / 34 tiles
-// per line limits. Mode 7 (one 1024x1024 plane, any matrix per line) is drawn as one
+// per line limits. A colour window that splits a line becomes rectangles of clip /
+// no-math per band. Mode 7 (one 1024x1024 plane, any matrix per line) is drawn as one
 // affine quad per line. A layer window that hides part of a line is drawn by cutting the
-// layer's quads to the visible spans. Frames it cannot draw (mode 7, a colour window
-// that splits a line while clip or prevent-math use it, mode 7 EXTBG, VRAM written
+// layer's quads to the visible spans. Frames it cannot draw (mode 7 EXTBG, VRAM written
 // mid-frame, ...)
 // are refused, and the caller draws them with the CPU.
 #pragma once
@@ -90,9 +90,17 @@ typedef struct {
   uint16_t fixed;          // BGR555
   int main_first, main_count;   // quads; sprites come first
   int sub_first, sub_count;
+  // A colour window that splits lines: rectangles where, on top of `clip` and `math`,
+  // the main colour is clipped to black and/or colour math is prevented.
+  int cw_first, cw_count;
 } GpuBand;
 
-enum { kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224 };
+typedef struct {
+  int16_t x, y, w, h;
+  bool clip, no_math;
+} GpuCwRect;
+
+enum { kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224, kGpuMaxCwRects = 1024 };
 
 typedef struct {
   GpuTex *tex[kGpuMaxTex];
@@ -101,6 +109,8 @@ typedef struct {
   int quad_count;
   GpuBand bands[kGpuMaxBands];
   int band_count;
+  GpuCwRect cw[kGpuMaxCwRects];
+  int cw_count;
 } GpuFrame;
 
 // Implemented by the backend. Texels start out as zero (transparent).

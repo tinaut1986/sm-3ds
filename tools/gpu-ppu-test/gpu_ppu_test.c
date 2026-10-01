@@ -287,6 +287,12 @@ int main(int argc, char **argv) {
       if (i % 100 == 0) printf("%s\n", label);
       g_input = (i % 60 < 6) ? (i % 120 < 60 ? START : A) : 0;
       if (game_state == 8) g_input = 0;
+      // CERES_BOOM: once in the Ceres elevator room (DF45), jump to "made it to the
+      // elevator" so the escape cutscene (Ceres explodes) plays.
+      if (getenv("CERES_BOOM") && game_state == 8 && room_ptr == 0xDF45) {
+        printf("frame %d: game_state 8 -> 0x20 in DF45\n", i);
+        game_state = 0x20;
+      }
       // MASH_B=N: from the file-select map on, B on every other frame for N frames.
       static int mash_left = -1;
       if (getenv("MASH_B") && mash_left < 0 && game_state == 5) mash_left = atoi(getenv("MASH_B"));

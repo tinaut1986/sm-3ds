@@ -346,6 +346,31 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
     C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
     SolidRect(0, b->y0, 256, b->y1, 0);
   }
+  // A colour window that splits lines: clip its rectangles to black (colour only, as
+  // above), and clear the "math applies" stencil bit where it prevents math.
+  // Each kind in one batch: a power-bomb-like shape is hundreds of rectangles.
+  if (b->cw_count) {
+    EnvSolid(0xff000000);
+    C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
+    C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+    BatchBegin();
+    for (int i = b->cw_first; i < b->cw_first + b->cw_count; i++) {
+      const GpuCwRect *c = &f->cw[i];
+      if (c->clip) PushQuad(c->x, c->y, c->x + c->w, c->y + c->h, LevelZ(0), 0, 0, 0, 0);
+    }
+    BatchDraw();
+    if (b->math) {
+      C3D_DepthTest(true, GPU_ALWAYS, 0);   // no colour, no depth
+      C3D_StencilTest(true, GPU_ALWAYS, 0, 0, 2);
+      C3D_StencilOp(GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE);
+      BatchBegin();
+      for (int i = b->cw_first; i < b->cw_first + b->cw_count; i++) {
+        const GpuCwRect *c = &f->cw[i];
+        if (c->no_math) PushQuad(c->x, c->y, c->x + c->w, c->y + c->h, LevelZ(0), 0, 0, 0, 0);
+      }
+      BatchDraw();
+    }
+  }
   if (b->math) MathPass(b);
 }
 
