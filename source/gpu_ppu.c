@@ -738,19 +738,23 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     runs += a->hScroll != b->hScroll || a->vScroll != b->vScroll;
   }
   if (g_out->quad_count + runs * 2 <= kGpuMaxQuads - kQuadReserve) {
-    for (int a = l0; a <= l1;) {
-      const BgLayer *bg = &cap->line[a].bgLayer[layer];
-      int b = a;
-      while (b + 1 <= l1 && cap->line[b + 1].bgLayer[layer].hScroll == bg->hScroll &&
-             cap->line[b + 1].bgLayer[layer].vScroll == bg->vScroll)
-        b++;
-      // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
-      for (int prio = 0; prio < 2; prio++)
+    // All priority-0 runs, then all priority-1 runs: each priority is its own texture,
+    // and alternating them made the backend switch textures (and end a draw batch) on
+    // every quad (Maridia water: ~7 ms of submit on a 2DS). Quads of one layer never
+    // overlap and depth orders the levels, so the order does not matter otherwise.
+    for (int prio = 0; prio < 2; prio++)
+      for (int a = l0; a <= l1;) {
+        const BgLayer *bg = &cap->line[a].bgLayer[layer];
+        int b = a;
+        while (b + 1 <= l1 && cap->line[b + 1].bgLayer[layer].hScroll == bg->hScroll &&
+               cap->line[b + 1].bgLayer[layer].vScroll == bg->vScroll)
+          b++;
+        // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
         if (!AddQuadWin(&s->tex[prio], 0, a - 1, 256, b - a + 1, bg->hScroll, a + bg->vScroll, kBgLevel[layer][prio],
                         flags, scr, layer))
           return "too many quads";
-      a = b + 1;
-    }
+        a = b + 1;
+      }
     return NULL;
   }
   const int w = SurfaceW(s) - 1, h = SurfaceH(s) - 1;

@@ -380,9 +380,10 @@ static void LogPeriodic(const UiPerf *p) {
               (unsigned long)p->gpu_frames, (unsigned long)p->gpu_fallbacks, p->gpu_reason ? p->gpu_reason : "-",
               p->gpu_build_ms, p->gpu_wait_ms, p->gpu_submit_ms, st->surfaces, st->tiles_decoded, st->sprites,
               st->screen_rows_composed, st->m7_cells_decoded);
-    Debug_Log("gpu build, last frame: lines+bands %.2f, vram diff %.2f, sprites %.2f, bg %.2f, shadow copy %.2f ms",
+    Debug_Log("gpu build, last frame: lines+bands %.2f, vram diff %.2f, sprites %.2f, bg %.2f, shadow copy %.2f ms | "
+              "%d bands, %d quads",
               TicksToMs(st->t_lines), TicksToMs(st->t_diff), TicksToMs(st->t_sprites), TicksToMs(st->t_bg),
-              TicksToMs(st->t_shadow));
+              TicksToMs(st->t_shadow), g_gpu_frame.band_count, g_gpu_frame.quad_count);
   }
   Debug_Log("audio: block %.1f ms (dsp %.1f spc %.1f lock %.1f) | callbacks %d, slowest %.1f ms, slower than "
             "their buffer %d, late starts %d",

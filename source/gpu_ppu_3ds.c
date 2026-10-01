@@ -233,6 +233,7 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
   int q = first;
   const GpuTex *bound = NULL;
   int bound_wrap = -1;   // the texture's wrap mode: 0 repeat, 1 clamp to a transparent border
+  float inv_w = 0, inv_h = 0;   // of the bound texture: no divisions per quad
   int state = -1;   // 0 sprites, 1 sprites with math, 2 BG, 3 BG with math
   BatchBegin();
   for (; q < first + count; q++) {
@@ -251,6 +252,8 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
         C3D_TexBind(0, tex);
         bound = t;
         bound_wrap = wrap;
+        inv_w = 1.0f / t->w;
+        inv_h = 1.0f / t->h;
       }
       if (st != state) {
         state = st;
@@ -269,8 +272,8 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
       PushAffine(qd);
       continue;
     }
-    float u0 = (float)qd->sx / t->w, u1 = (float)(qd->sx + qd->w) / t->w;
-    float v0 = TexV(t, qd->sy), v1 = TexV(t, qd->sy + qd->h);
+    float u0 = qd->sx * inv_w, u1 = (qd->sx + qd->w) * inv_w;
+    float v0 = 1.0f - qd->sy * inv_h, v1 = 1.0f - (qd->sy + qd->h) * inv_h;   // TexV
     if (qd->flags & kGpuQuadFlipX) { float s = u0; u0 = u1; u1 = s; }
     if (qd->flags & kGpuQuadFlipY) { float s = v0; v0 = v1; v1 = s; }
     PushQuad(qd->x, qd->y, qd->x + qd->w, qd->y + qd->h, LevelZ(qd->level), u0, v0, u1, v1);
