@@ -29,6 +29,10 @@ UiOptions g_ui = {
   .render_on = true,
   .frameskip = true,
   .new3ds_speedup = true,
+  // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
+  // the CPU renderer), and any frame it cannot draw goes to the CPU renderer anyway.
+  // DEBUG_TOOLS builds can switch it off for the session (Debug tab, RENDERER).
+  .gpu_render = true,
 };
 
 // Tab order as drawn, like mzm. DEBUG exists only in DEBUG_TOOLS builds.

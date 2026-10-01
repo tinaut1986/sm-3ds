@@ -1,7 +1,8 @@
 # GPU PPU renderer (P2.3 / P2.4)
 
 Status 2026-10-01: implemented, verified on the PC against the CPU renderer and on a
-New 3DS with GPU CHECK (see "Results on hardware"). Off by default: Debug tab -> DEBUG TOOLS -> RENDERER switches it.
+New 3DS with GPU CHECK (see "Results on hardware"). On by default in every build since 2026-10-01; DEBUG_TOOLS builds can switch it off
+for the session (Debug tab -> DEBUG TOOLS -> RENDERER).
 
 ## What SM uses in gameplay (FRAME DUMP captures, docs/debug-tools.md)
 
@@ -109,7 +110,7 @@ renderer (`tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav`).
 
 ## Checking it on hardware
 
-1. Debug tab -> DEBUG TOOLS -> RENDERER: GPU. The Debug tab shows GPU/CPU frame counts,
+1. The renderer is GPU by default (RENDERER in the Debug tools). The Debug tab shows GPU/CPU frame counts,
    the last fallback reason and the calibration line.
 2. GPU CHECK draws the next frame both ways and writes a dump set: `-top.rgb` the CPU
    renderer, `-gpu.rgb` the GPU read back, and the toast says how many pixels differ
