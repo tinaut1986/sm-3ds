@@ -46,7 +46,15 @@ typedef struct { int x, y, w, h; } Rect;
 // Kept for symmetry with a future citro2d backend; the 5x7 font is compiled in.
 bool UiDraw_Init(void);
 
+// The back buffer of `screen`. If a swap is still waiting for its vblank, the "back"
+// buffer is the one on screen, so this first waits for that vblank (see UiDraw_Swapped).
 Surface UiDraw_Screen(gfxScreen_t screen);
+
+// Call after every gfxSwapBuffers / gfxScreenSwapBuffers, and UiDraw_VBlankSeen after
+// waiting for a vblank. UiDraw_WaitSwapShown blocks until the last swap is on screen.
+void UiDraw_Swapped(void);
+void UiDraw_VBlankSeen(void);
+void UiDraw_WaitSwapShown(void);
 
 void UiFillRect(Surface s, int x, int y, int w, int h, uint32_t c);
 void UiFrameRect(Surface s, int x, int y, int w, int h, uint32_t c);   // 1 px outline

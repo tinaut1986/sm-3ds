@@ -9,7 +9,25 @@
 
 bool UiDraw_Init(void) { return true; }   // the font is compiled in (ui_font.c)
 
+// A swap takes effect at the next vblank; until then the buffer gfxGetFramebuffer hands
+// out is still being scanned out, and drawing into it shows as flashes and torn panels.
+// That happens when a slow frame (no vblank wait) is followed by a quick one, e.g. a
+// skipped frame that redraws the UI.
+static u64 g_swap_tick;   // 0 = the last swap has been shown
+
+void UiDraw_Swapped(void) { g_swap_tick = svcGetSystemTick(); }
+
+void UiDraw_VBlankSeen(void) { g_swap_tick = 0; }
+
+void UiDraw_WaitSwapShown(void) {
+  if (!g_swap_tick) return;
+  // Some vblank has certainly happened if a whole refresh (59.8 Hz) has passed.
+  if (svcGetSystemTick() - g_swap_tick < SYSCLOCK_ARM11 / 59) gspWaitForVBlank();
+  g_swap_tick = 0;
+}
+
 Surface UiDraw_Screen(gfxScreen_t screen) {
+  UiDraw_WaitSwapShown();
   u16 w, h;   // libctru reports the rotated size: w = 240, h = width in pixels
   u8 *fb = gfxGetFramebuffer(screen, GFX_LEFT, &w, &h);
   return (Surface){ (uint32_t *)fb, h, w };

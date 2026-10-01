@@ -6,6 +6,7 @@
 #include <3ds.h>
 #include <citro3d.h>
 
+#include "debug_tools.h"
 #include "gpu_ppu_shbin.h"
 
 // Two 256x256 RGBA8 targets with depth+stencil: the main screen and the subscreen
@@ -152,12 +153,19 @@ static void PushQuad(float x0, float y0, float x1, float y1, float z, float u0, 
   g_nverts += 6;
 }
 
+// The GPU reads the vertices only once the frame is submitted, so the cache is flushed
+// once per frame (EndFrame) rather than per batch: each flush is a system call, and a
+// frame has dozens of batches (2DS: ~3 ms of submit time per frame).
 static void BatchDraw(void) {
   const int n = g_nverts - g_batch_first;
   if (n <= 0) return;
-  GSPGPU_FlushDataCache(&g_vbo[g_batch_first], (u32)n * sizeof(Vtx));
   C3D_DrawArrays(GPU_TRIANGLES, g_batch_first, n);
   g_batch_first = g_nverts;
+}
+
+static void EndFrame(void) {
+  if (g_nverts) GSPGPU_FlushDataCache(g_vbo, (u32)g_nverts * sizeof(Vtx));
+  C3D_FrameEnd(0);
 }
 
 static void SolidRect(int x0, int y0, int x1, int y1, int level) {
@@ -297,9 +305,36 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
 
 static bool g_any_frame;
 
+// The FPS overlay: on the CPU path it is drawn into the framebuffer, here it is a texture
+// drawn over the top screen's left margin.
+enum { kOverlaySize = 64 };
+static C3D_Tex g_overlay_tex;
+static bool g_overlay_on;
+
+void GpuPpu3ds_SetOverlay(const uint32_t *px) {
+  g_overlay_on = px && g_ready;
+  if (!g_overlay_on) return;
+  uint32_t *dst = (uint32_t *)g_overlay_tex.data;
+  for (int x = 0; x < kOverlaySize; x++) {
+    const uint32_t *col = px + x * kOverlaySize + (kOverlaySize - 1);   // y = 0 is the last word
+    for (int y = 0; y < kOverlaySize; y++) dst[GpuTexelIndex(x, y, kOverlaySize)] = col[-y];
+  }
+  GSPGPU_FlushDataCache(dst, kOverlaySize * kOverlaySize * 4);
+}
+
+static u64 g_wait_ticks, g_submit_ticks;
+
+void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
+  *wait_ms = (float)((double)g_wait_ticks * 1000.0 / SYSCLOCK_ARM11);
+  *submit_ms = (float)((double)g_submit_ticks * 1000.0 / SYSCLOCK_ARM11);
+}
+
 void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   if (!g_ready) return;
-  C3D_FrameBegin(0);
+  const u64 t0 = svcGetSystemTick();
+  C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
+  const u64 t1 = svcGetSystemTick();
+  g_wait_ticks = t1 - t0;
   g_nverts = 0;
   BlendOff();
   bool any_sub = false;
@@ -334,7 +369,15 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
     PushQuad(x0, y0, x1, y1, 0, 0, RtV(b->y0), 1, RtV(b->y1));
     BatchDraw();
   }
-  C3D_FrameEnd(0);
+  if (g_overlay_on) {
+    C3D_TexBind(0, &g_overlay_tex);
+    EnvTexture();
+    BatchBegin();
+    PushQuad(0, 0, kOverlaySize, kOverlaySize, 0, 0, 1, 1, 0);
+    BatchDraw();
+  }
+  EndFrame();
+  g_submit_ticks = svcGetSystemTick() - t1;
   g_any_frame = true;
 }
 
@@ -342,7 +385,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
 // An empty frame: C3D_FrameBegin waits until the GPU has finished the previous one.
 static void WaitGpu(void) {
   C3D_FrameBegin(0);
-  C3D_FrameEnd(0);
+  EndFrame();
 }
 
 // Detiles the main target into g_readback (blocks until the GPU is done).
@@ -416,7 +459,7 @@ static void Calibrate(void) {
   EnvSolid(0xff00ff00);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
   SolidRect(0, 0, 256, 256, 0);
-  C3D_FrameEnd(0);
+  EndFrame();
   ReadMain();
   const uint32_t green = g_readback[128 * kTexW + 128];
   g_readback_abgr = ((green >> 8) & 0xff) > 0xc0 && ((green >> 16) & 0xff) < 0x40;
@@ -429,7 +472,7 @@ static void Calibrate(void) {
   EnvSolid(0xff00ff00);
   C3D_DepthTest(true, GPU_GREATER, GPU_WRITE_ALL);
   SolidRect(0, 0, 256, 256, 10);
-  C3D_FrameEnd(0);
+  EndFrame();
   ReadMain();
   const uint32_t mid = g_readback[128 * kTexW + 128];
   g_depth_greater = IsGreen(mid) ? GPU_GREATER : GPU_LESS;
@@ -441,7 +484,7 @@ static void Calibrate(void) {
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   EnvSolid(0xff0000ff);
   SolidRect(0, 0, 256, 8, 0);
-  C3D_FrameEnd(0);
+  EndFrame();
   ReadMain();
   g_readback_flipped = !IsRed(g_readback[4 * kTexW + 128]) && IsRed(g_readback[(kTexH - 5) * kTexW + 128]);
 
@@ -453,7 +496,7 @@ static void Calibrate(void) {
   BatchBegin();
   PushQuad(0, 0, 256, 256, 0, 0, RtV(0), 1, RtV(8));   // rows 0..7 stretched over everything
   BatchDraw();
-  C3D_FrameEnd(0);
+  EndFrame();
   WaitGpu();
   C3D_SyncDisplayTransfer((u32 *)g_sub_tex.data, GX_BUFFER_DIM(kTexW, kTexH), (u32 *)g_readback,
                           GX_BUFFER_DIM(kTexW, kTexH), DISPLAY_TRANSFER_FLAGS);
@@ -483,6 +526,8 @@ bool GpuPpu3ds_Init(void) {
     return false;
   C3D_TexSetFilter(&g_main_tex, GPU_NEAREST, GPU_NEAREST);
   C3D_TexSetFilter(&g_sub_tex, GPU_NEAREST, GPU_NEAREST);
+  if (!C3D_TexInit(&g_overlay_tex, kOverlaySize, kOverlaySize, GPU_RGBA8)) return false;
+  C3D_TexSetFilter(&g_overlay_tex, GPU_NEAREST, GPU_NEAREST);
   g_rt_main = C3D_RenderTargetCreateFromTex(&g_main_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_sub = C3D_RenderTargetCreateFromTex(&g_sub_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
@@ -515,16 +560,12 @@ const char *GpuPpu3ds_CalibrationText(void) { return g_calib_text; }
 
 void GpuPpu3ds_Exit(void) {
   if (!g_ready) return;
-  GpuPpu3ds_WaitIdle();
-  C3D_RenderTargetDelete(g_rt_top);
-  C3D_RenderTargetDelete(g_rt_sub);
-  C3D_RenderTargetDelete(g_rt_main);
-  C3D_TexDelete(&g_main_tex);
-  C3D_TexDelete(&g_sub_tex);
-  linearFree(g_vbo);
-  linearFree(g_readback);
-  shaderProgramFree(&g_prog);
-  DVLB_Free(g_dvlb);
-  C3D_Fini();
+  // Nothing of citro3d is torn down: closing from the HOME menu hung on "Closing
+  // software" in every call that waits for the GPU queue (an empty frame first, then
+  // C3D_RenderTargetDelete; 2DS logs, 2026-10-01). After HOME, citro3d's APT suspend
+  // hook has stopped its vblank handling and the queue never drains. The app is exiting:
+  // the system reclaims the GPU memory with the process, and gfxExit (SDL_Quit) stops
+  // the GSP event thread that citro3d's callbacks run on.
+  Debug_Log("exit: citro3d left as is");
   g_ready = false;
 }

@@ -18,10 +18,12 @@ typedef struct {
   float draw_ms;      // copy of the PPU output to the top screen
   float audio_ms;     // last audio block generation (audio thread)
   float audio_part_ms[4];  // of that: lock wait, SPC driver loop, DSP cycles, resample
+  uint32_t core1_limit;    // % of the system core granted to the app (audio thread)
   uint32_t frames;    // frames since boot
   bool is_new3ds;
   // GPU renderer: frames it drew, frames it handed to the CPU and the last reason.
   uint32_t gpu_frames, gpu_fallbacks;
+  float gpu_build_ms, gpu_wait_ms, gpu_submit_ms;   // last GPU frame: GpuPpu_BuildFrame, GPU wait, submit
   const char *gpu_reason;
   const char *gpu_calibration;
 } UiPerf;
@@ -79,3 +81,8 @@ void BottomUi_GameReset(void);
 
 // Small FPS/timing overlay on the top framebuffer (if g_ui.fps_overlay).
 void BottomUi_DrawTopOverlay(const UiPerf *perf);
+
+// Same overlay into a column-major RGBA8 buffer of `w` x `h` (at least 60 x 52), for
+// when the GPU renderer presents the top screen. Returns false (buffer untouched) if
+// the overlay is off.
+bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *perf);

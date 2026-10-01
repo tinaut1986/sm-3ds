@@ -8,6 +8,9 @@ typedef enum { GFX_TOP, GFX_BOTTOM } gfxScreen_t;
 typedef enum { GFX_LEFT, GFX_RIGHT } gfx3dSide_t;
 u8 *gfxGetFramebuffer(gfxScreen_t screen, gfx3dSide_t side, u16 *width, u16 *height);
 u64 osGetTime(void);
+u64 svcGetSystemTick(void);
+void gspWaitForVBlank(void);
+#define SYSCLOCK_ARM11 268111856
 size_t linearSpaceFree(void);
 int APT_CheckNew3DS(bool *out);
 void osSetSpeedupEnable(bool e);

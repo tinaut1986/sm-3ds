@@ -15,6 +15,8 @@ static uint8_t fb[2][400 * 240 * 4];
 static u64 g_now = 100000;   // advanced between shots so tap flashes and toasts expire
 u8 *gfxGetFramebuffer(gfxScreen_t s, gfx3dSide_t side, u16 *w, u16 *h) { if (w) *w = 240; if (h) *h = s == GFX_TOP ? 400 : 320; return fb[s]; }
 u64 osGetTime(void) { return g_now; }
+u64 svcGetSystemTick(void) { return 0; }
+void gspWaitForVBlank(void) {}
 size_t linearSpaceFree(void) { return 20 * 1024 * 1024; }
 int APT_CheckNew3DS(bool *o) { *o = true; return 0; }
 void osSetSpeedupEnable(bool e) {}

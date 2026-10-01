@@ -757,7 +757,9 @@ static void DrawDebug(Surface s, const UiPerf *p) {
   UiDrawTextf(s, 208, y, COL_DIM, "%s", p->is_new3ds ? (g_ui.new3ds_speedup ? "N3DS 804" : "N3DS 268") : "O3DS 268");
   y += 12;
   UiDrawTextf(s, 8, y, COL_TEXT, "WORK %.1f  LOGIC+PPU %.1f MS", p->frame_ms, p->logic_ms); y += 12;
-  UiDrawTextf(s, 8, y, COL_TEXT, "TOP DRAW %.1f  AUDIO %.1f MS", p->draw_ms, p->audio_ms); y += 12;
+  UiDrawTextf(s, 8, y, COL_TEXT, "TOP DRAW %.1f  AUDIO %.1f MS  CORE1 %lu%%", p->draw_ms, p->audio_ms,
+              (unsigned long)p->core1_limit);
+  y += 12;
   UiDrawTextf(s, 8, y, COL_TEXT, "AUDIO LOCK %.1f SPC %.1f DSP %.1f RS %.1f", p->audio_part_ms[0], p->audio_part_ms[1],
               p->audio_part_ms[2], p->audio_part_ms[3]);
   y += 16;
@@ -945,6 +947,21 @@ bool BottomUi_Frame(const UiPerf *p) {
   return false;
 }
 
+static void DrawOverlay(Surface s, const UiPerf *p) {
+  char buf[16];
+  UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
+  snprintf(buf, sizeof(buf), "%.1f", p->game_fps);
+  UiDrawText(s, 2, 2, 1, FpsColor(p->game_fps), buf);
+  snprintf(buf, sizeof(buf), "L%.1f", p->logic_ms);
+  UiDrawText(s, 2, 12, 1, COL_TEXT, buf);
+  snprintf(buf, sizeof(buf), "D%.1f", p->draw_ms);
+  UiDrawText(s, 2, 22, 1, COL_TEXT, buf);
+  snprintf(buf, sizeof(buf), "A%.1f", p->audio_ms);
+  UiDrawText(s, 2, 32, 1, COL_TEXT, buf);
+  snprintf(buf, sizeof(buf), "S%.1f", p->fps);
+  UiDrawText(s, 2, 42, 1, COL_DIM, buf);
+}
+
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
   // The game is centred (274 px wide on a 400 px screen); use the left margin,
   // which the game never redraws. The top screen is double buffered, so clear
@@ -959,18 +976,15 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
     return;
   }
   clear_frames = 2;
-  char buf[16];
-  UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
-  snprintf(buf, sizeof(buf), "%.1f", p->game_fps);
-  UiDrawText(s, 2, 2, 1, FpsColor(p->game_fps), buf);
-  snprintf(buf, sizeof(buf), "L%.1f", p->logic_ms);
-  UiDrawText(s, 2, 12, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "D%.1f", p->draw_ms);
-  UiDrawText(s, 2, 22, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "A%.1f", p->audio_ms);
-  UiDrawText(s, 2, 32, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "S%.1f", p->fps);
-  UiDrawText(s, 2, 42, 1, COL_DIM, buf);
+  DrawOverlay(s, p);
+}
+
+bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
+  if (!g_ui.fps_overlay) return false;
+  Surface s = { px, w, h };
+  UiFillRect(s, 0, 0, w, h, 0);   // transparent around the box
+  DrawOverlay(s, p);
+  return true;
 }
 
 // ---- Init -------------------------------------------------------------------

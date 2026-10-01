@@ -14,6 +14,14 @@ bool GpuPpu3ds_Init(void);
 bool GpuPpu3ds_Ready(void);
 void GpuPpu3ds_Exit(void);
 
+// FPS overlay for the next frames: 64x64 column-major RGBA8 like the framebuffer (see
+// BottomUi_DrawOverlayInto), drawn at the top-left corner; NULL hides it.
+void GpuPpu3ds_SetOverlay(const uint32_t *px);
+
+// Timing of the last DrawAndPresent: waiting for the GPU to finish the frame before, and
+// building plus submitting the command list.
+void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
+
 // Draws `f` and queues it for the top screen.
 void GpuPpu3ds_DrawAndPresent(const GpuFrame *f);
 
