@@ -1,7 +1,7 @@
 # GPU PPU renderer (P2.3 / P2.4)
 
-Status 2026-10-01: implemented, verified on the PC against the CPU renderer, **not yet
-run on hardware**. Off by default: Debug tab -> DEBUG TOOLS -> RENDERER switches it.
+Status 2026-10-01: implemented, verified on the PC against the CPU renderer and on a
+New 3DS with GPU CHECK (see "Results on hardware"). Off by default: Debug tab -> DEBUG TOOLS -> RENDERER switches it.
 
 ## What SM uses in gameplay (FRAME DUMP captures, docs/debug-tools.md)
 
@@ -77,8 +77,8 @@ order, which depth test means "higher level wins", how a display transfer orders
 and whether a rendered texture is sampled upside down. The result is on the Debug tab.
 
 Not reproduced: the 32 sprites / 34 slivers per line limits; colour math runs in 8 bits
-instead of 5 (differences of a few units); no FPS overlay on the top screen while the
-GPU presents it.
+instead of 5 (differences of a few units). The FPS overlay is a 64x64 texture drawn over
+the left margin (`GpuPpu3ds_SetOverlay`), filled by the same code as the CPU path's.
 
 ## Results on the PC (2026-10-01)
 
@@ -90,6 +90,16 @@ Console state (Crateria), 120 frames: identical.
 Host time per frame, steady state: frame build 46 us against 530 us for the CPU
 renderer (about 1/11). On the console that would be about 0.8 ms instead of 8.4 ms,
 plus the GPU's own time, which only hardware can tell.
+
+## Results on hardware (2026-10-01, New 3DS)
+
+Six GPU CHECK sets (Crateria 98E2 and 92FD, Brinstar/Norfair B236, B40A, ADAD, B4E5):
+four identical to the CPU renderer, two with 412 and 1508 pixels off by at most 8 (the
+8-bit colour math), none by more. The calibration knobs needed no change.
+
+Power bombs draw their explosion with a window that changes per line, so those frames
+(~90 per bomb) are refused and drawn by the CPU from the capture, identical to the CPU
+renderer (`tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav`).
 
 ## Checking it on hardware
 
@@ -104,7 +114,8 @@ plus the GPU's own time, which only hardware can tell.
 
 ## Next
 
-- Hardware run; Old 3DS numbers (P0.3).
+- FPS with GPU vs CPU in the P0.3 spots (the overlay works in both now); Old 3DS.
+- Windows that split lines (power bomb, X-ray) on the GPU, if those frames turn out slow.
 - Sprite per-line limits if a scene needs them.
 - Stereo 3D (phase 3): every layer is already its own quad; per-eye offsets go in
   the vertex positions.
