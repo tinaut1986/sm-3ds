@@ -51,6 +51,7 @@ void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {}
 enum { kPitch = 256 * 4 };
 static uint8_t g_px[kPitch * 240], g_a[kPitch * 240], g_b[kPitch * 240], g_c[kPitch * 240];
 static PpuLineCapture g_cap;
+static int g_input;   // controller bits for TestFrame's frames
 static GpuFrame g_frame;
 static int g_frames, g_capture_bad, g_gpu_bad, g_refused, g_dumped;
 static long g_tiles, g_composed, g_quads, g_max_quads, g_composed_frames;
@@ -109,13 +110,13 @@ static void TestFrame(const char *label, bool check_capture) {
   if (check_capture) RtlSaveLoad(kSaveLoad_Save, 8);
   if (check_capture) {
     g_snes->disableRender = false;
-    RtlRunFrame(0);
+    RtlRunFrame(g_input);
     memcpy(g_a, g_px, sizeof(g_a));
     RtlSaveLoad(kSaveLoad_Load, 8);
   }
   g_ppu_line_capture = &g_cap;
   g_snes->disableRender = false;
-  RtlRunFrame(0);
+  RtlRunFrame(g_input);
   g_ppu_line_capture = NULL;
   memset(g_px, 0, sizeof(g_px));
   struct timespec t0, t1;
@@ -140,6 +141,23 @@ static void TestFrame(const char *label, bool check_capture) {
   if (!built) {
     g_refused++;
     NoteRefusal(why);
+    if (getenv("WINDOW_SURVEY") && strstr(why, "window")) {
+      // One line per distinct window setup: which layers are windowed where, the
+      // colour-window modes, and the window bounds on a sample of lines.
+      static char seen[64][96];
+      char key[96];
+      const PpuLineState *m = &g_cap.line[112];
+      snprintf(key, sizeof(key), "sel %08x mainW %02x subW %02x main %02x sub %02x clip %d prevent %d", m->windowsel,
+               m->screenWindowed[0], m->screenWindowed[1], m->screenEnabled[0], m->screenEnabled[1], m->clipMode,
+               m->preventMathMode);
+      int k;
+      for (k = 0; k < 64 && seen[k][0] && strcmp(seen[k], key); k++) {}
+      if (k < 64 && !seen[k][0]) {
+        strcpy(seen[k], key);
+        printf("%s: %s: %s | w1 %d..%d w2 %d..%d at line 112\n", label, why, key, m->window1left, m->window1right,
+               m->window2left, m->window2right);
+      }
+    }
     return;
   }
   const GpuPpuStats *st = GpuPpu_LastStats();
@@ -197,6 +215,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < frames; i++) {
       char label[32];
       snprintf(label, sizeof(label), "frame %d", i);
+      if (i % 50 == 0) printf("%s\n", label);
       TestFrame(label, i % 10 == 0);
     }
     Report();
@@ -226,8 +245,23 @@ int main(int argc, char **argv) {
     return g_capture_bad || g_gpu_bad;
   }
   // rooms: boot with scripted inputs until gameplay, then warp into every room.
+  // boot: the same boot, every frame tested from power-on: title, file select (with
+  // saves/sm.srm the first file is continued), loading the game and what follows.
   RtlReadSram();
   enum { A = 0x100, START = 0x08 };
+  if (!strcmp(argv[2], "boot")) {
+    const int frames = argc > 3 ? atoi(argv[3]) : 1500;
+    for (int i = 0; i < frames; i++) {
+      char label[48];
+      snprintf(label, sizeof(label), "boot frame %d (state %02x room %04x)", i, (unsigned)game_state, (unsigned)room_ptr);
+      if (i % 100 == 0) printf("%s\n", label);
+      g_input = (i % 60 < 6) ? (i % 120 < 60 ? START : A) : 0;
+      if (game_state == 8) g_input = 0;
+      TestFrame(label, i % 10 == 0);
+    }
+    Report();
+    return g_capture_bad || g_gpu_bad;
+  }
   for (int i = 0; i < 20000; i++) {
     g_snes->disableRender = true;
     RtlRunFrame((i % 60 < 6) ? (i % 120 < 60 ? START : A) : 0);

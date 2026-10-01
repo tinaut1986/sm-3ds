@@ -59,9 +59,15 @@ Frame building:
    strips as expensive on the GPU.
 4. **Sprites**: decoded per frame into a 512x512 atlas (one entry per distinct look),
    one quad per sprite (two when it wraps past line 256), flips by texture coordinates.
-5. **Refused** (CPU fallback): mode other than 1, OBJ interlace, a window that splits a
-   line (a window covering a whole line just hides the layer), VRAM/CGRAM/OAM written
-   during the lines, out of quads/textures.
+5. **Layer windows**: a window covering a whole line just hides the layer; one that hides
+   part of a line gives the layer up to 3 visible spans on that line (kept outside the band
+   key, so they may change on every line), and the layer's quads are cut to those spans,
+   rows with the same spans grouped, texture offsets and flips kept. Power bombs (BG3 on
+   the subscreen) and the file-select area map (BG1/BG2/OBJ) use this.
+6. **Refused** (CPU fallback): mode other than 1, OBJ interlace, a colour window that
+   splits a line while clip-to-black or prevent-math depend on it (modes "inside" or
+   "outside"; "never"/"always" ignore the window), VRAM/CGRAM/OAM written during the
+   lines, out of quads/textures.
 
 citro3d backend: depth = priority level (BG quads pass where theirs is greater),
 stencil bit 0 = a sprite owns the pixel (first in OAM order wins), bit 1 = colour math
