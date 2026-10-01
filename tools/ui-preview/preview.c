@@ -118,8 +118,9 @@ int main(int argc, char **argv) {
   Tap(260, 38 + 2 * 19 + 5);         // arm save on slot 2
   Shot("states, slot 2 save armed");
   TapTab(kOptions);
+  Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(160, 140);
+  Tap(160, 178);
   Shot("options, reset window");
   return 0;
 }

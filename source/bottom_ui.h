@@ -45,7 +45,8 @@ typedef struct {
   bool render_on;        // false: skip PPU drawing, to measure its cost
   bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can; on by default
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
-  int save_slot;         // 0..9, for save states
+  bool pixel_perfect;    // top screen 256x224 at 1:1; otherwise scaled to 274x240
+  int save_slot;        // 0..9, for save states
   // One-shot requests, consumed by the main loop.
   bool req_reset;
   bool req_save_state;

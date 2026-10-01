@@ -99,33 +99,53 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
     memcpy((uint8_t *)pixel_buffer + y * pitch, ppu_pixels + y * 256 * 4, 256 * 4);
 }
 
-// Copies the 256x224 PPU output to the top screen, scaled to 274x240 (nearest,
-// aspect-correct) and rotated: the 3DS framebuffer is column-major with the
-// origin at the bottom-left. Source pixels are 0x00RRGGBB, the framebuffer
-// wants R,G,B,A from the high byte down, so one shift does the conversion.
-static void DrawPpuFrame(void) {
-    enum { SRC_W = 256, SRC_H = 224, FB_W = 400, FB_H = 240, DST_W = 274 };
-    static uint16_t xmap[DST_W];
-    static const uint32_t *rows[FB_H];   // source row for each destination row
+// Copies the 256x224 PPU output to the top screen, centred, and rotated: the 3DS
+// framebuffer is column-major with the origin at the bottom-left. SCALED stretches it
+// to 274x240 (nearest, aspect-correct), PIXEL PERFECT copies it 1:1 with 8 black rows
+// above and below. Source pixels are 0x00RRGGBB, the framebuffer wants R,G,B,A from
+// the high byte down, so one shift does the conversion.
+static void DrawPpuFrame(bool pixel_perfect) {
+    enum { SRC_W = 256, SRC_H = 224, FB_W = 400, FB_H = 240, SCALED_W = 274 };
+    static uint16_t xmap[2][SCALED_W];
+    static const uint32_t *rows[2][FB_H];   // source row for each destination row
+    static const uint32_t black_row[SRC_W];
     static bool init;
     if (!init) {
         const float scale = (float)FB_H / (float)SRC_H;
-        for (int dx = 0; dx < DST_W; dx++) xmap[dx] = (uint16_t)((int)(dx / scale) % SRC_W);
+        for (int dx = 0; dx < SCALED_W; dx++) {
+            xmap[0][dx] = (uint16_t)((int)(dx / scale) % SRC_W);
+            xmap[1][dx] = (uint16_t)(dx < SRC_W ? dx : 0);
+        }
         for (int dy = 0; dy < FB_H; dy++) {
             int sy = (int)(dy / scale);
-            rows[dy] = (const uint32_t *)g_pixels + (sy < SRC_H ? sy : SRC_H - 1) * SRC_W;
+            rows[0][dy] = (const uint32_t *)g_pixels + (sy < SRC_H ? sy : SRC_H - 1) * SRC_W;
+            sy = dy - (FB_H - SRC_H) / 2;
+            rows[1][dy] = sy >= 0 && sy < SRC_H ? (const uint32_t *)g_pixels + sy * SRC_W : black_row;
         }
         init = true;
     }
 
+    // The sides are only drawn by the layout that covers them: clear the whole screen,
+    // in both buffers, after a switch (the GPU path clears its own frames).
+    static int clear_frames = 2, last_layout = -1;
+    const int layout = pixel_perfect;
+    if (layout != last_layout) clear_frames = 2;
+    last_layout = layout;
+
     UiDraw_WaitSwapShown();
     uint32_t *fb = (uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-    const int x_off = (FB_W - DST_W) / 2;
-    for (int dx = 0; dx < DST_W; dx++) {
+    if (clear_frames > 0) {
+        clear_frames--;
+        for (int i = 0; i < FB_W * FB_H; i++) fb[i] = 0xFFu;
+    }
+    const int dst_w = pixel_perfect ? SRC_W : SCALED_W;
+    const int x_off = (FB_W - dst_w) / 2;
+    for (int dx = 0; dx < dst_w; dx++) {
         uint32_t *col = fb + (x_off + dx) * FB_H + (FB_H - 1);   // dy = 0 is the last word
-        const int sx = xmap[dx];
+        const int sx = xmap[layout][dx];
+        const uint32_t *const *r = rows[layout];
         for (int dy = 0; dy < FB_H; dy++)
-            col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
+            col[-dy] = (r[dy][sx] << 8) | 0xFFu;
     }
 }
 
@@ -641,7 +661,7 @@ int main(int argc, char** argv) {
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
-          GpuPpu3ds_DrawAndPresent(&g_gpu_frame);
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
@@ -659,7 +679,7 @@ int main(int argc, char** argv) {
           }
           // The GPU may still be presenting its last frame into the framebuffer.
           if (g_top_by_gpu) GpuPpu3ds_WaitIdle();
-          DrawPpuFrame();
+          DrawPpuFrame(g_ui.pixel_perfect);
         }
         g_top_by_gpu = gpu_presented;
         t_draw = svcGetSystemTick() - t0;

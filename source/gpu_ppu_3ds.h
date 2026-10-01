@@ -22,8 +22,9 @@ void GpuPpu3ds_SetOverlay(const uint32_t *px);
 // building plus submitting the command list.
 void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
 
-// Draws `f` and queues it for the top screen.
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f);
+// Draws `f` and queues it for the top screen, centred: scaled to 274x240, or 1:1 with
+// `pixel_perfect`.
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect);
 
 // Waits until the GPU has finished everything queued, so the CPU can write the top
 // framebuffer again (when switching back to the CPU renderer).

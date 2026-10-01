@@ -405,7 +405,7 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
   *submit_ms = (float)((double)g_submit_ticks * 1000.0 / SYSCLOCK_ARM11);
 }
 
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
   if (!g_ready) return;
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
@@ -427,7 +427,8 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   SetTarget(g_rt_main, &g_proj_tex);
   for (int i = 0; i < f->band_count; i++) DrawBandMain(f, &f->bands[i]);
 
-  // Top screen: 256x224 scaled to 274x240, centred, like the CPU path (DrawPpuFrame).
+  // Top screen: 256x224 centred, scaled to 274x240 or 1:1, like the CPU path
+  // (DrawPpuFrame).
   C3D_RenderTargetClear(g_rt_top, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_top, &g_proj_top);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -435,12 +436,13 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
   BlendOff();
   C3D_TexBind(0, &g_main_tex);
-  const float x0 = (400 - 274) / 2, x1 = x0 + 274;
+  const float w = pixel_perfect ? 256 : 274, x0 = (400 - w) / 2, x1 = x0 + w;
+  const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f, y_off = pixel_perfect ? (240 - 224) / 2 : 0;
   for (int i = 0; i < f->band_count; i++) {
     const GpuBand *b = &f->bands[i];
     const int bright = b->black ? 0 : b->brightness * 255 / 15;
     EnvModulate((uint32_t)bright | (uint32_t)bright << 8 | (uint32_t)bright << 16 | 0xff000000u);
-    const float y0 = b->y0 * 240.0f / 224.0f, y1 = b->y1 * 240.0f / 224.0f;
+    const float y0 = y_off + b->y0 * y_scale, y1 = y_off + b->y1 * y_scale;
     BatchBegin();
     PushQuad(x0, y0, x1, y1, 0, 0, RtV(b->y0), 1, RtV(b->y1));
     BatchDraw();

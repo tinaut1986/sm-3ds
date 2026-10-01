@@ -303,6 +303,8 @@ Lessons from mzm that apply directly:
   *Today:* there is only one mode. Both paths scale 256x224 to 274x240 with nearest
   sampling (x1.071, uneven rows and columns), centred, black sides
   (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
+  Status 2026-10-01: part A implemented on `feat/display-options` (OPTIONS -> DISPLAY,
+  `pixel_perfect` in `config.ini`, both renderers); not yet seen on hardware.
   *Spec, part A (display style, renderer only):*
   - SCALED: what exists now.
   - PIXEL PERFECT: 256x224 at 1:1, centred (72 px sides, 8 px top and bottom).
