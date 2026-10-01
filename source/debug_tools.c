@@ -165,16 +165,10 @@ static void WriteGameText(FILE *f) {
           (unsigned)frame_counter_every_frame);
 }
 
-int Debug_DumpScreen(const uint8_t *bgra) {
-  mkdir(DEBUG_DIR, 0777);
-  int slot = PickSlot(DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
-
-  // Top screen, headerless RGB8, 256x240, top to bottom.
-  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, "wb");
-  if (!f) {
-    SetMessage("Dump: cannot write debug/");
-    return -1;
-  }
+// Headerless RGB8, 256x240, top to bottom.
+static bool WriteRgb(const char *fmt, int slot, const uint8_t *bgra) {
+  FILE *f = OpenSlotFile(fmt, slot, "wb");
+  if (!f) return false;
   for (int y = 0; y < 240; y++) {
     uint8_t row[256 * 3];
     for (int x = 0; x < 256; x++) {
@@ -186,7 +180,22 @@ int Debug_DumpScreen(const uint8_t *bgra) {
     fwrite(row, 1, sizeof(row), f);
   }
   fclose(f);
+  return true;
+}
 
+void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra) {
+  char fmt[64];
+  snprintf(fmt, sizeof(fmt), DEBUG_DIR "/sm-dump-%%02d-%s.rgb", suffix);
+  WriteRgb(fmt, slot, bgra);
+}
+
+int Debug_DumpScreen(const uint8_t *bgra) {
+  mkdir(DEBUG_DIR, 0777);
+  int slot = PickSlot(DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
+  if (!WriteRgb(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, bgra)) {
+    SetMessage("Dump: cannot write debug/");
+    return -1;
+  }
   const Ppu *p = g_snes->ppu;
   WriteBin(DEBUG_DIR "/sm-dump-%02d-vram.bin", slot, p->vram, sizeof(p->vram));
   WriteBin(DEBUG_DIR "/sm-dump-%02d-cgram.bin", slot, p->cgram, sizeof(p->cgram));
@@ -194,13 +203,15 @@ int Debug_DumpScreen(const uint8_t *bgra) {
   WriteBin(DEBUG_DIR "/sm-dump-%02d-highoam.bin", slot, p->highOam, sizeof(p->highOam));
   WriteBin(DEBUG_DIR "/sm-dump-%02d-wram.bin", slot, g_ram, 0x20000);
 
-  f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-ppu.txt", slot, "w");
+  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-ppu.txt", slot, "w");
   if (f) { WritePpuText(f, p); fclose(f); }
   f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-game.txt", slot, "w");
   if (f) { WriteGameText(f); fclose(f); }
-  // A frame log left in this slot by an older capture would pass for this set's.
+  // Files left in this slot by an older set would pass for this set's.
   char path[96];
   snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-frame.txt", slot);
+  remove(path);
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-gpu.rgb", slot);
   remove(path);
 
   Debug_Log("screen dump -> set %02d", slot);

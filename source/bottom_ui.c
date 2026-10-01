@@ -675,10 +675,11 @@ static void ResetModalTouch(int x, int y) {
 // Debug tools: a 2-column grid in a window over the Debug tab, like mzm's.
 #if DEBUG_TOOLS
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_PERF, TOOL_PPU, TOOL_GIVE_ALL, TOOL_HEAL, TOOL_COUNT
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_PERF, TOOL_PPU, TOOL_GIVE_ALL, TOOL_HEAL, TOOL_RENDERER,
+  TOOL_GPU_CHECK, TOOL_COUNT
 } Tool;
 
-static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 46 + (i / 2) * 30, 140, 26 }; }
+static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 44 + (i / 2) * 29, 140, 26 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
 
 static void DrawToolCell(Surface s, int i, const char *label, const char *state, uint32_t state_col) {
@@ -703,7 +704,11 @@ static void DrawToolsModal(Surface s) {
   DrawToolCell(s, TOOL_PPU, "PPU RENDER", g_ui.render_on ? "ON" : "OFF", g_ui.render_on ? COL_GOOD : COL_WARN);
   DrawToolCell(s, TOOL_GIVE_ALL, "GIVE ALL", "ITEMS, BEAMS, MAX", act);
   DrawToolCell(s, TOOL_HEAL, "FULL HEAL", "ENERGY AND AMMO", act);
-  UiDrawTextCentered(s, SCREEN_W / 2, 196, COL_WARN, Debug_LastMessage());
+  DrawToolCell(s, TOOL_RENDERER, "RENDERER", g_ui.gpu_render ? "GPU (CPU FALLBACK)" : "CPU",
+               g_ui.gpu_render ? COL_GOOD : act);
+  DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
+               g_ui.gpu_render ? act : COL_FAINT);
+  UiDrawTextCentered(s, SCREEN_W / 2, 200, COL_WARN, Debug_LastMessage());
   UiDrawBoxLabel(s, CloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(CloseRect()), "CLOSE");
 }
 
@@ -729,6 +734,11 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_PPU: g_ui.render_on = !g_ui.render_on; break;
     case TOOL_GIVE_ALL: if (Cheats_GiveAll()) Toast("Everything"); else ReportGameplay(false); break;
     case TOOL_HEAL: if (Cheats_FullHeal()) Toast("Refilled"); else ReportGameplay(false); break;
+    case TOOL_RENDERER: g_ui.gpu_render = !g_ui.gpu_render; break;
+    case TOOL_GPU_CHECK:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.req_gpu_check = true;
+      break;
     default: break;
     }
     return;
@@ -760,6 +770,13 @@ static void DrawDebug(Surface s, const UiPerf *p) {
   // Boss flags per area, raw: which bit is which boss differs per area.
   UiDrawTextf(s, 8, y, COL_DIM, "BOSS C%02X B%02X N%02X W%02X M%02X T%02X", boss_bits_for_area[0], boss_bits_for_area[1],
               boss_bits_for_area[2], boss_bits_for_area[3], boss_bits_for_area[4], boss_bits_for_area[5]);
+  y += 16;
+  UiDrawTextf(s, 8, y, g_ui.gpu_render ? COL_GOOD : COL_DIM, "RENDERER %s  GPU %lu  CPU FALLBACK %lu",
+              g_ui.gpu_render ? "GPU" : "CPU", (unsigned long)p->gpu_frames, (unsigned long)p->gpu_fallbacks);
+  y += 12;
+  if (p->gpu_reason) UiDrawTextf(s, 8, y, COL_WARN, "LAST FALLBACK: %s", p->gpu_reason);
+  y += 12;
+  if (p->gpu_calibration) UiDrawTextf(s, 8, y, COL_DIM, "%s", p->gpu_calibration);
   UiDrawBoxLabel(s, ToolsButtonRect(), RGB(30, 55, 90), RGB(90, 160, 240), RGB(180, 225, 255), Pressed(ToolsButtonRect()),
                  "DEBUG TOOLS");
 }

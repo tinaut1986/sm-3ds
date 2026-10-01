@@ -20,6 +20,10 @@ typedef struct {
   float audio_part_ms[4];  // of that: lock wait, SPC driver loop, DSP cycles, resample
   uint32_t frames;    // frames since boot
   bool is_new3ds;
+  // GPU renderer: frames it drew, frames it handed to the CPU and the last reason.
+  uint32_t gpu_frames, gpu_fallbacks;
+  const char *gpu_reason;
+  const char *gpu_calibration;
 } UiPerf;
 
 typedef struct {
@@ -37,6 +41,7 @@ typedef struct {
   bool audio_on;
   bool fps_overlay;      // small FPS counter on the top screen
   bool render_on;        // false: skip PPU drawing, to measure its cost
+  bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   int save_slot;         // 0..9, for save states
   // One-shot requests, consumed by the main loop.
@@ -45,6 +50,7 @@ typedef struct {
   bool req_load_state;
   bool req_dump;         // Debug_DumpScreen, needs the PPU output owned by main
   bool req_frame_dump;   // Debug_FrameCapture* around the next drawn frame
+  bool req_gpu_check;    // draw the next frame both ways and compare (GPU renderer on)
 } UiOptions;
 
 extern UiOptions g_ui;

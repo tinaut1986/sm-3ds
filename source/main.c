@@ -24,6 +24,8 @@
 #include "cheats.h"
 #include "sm_warp.h"
 #include "debug_tools.h"
+#include "gpu_ppu.h"
+#include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
 #include "version.h"
 
@@ -121,6 +123,42 @@ static void DrawPpuFrame(void) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (rows[dy][sx] << 8) | 0xFFu;
     }
+}
+
+// GPU renderer state: the line capture it draws from, its draw list, and whether the
+// top screen is currently being presented by citro3d rather than by DrawPpuFrame.
+static PpuLineCapture g_line_capture;
+static GpuFrame g_gpu_frame;
+static bool g_top_by_gpu;
+
+// Debug tools -> GPU CHECK: draws the frame just shown by the GPU again with the CPU
+// renderer (from the same capture) and compares them. Writes a dump set with the CPU
+// image as -top.rgb and the GPU's as -gpu.rgb.
+static void GpuCheck(void) {
+  static uint8_t gpu_px[256 * 4 * 240];
+  memset(gpu_px, 0, sizeof(gpu_px));
+  ppu_replayLines(g_snes->ppu, &g_line_capture, 1, g_line_capture.last_line);
+  if (!GpuPpu3ds_ReadBack(gpu_px, 256 * 4)) {
+    BottomUi_Toast("GPU check: no GPU frame");
+    return;
+  }
+  int differ = 0, far = 0;
+  for (int i = 0; i < 256 * 224; i++) {
+    int d = 0;
+    for (int c = 0; c < 3; c++) {
+      const int e = abs((int)g_pixels[i * 4 + c] - (int)gpu_px[i * 4 + c]);
+      if (e > d) d = e;
+    }
+    differ += d > 0;
+    far += d > 8;
+  }
+  const int slot = Debug_DumpScreen(g_pixels);
+  if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
+  Debug_Log("GPU check -> set %02d: %d px differ, %d by more than 8; %s", slot, differ, far,
+            GpuPpu3ds_CalibrationText());
+  char msg[48];
+  snprintf(msg, sizeof(msg), "GPU check %02d: %d px off, %d >8", slot, differ, far);
+  BottomUi_Toast(msg);
 }
 
 uint64_t AudioProf_Now(void) {
@@ -452,34 +490,41 @@ int main(int argc, char** argv) {
     if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
     if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
-    if (g_ui.req_dump) {
-      Debug_DumpScreen(g_pixels);
-      BottomUi_Toast(Debug_LastMessage());
-      g_ui.req_dump = false;
-    }
-
     u64 t_logic = 0, t_draw = 0;
-    bool presented = false;
+    bool presented = false, gpu_presented = false;
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
       bool draw = g_ui.render_on && !turbo_skip && !(g_ui.frameskip && skip_render);
-      // A frame capture records this frame's PPU writes, so this one is always drawn.
-      bool capture = false;
+      // Dumps and frame captures need this frame's CPU-rendered pixels, so the frame is
+      // drawn, and drawn by the CPU (the GPU check draws it both ways).
+      bool capture = false, dump = g_ui.req_dump, gpu_check = g_ui.req_gpu_check && g_ui.gpu_render;
+      g_ui.req_dump = g_ui.req_gpu_check = false;
       if (g_ui.req_frame_dump) {
         g_ui.req_frame_dump = false;
         capture = Debug_FrameCaptureBegin();
         if (!capture) BottomUi_Toast(Debug_LastMessage());
-        draw |= capture;
+      }
+      draw |= capture || dump || gpu_check;
+      bool gpu = draw && g_ui.gpu_render && !capture && !dump;
+      if (gpu && !GpuPpu3ds_Init()) {
+        gpu = g_ui.gpu_render = false;
+        BottomUi_Toast("GPU renderer failed to start");
       }
       g_snes->disableRender = !draw;
+      g_ppu_line_capture = gpu ? &g_line_capture : NULL;
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      g_ppu_line_capture = NULL;
       if (capture) {
         Debug_FrameCaptureEnd(g_pixels);
+        BottomUi_Toast(Debug_LastMessage());
+      }
+      if (dump) {
+        Debug_DumpScreen(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
       Cheats_AfterFrame();
@@ -490,7 +535,25 @@ int main(int argc, char** argv) {
 
       if (draw) {
         t0 = svcGetSystemTick();
-        DrawPpuFrame();
+        const char *why = NULL;
+        if (gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why)) {
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame);
+          gpu_presented = true;
+          perf.gpu_frames++;
+          if (gpu_check) GpuCheck();
+        } else {
+          if (gpu) {
+            // The GPU path refused this frame: draw it with the CPU from the capture.
+            perf.gpu_fallbacks++;
+            perf.gpu_reason = why;
+            ppu_replayLines(g_snes->ppu, &g_line_capture, 1, g_line_capture.last_line);
+            if (gpu_check) BottomUi_Toast(why);
+          }
+          // The GPU may still be presenting its last frame into the framebuffer.
+          if (g_top_by_gpu) GpuPpu3ds_WaitIdle();
+          DrawPpuFrame();
+        }
+        g_top_by_gpu = gpu_presented;
         t_draw = svcGetSystemTick() - t0;
         presented = true;
       }
@@ -504,6 +567,7 @@ int main(int argc, char** argv) {
     perf.audio_part_ms[1] = TicksToMs(g_audio_prof_last[kAudioProf_SpcLoop]);
     perf.audio_part_ms[2] = TicksToMs(g_audio_prof_last[kAudioProf_DspCycles]);
     perf.audio_part_ms[3] = TicksToMs(g_audio_prof_last[kAudioProf_Resample]);
+    perf.gpu_calibration = GpuPpu3ds_CalibrationText();
     if (!g_ui.paused) {
       // Light smoothing so the numbers are readable.
       perf.logic_ms += (TicksToMs(t_logic) - perf.logic_ms) * 0.1f;
@@ -511,21 +575,28 @@ int main(int argc, char** argv) {
     }
 
     // A skipped frame must not touch or swap the (double buffered) screens:
-    // swapping without drawing would show the frame before last.
+    // swapping without drawing would show the frame before last. While the GPU
+    // renderer owns the top screen, citro3d swaps it and only the bottom is ours.
     bool swapped = false;
-    if (presented) {
+    if (presented && !g_top_by_gpu) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
       BottomUi_Frame(&perf);
       gfxFlushBuffers();
       gfxSwapBuffers();
       shown_window++;
-    } else if (BottomUi_Frame(&perf)) {
-      // Nothing new on the top screen (skipped frame, or PPU render off), but
-      // the UI changed: swap the bottom screen only.
-      gfxFlushBuffers();
-      gfxScreenSwapBuffers(GFX_BOTTOM, false);
-      swapped = true;
+    } else {
+      if (presented) {
+        swapped = true;
+        shown_window++;
+      }
+      if (BottomUi_Frame(&perf)) {
+        // Nothing new on the top screen from us (skipped frame, PPU render off, or the
+        // GPU presents it), but the UI changed: swap the bottom screen only.
+        gfxFlushBuffers();
+        gfxScreenSwapBuffers(GFX_BOTTOM, false);
+        swapped = true;
+      }
     }
 
     // Measure how long the whole iteration took, before the pacing delay.
@@ -585,6 +656,7 @@ int main(int argc, char** argv) {
   }
 
   // Cleanup
+  GpuPpu3ds_Exit();
   BottomUi_Exit();
   SDL_PauseAudioDevice(g_audio_device, 1);
   SDL_CloseAudioDevice(g_audio_device);

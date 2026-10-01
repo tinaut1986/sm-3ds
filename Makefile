@@ -357,6 +357,9 @@ icon.icn: $(TOPDIR)/$(ICON) version.h
 
 $(OUTPUT_FILE).elf: $(OFILES) $(SDL)/build/libSDL2.a
 
+# The shader header is generated; make sure it exists before its user compiles.
+gpu_ppu_3ds.o: gpu_ppu.shbin.o
+
 $(OUTPUT_FILE).3dsx: $(OUTPUT_FILE).elf $(OUTPUT_FILE).smdh
 
 $(OUTPUT_FILE).3ds: $(OUTPUT_FILE).elf banner.bnr icon.icn

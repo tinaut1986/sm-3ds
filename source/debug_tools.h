@@ -27,6 +27,9 @@ void Debug_LogMark(void);          // "USER MARK" line with frame and room
 // set number (0-based), or -1 on failure.
 int Debug_DumpScreen(const uint8_t *bgra);
 
+// Adds sm-dump-NN-<suffix>.rgb (256x240 like -top.rgb) to dump set `slot`.
+void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra);
+
 // Frame capture: a dump set plus debug/sm-dump-NN-frame.txt, which lists every PPU
 // register write of one frame with its scanline, the HDMA channel setup and a
 // per-register summary. Begin right before RtlRunFrame (the frame must be drawn),

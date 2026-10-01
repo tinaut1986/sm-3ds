@@ -249,6 +249,104 @@ static inline void ClearBackdrop(PpuPixelPrioBufs *buf) {
     *(uint64*)&buf->data[i] = 0x0500050005000500;
 }
 
+PpuLineCapture *g_ppu_line_capture;
+
+void ppu_saveLineState(const Ppu *ppu, PpuLineState *st) {
+  memcpy(st->bgLayer, ppu->bgLayer, sizeof(st->bgLayer));
+  memcpy(st->m7matrix, ppu->m7matrix, sizeof(st->m7matrix));
+  memcpy(st->mathEnabled, ppu->mathEnabled, sizeof(st->mathEnabled));
+  st->windowsel = ppu->windowsel;
+  st->objTileAdr1 = ppu->objTileAdr1;
+  st->objTileAdr2 = ppu->objTileAdr2;
+  st->screenEnabled[0] = ppu->screenEnabled[0];
+  st->screenEnabled[1] = ppu->screenEnabled[1];
+  st->screenWindowed[0] = ppu->screenWindowed[0];
+  st->screenWindowed[1] = ppu->screenWindowed[1];
+  st->window1left = ppu->window1left;
+  st->window1right = ppu->window1right;
+  st->window2left = ppu->window2left;
+  st->window2right = ppu->window2right;
+  st->mode = ppu->mode;
+  st->brightness = ppu->brightness;
+  st->objSize = ppu->objSize;
+  st->oamAdr = ppu->oamAdr;
+  st->mosaicSize = ppu->mosaicSize;
+  st->clipMode = ppu->clipMode;
+  st->preventMathMode = ppu->preventMathMode;
+  st->fixedColorR = ppu->fixedColorR;
+  st->fixedColorG = ppu->fixedColorG;
+  st->fixedColorB = ppu->fixedColorB;
+  st->forcedBlank = ppu->forcedBlank;
+  st->bg3priority = ppu->bg3priority;
+  st->objPriority = ppu->objPriority;
+  st->objInterlace = ppu->objInterlace;
+  st->evenFrame = ppu->evenFrame;
+  st->addSubscreen = ppu->addSubscreen;
+  st->subtractColor = ppu->subtractColor;
+  st->halfColor = ppu->halfColor;
+  st->directColor = ppu->directColor;
+  st->pseudoHires = ppu->pseudoHires;
+  st->m7largeField = ppu->m7largeField;
+  st->m7charFill = ppu->m7charFill;
+  st->m7xFlip = ppu->m7xFlip;
+  st->m7yFlip = ppu->m7yFlip;
+  st->m7extBg = ppu->m7extBg;
+}
+
+static void ppu_loadLineState(Ppu *ppu, const PpuLineState *st) {
+  memcpy(ppu->bgLayer, st->bgLayer, sizeof(st->bgLayer));
+  memcpy(ppu->m7matrix, st->m7matrix, sizeof(st->m7matrix));
+  memcpy(ppu->mathEnabled, st->mathEnabled, sizeof(st->mathEnabled));
+  ppu->windowsel = st->windowsel;
+  ppu->objTileAdr1 = st->objTileAdr1;
+  ppu->objTileAdr2 = st->objTileAdr2;
+  ppu->screenEnabled[0] = st->screenEnabled[0];
+  ppu->screenEnabled[1] = st->screenEnabled[1];
+  ppu->screenWindowed[0] = st->screenWindowed[0];
+  ppu->screenWindowed[1] = st->screenWindowed[1];
+  ppu->window1left = st->window1left;
+  ppu->window1right = st->window1right;
+  ppu->window2left = st->window2left;
+  ppu->window2right = st->window2right;
+  ppu->mode = st->mode;
+  ppu->brightness = st->brightness;
+  ppu->objSize = st->objSize;
+  ppu->oamAdr = st->oamAdr;
+  ppu->mosaicSize = st->mosaicSize;
+  ppu->clipMode = st->clipMode;
+  ppu->preventMathMode = st->preventMathMode;
+  ppu->fixedColorR = st->fixedColorR;
+  ppu->fixedColorG = st->fixedColorG;
+  ppu->fixedColorB = st->fixedColorB;
+  ppu->forcedBlank = st->forcedBlank;
+  ppu->bg3priority = st->bg3priority;
+  ppu->objPriority = st->objPriority;
+  ppu->objInterlace = st->objInterlace;
+  ppu->evenFrame = st->evenFrame;
+  ppu->addSubscreen = st->addSubscreen;
+  ppu->subtractColor = st->subtractColor;
+  ppu->halfColor = st->halfColor;
+  ppu->directColor = st->directColor;
+  ppu->pseudoHires = st->pseudoHires;
+  ppu->m7largeField = st->m7largeField;
+  ppu->m7charFill = st->m7charFill;
+  ppu->m7xFlip = st->m7xFlip;
+  ppu->m7yFlip = st->m7yFlip;
+  ppu->m7extBg = st->m7extBg;
+}
+
+static void ppu_drawLine(Ppu *ppu, int line);
+
+void ppu_replayLines(Ppu *ppu, const PpuLineCapture *cap, int first, int last) {
+  PpuLineState now;
+  ppu_saveLineState(ppu, &now);
+  for (int line = first; line <= last; line++) {
+    ppu_loadLineState(ppu, &cap->line[line]);
+    ppu_drawLine(ppu, line);
+  }
+  ppu_loadLineState(ppu, &now);
+}
+
 void ppu_runLine(Ppu* ppu, int line) {
   if(line == 0) {
     // pre-render line
@@ -257,7 +355,22 @@ void ppu_runLine(Ppu* ppu, int line) {
     ppu->rangeOver = false;
     ppu->timeOver = false;
     ppu->evenFrame = !ppu->evenFrame;
-  } else {  
+    if (g_ppu_line_capture) {
+      g_ppu_line_capture->last_line = 0;
+      g_ppu_line_capture->midframe_data_writes = 0;
+    }
+  } else if (g_ppu_line_capture) {
+    if (line < kPpuCaptureLines) {
+      ppu_saveLineState(ppu, &g_ppu_line_capture->line[line]);
+      g_ppu_line_capture->last_line = line;
+    }
+  } else {
+    ppu_drawLine(ppu, line);
+  }
+}
+
+static void ppu_drawLine(Ppu *ppu, int line) {
+  {
     // Cache the brightness computation
     if (ppu->brightness != ppu->lastBrightnessMult) {
       uint8_t ppu_brightness = ppu->brightness;
@@ -1320,6 +1433,8 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
 //    printf("ppu_write(%d, %d)\n", adr, val);
   if (g_ppu_write_hook)
     g_ppu_write_hook(adr, val);
+  if (g_ppu_line_capture && !ppu->snes->inVblank && (adr == 0x04 || adr == 0x18 || adr == 0x19 || adr == 0x22))
+    g_ppu_line_capture->midframe_data_writes++;
   switch(adr) {
     case 0x00: {
       // TODO: oam address reset when written on first line of vblank, (and when forced blank is disabled?)

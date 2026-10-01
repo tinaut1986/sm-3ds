@@ -170,6 +170,42 @@ struct __attribute__((aligned(8))) Ppu {
 
 };
 
+// 3DS port: the registers a line is drawn with, captured per line so the GPU
+// renderer (source/gpu_ppu.c) can draw the frame afterwards, and so the CPU
+// renderer can still draw it from the same states (ppu_replayLines) when the GPU
+// path does not support something in it.
+typedef struct PpuLineState {
+  BgLayer bgLayer[4];
+  int16_t m7matrix[8];
+  uint32_t windowsel;
+  uint16_t objTileAdr1, objTileAdr2;
+  uint8_t screenEnabled[2], screenWindowed[2];
+  uint8_t window1left, window1right, window2left, window2right;
+  uint8_t mode, brightness, objSize, oamAdr, mosaicSize;
+  uint8_t clipMode, preventMathMode;
+  uint8_t fixedColorR, fixedColorG, fixedColorB;
+  bool forcedBlank, bg3priority, objPriority, objInterlace, evenFrame;
+  bool addSubscreen, subtractColor, halfColor, directColor, pseudoHires;
+  bool m7largeField, m7charFill, m7xFlip, m7yFlip, m7extBg;
+  bool mathEnabled[6];
+} PpuLineState;
+
+enum { kPpuCaptureLines = 240 };
+typedef struct PpuLineCapture {
+  PpuLineState line[kPpuCaptureLines];   // [1..last_line] are valid
+  int last_line;
+  // VRAM/CGRAM/OAM writes while lines were being drawn: the GPU renderer reads
+  // those memories once, after the frame, so it cannot show such writes.
+  int midframe_data_writes;
+} PpuLineCapture;
+
+// When set, ppu_runLine records the line state here instead of drawing.
+extern PpuLineCapture *g_ppu_line_capture;
+void ppu_saveLineState(const Ppu *ppu, PpuLineState *st);
+// Draws lines [first, last] with the CPU renderer from captured states, then puts
+// the PPU registers back as they were.
+void ppu_replayLines(Ppu *ppu, const PpuLineCapture *cap, int first, int last);
+
 Ppu* ppu_init(Snes* snes);
 void ppu_free(Ppu* ppu);
 void ppu_copy(Ppu *ppu, Ppu *ppu_src);
