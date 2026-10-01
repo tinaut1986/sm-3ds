@@ -497,9 +497,9 @@ static void M7LineStart(const PpuLineState *st, int y, uint32_t *xpos, uint32_t 
 }
 
 // ---- Screen-space layers ---------------------------------------------------------------
-// A layer whose scroll changes on many lines (Norfair heat, Maridia water) would need
-// one quad per line. Instead its rows are copied from the surface into a 256x256
-// screen texture on the CPU and drawn as one quad.
+// Fallback for a layer whose scroll runs would not fit in the quad list (see EmitBg):
+// its rows are copied from the surface into a 256x256 screen texture on the CPU and
+// drawn as one quad.
 
 static GpuTex g_screen_tex[3][2];
 
@@ -619,16 +619,17 @@ static bool AddQuad(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int l
   const int ti = TexIndex(t);
   if (ti < 0 || g_out->quad_count >= kGpuMaxQuads || h <= 0) return ti >= 0 && h <= 0;
   g_out->quads[g_out->quad_count++] = (GpuQuad){ (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, (int16_t)sx, (int16_t)sy,
-                                                 (uint8_t)ti, (uint8_t)level, (uint8_t)flags, 0, 0, 0, 0 };
+                                                 (uint8_t)ti, (uint8_t)level, (uint8_t)flags, 0, 0, 0, 0, 0, 0 };
   return true;
 }
 
-// Mode 7 row: see GpuQuad.ax.
-static bool AddAffine(GpuTex *t, int x, int y, int w, uint32_t ax, uint32_t ay, uint32_t adx, uint32_t ady, int level,
-                      int flags) {
-  if (!AddQuad(t, x, y, w, 1, 0, 0, level, flags | kGpuQuadAffine)) return false;
+// Mode 7 rows: see GpuQuad.ax.
+static bool AddAffine(GpuTex *t, int x, int y, int w, int h, uint32_t ax, uint32_t ay, uint32_t adx, uint32_t ady,
+                      uint32_t ardx, uint32_t ardy, int level, int flags) {
+  if (!AddQuad(t, x, y, w, h, 0, 0, level, flags | kGpuQuadAffine)) return false;
   GpuQuad *q = &g_out->quads[g_out->quad_count - 1];
   q->ax = (int32_t)ax, q->ay = (int32_t)ay, q->adx = (int32_t)adx, q->ady = (int32_t)ady;
+  q->ardx = (int32_t)ardx, q->ardy = (int32_t)ardy;
   return true;
 }
 
@@ -656,8 +657,8 @@ static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, in
       if (x0 >= x1) continue;
       if (flags & kGpuQuadAffine) {   // one row; the cut moves the start along the step
         const uint32_t k = (uint32_t)(x0 - x);
-        if (!AddAffine(t, x0, r0, x1 - x0, g_affine.ax + g_affine.adx * k, g_affine.ay + g_affine.ady * k, g_affine.adx,
-                       g_affine.ady, level, flags & ~kGpuQuadAffine))
+        if (!AddAffine(t, x0, r0, x1 - x0, 1, g_affine.ax + g_affine.adx * k, g_affine.ay + g_affine.ady * k, g_affine.adx,
+                       g_affine.ady, 0, 0, level, flags & ~kGpuQuadAffine))
           return false;
         continue;
       }
@@ -687,7 +688,12 @@ static bool EmitSprites(int y0, int y1, bool main) {
   return true;
 }
 
-enum { kMaxScrollRuns = 8 };
+// A layer whose scroll changes on many lines (Norfair heat: BG2/BG3 vertical scroll on
+// every line; Maridia water: horizontal) is drawn as one quad per run of lines with the
+// same scroll, even one per line: the GPU is far from busy (2DS: never waited for),
+// while composing those rows on the CPU took ~15 ms per frame at 268 MHz. Composing is
+// kept for when the quads would not fit.
+enum { kQuadReserve = 1024 };   // left for sprites and the other layers
 
 static const uint8_t kBgLevel[3][2] = { { 8, 12 }, { 7, 11 }, { 1, 15 } };
 
@@ -704,7 +710,7 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     const BgLayer *a = &cap->line[l - 1].bgLayer[layer], *b = &cap->line[l].bgLayer[layer];
     runs += a->hScroll != b->hScroll || a->vScroll != b->vScroll;
   }
-  if (runs <= kMaxScrollRuns) {
+  if (g_out->quad_count + runs * 2 <= kGpuMaxQuads - kQuadReserve) {
     for (int a = l0; a <= l1;) {
       const BgLayer *bg = &cap->line[a].bgLayer[layer];
       int b = a;
@@ -789,43 +795,69 @@ static const char *EmitMode7(const Ppu *ppu, const PpuLineCapture *cap, int l0, 
   }
   if (x0 <= x1 && y0 <= y1) M7Sync(ppu, x0, x1, y0, y1);
   const int flags = (math ? kGpuQuadMath : 0) | (border ? kGpuQuadBorder : 0);
-  for (int l = l0; l <= l1; l++) {
-    uint32_t ax, ay, adx, ady;
-    M7LineStart(&cap->line[l], l, &ax, &ay, &adx, &ady);
-    int i0 = 0, i1 = 256;   // pixels of the row to draw
-    if (border) {
-      // Outside the plane is transparent: keep the pixels whose position is inside, so
-      // the GPU never sees far-out coordinates (its 24-bit floats would lose the texel).
-      // Exact as long as a row does not wrap 32 bits, which no sane matrix does.
-      const int64_t p[2] = { (int32_t)ax, (int32_t)ay }, d[2] = { (int32_t)adx, (int32_t)ady };
-      for (int k = 0; k < 2 && i0 < i1; k++) {
-        // 0 <= p + d*i < 0x40000
-        if (d[k] == 0) {
-          if (p[k] < 0 || p[k] >= 0x40000) i1 = i0;
-          continue;
+  // Each line's row, cut to the plane with the large field. Consecutive whole rows whose
+  // starts advance by the same amount every line (and with the same per-pixel step) are
+  // one quad: exact, and the usual case (the title's identity matrix is one quad).
+  struct { uint32_t ax, ay, adx, ady; int i0, i1; } run = { 0 };
+  int run_l = -1, run_n = 0;
+  uint32_t run_rdx = 0, run_rdy = 0;
+  for (int l = l0; l <= l1 + 1; l++) {
+    uint32_t ax = 0, ay = 0, adx = 0, ady = 0;
+    int i0 = 0, i1 = 0;
+    const bool partial = l <= l1 && (g_info[l].partial[scr] & 1);
+    if (l <= l1) {
+      M7LineStart(&cap->line[l], l, &ax, &ay, &adx, &ady);
+      i1 = 256;
+      if (border) {
+        // Outside the plane is transparent: keep the pixels whose position is inside, so
+        // the GPU never sees far-out coordinates (its 24-bit floats would lose the
+        // texel). Exact as long as a row does not wrap 32 bits, which no sane matrix does.
+        const int64_t p[2] = { (int32_t)ax, (int32_t)ay }, d[2] = { (int32_t)adx, (int32_t)ady };
+        for (int k = 0; k < 2 && i0 < i1; k++) {
+          // 0 <= p + d*i < 0x40000
+          if (d[k] == 0) {
+            if (p[k] < 0 || p[k] >= 0x40000) i1 = i0;
+            continue;
+          }
+          int64_t lo, hi;   // i in [lo, hi)
+          if (d[k] > 0) {
+            lo = p[k] >= 0 ? 0 : (-p[k] + d[k] - 1) / d[k];
+            hi = 0x40000 - p[k] <= 0 ? 0 : (0x40000 - p[k] + d[k] - 1) / d[k];
+          } else {
+            lo = p[k] < 0x40000 ? 0 : (p[k] - 0x40000) / -d[k] + 1;
+            hi = p[k] < 0 ? 0 : p[k] / -d[k] + 1;
+          }
+          if (lo > i0) i0 = lo > 256 ? 256 : (int)lo;
+          if (hi < i1) i1 = hi < 0 ? 0 : (int)hi;
         }
-        int64_t lo, hi;   // i in [lo, hi)
-        if (d[k] > 0) {
-          lo = p[k] >= 0 ? 0 : (-p[k] + d[k] - 1) / d[k];
-          hi = 0x40000 - p[k] <= 0 ? 0 : (0x40000 - p[k] + d[k] - 1) / d[k];
-        } else {
-          lo = p[k] < 0x40000 ? 0 : (p[k] - 0x40000) / -d[k] + 1;
-          hi = p[k] < 0 ? 0 : p[k] / -d[k] + 1;
-        }
-        if (lo > i0) i0 = lo > 256 ? 256 : (int)lo;
-        if (hi < i1) i1 = hi < 0 ? 0 : (int)hi;
+        if (i0 < i1) ax += adx * (uint32_t)i0, ay += ady * (uint32_t)i0;
       }
-      if (i0 >= i1) continue;
-      ax += adx * (uint32_t)i0, ay += ady * (uint32_t)i0;
     }
-    g_affine.ax = ax, g_affine.ay = ay, g_affine.adx = adx, g_affine.ady = ady;
+    // Does line l continue the run?
+    if (run_n > 0 && l <= l1 && !partial && i0 == run.i0 && i1 == run.i1 && adx == run.adx && ady == run.ady) {
+      const uint32_t rdx = ax - (run.ax + run_rdx * (uint32_t)(run_n - 1)), rdy = ay - (run.ay + run_rdy * (uint32_t)(run_n - 1));
+      if (run_n == 1) run_rdx = rdx, run_rdy = rdy;
+      if (rdx == run_rdx && rdy == run_rdy) {
+        run_n++;
+        continue;
+      }
+    }
+    if (run_n > 0 && run.i0 < run.i1 &&
+        !AddAffine(&g_m7_tex, run.i0, run_l - 1, run.i1 - run.i0, run_n, run.ax, run.ay, run.adx, run.ady, run_rdx,
+                   run_rdy, 5, flags))
+      return "too many quads";
+    run_n = 0;
+    if (l > l1) break;
     // The CPU renderer draws the plane at level 5 (z 0x5000): above sprites of
     // priority 0, below the others.
-    if (g_info[l].partial[scr] & 1) {
+    if (partial) {
+      if (i0 >= i1) continue;
+      g_affine.ax = ax, g_affine.ay = ay, g_affine.adx = adx, g_affine.ady = ady;
       if (!AddQuadWin(&g_m7_tex, i0, l - 1, i1 - i0, 1, 0, 0, 5, flags | kGpuQuadAffine, scr, 0)) return "too many quads";
-    } else if (!AddAffine(&g_m7_tex, i0, l - 1, i1 - i0, ax, ay, adx, ady, 5, flags)) {
-      return "too many quads";
+      continue;
     }
+    run.ax = ax, run.ay = ay, run.adx = adx, run.ady = ady, run.i0 = i0, run.i1 = i1;
+    run_l = l, run_n = 1, run_rdx = run_rdy = 0;
   }
   return NULL;
 }

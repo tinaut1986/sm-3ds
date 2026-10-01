@@ -156,37 +156,41 @@ static void PushQuad(float x0, float y0, float x1, float y1, float z, float u0, 
 // The GPU reads the vertices only once the frame is submitted, so the cache is flushed
 // once per frame (EndFrame) rather than per batch: each flush is a system call, and a
 // frame has dozens of batches (2DS: ~3 ms of submit time per frame).
-// Like PushQuad, with the texture coordinates given at the left and right edges (the same
-// on top and bottom): an affine (mode 7) row.
-static void PushRowUV(float x0, float y0, float x1, float y1, float z, float ul, float vl, float ur, float vr) {
+// Like PushQuad, with texture coordinates at each corner: top-left, top-right,
+// bottom-left, bottom-right (an affine, mode 7, quad).
+static void PushQuad4(float x0, float y0, float x1, float y1, float z, const float uv[4][2]) {
   if (g_nverts + 6 > kMaxVerts) return;
   Vtx *v = &g_vbo[g_nverts];
-  v[0] = (Vtx){ x0, y0, z, ul, vl };
-  v[1] = (Vtx){ x1, y0, z, ur, vr };
-  v[2] = (Vtx){ x0, y1, z, ul, vl };
-  v[3] = (Vtx){ x1, y0, z, ur, vr };
-  v[4] = (Vtx){ x1, y1, z, ur, vr };
-  v[5] = (Vtx){ x0, y1, z, ul, vl };
+  v[0] = (Vtx){ x0, y0, z, uv[0][0], uv[0][1] };
+  v[1] = (Vtx){ x1, y0, z, uv[1][0], uv[1][1] };
+  v[2] = (Vtx){ x0, y1, z, uv[2][0], uv[2][1] };
+  v[3] = (Vtx){ x1, y0, z, uv[1][0], uv[1][1] };
+  v[4] = (Vtx){ x1, y1, z, uv[3][0], uv[3][1] };
+  v[5] = (Vtx){ x0, y1, z, uv[2][0], uv[2][1] };
   g_nverts += 6;
 }
 
-// Mode 7 row: the GPU samples pixel i at its centre, so the coordinate at the left edge
-// is half a step before the position of pixel 0. A small bias keeps exact texel
-// boundaries on the right side of the GPU's limited precision: with every value a
-// multiple of 64 (identity or simple scales) positions are quarter texels, and 1/8 texel
-// is safe; otherwise half a unit (1/512 texel).
+// Mode 7 quad: the GPU samples pixel (i, r) at its centre, so the coordinate at the
+// top-left corner is half a step (per pixel and per row) before the position of pixel
+// (0, 0). A small bias keeps exact texel boundaries on the right side of the GPU's
+// limited precision: with every value a multiple of 64 (identity or simple scales)
+// positions are quarter texels and 1/8 texel is safe; otherwise half a unit (1/512).
 static void PushAffine(const GpuQuad *qd) {
   enum { kPlane = 1024 * 256 };
-  const double bias = ((qd->ax | qd->ay | qd->adx | qd->ady) & 63) == 0 ? 32.0 : 0.5;
+  const double bias = ((qd->ax | qd->ay | qd->adx | qd->ady | qd->ardx | qd->ardy) & 63) == 0 ? 32.0 : 0.5;
   double px = qd->ax, py = qd->ay;
   if (!(qd->flags & kGpuQuadBorder)) {   // it wraps: only the position within the plane matters
     px = (double)((uint32_t)qd->ax % kPlane);
     py = (double)((uint32_t)qd->ay % kPlane);
   }
-  const double lx = px - 0.5 * qd->adx + bias, ly = py - 0.5 * qd->ady + bias;
-  const double rx = lx + (double)qd->adx * qd->w, ry = ly + (double)qd->ady * qd->w;
-  PushRowUV(qd->x, qd->y, qd->x + qd->w, qd->y + 1, LevelZ(qd->level), (float)(lx / kPlane), (float)(1.0 - ly / kPlane),
-            (float)(rx / kPlane), (float)(1.0 - ry / kPlane));
+  float uv[4][2];
+  for (int c = 0; c < 4; c++) {
+    const double i = (c & 1) ? qd->w - 0.5 : -0.5, r = (c & 2) ? qd->h - 0.5 : -0.5;
+    const double tx = px + qd->adx * i + qd->ardx * r + bias, ty = py + qd->ady * i + qd->ardy * r + bias;
+    uv[c][0] = (float)(tx / kPlane);
+    uv[c][1] = (float)(1.0 - ty / kPlane);
+  }
+  PushQuad4(qd->x, qd->y, qd->x + qd->w, qd->y + qd->h, LevelZ(qd->level), uv);
 }
 
 static void BatchDraw(void) {

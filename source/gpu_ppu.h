@@ -51,7 +51,7 @@ enum {
   kGpuQuadFlipY = 2,
   kGpuQuadObj = 4,    // sprite: drawn first, the first sprite on a pixel wins
   kGpuQuadMath = 8,   // colour math applies where this quad is the visible pixel
-  // Mode 7: the texel comes from ax/ay/adx/ady below instead of sx/sy (one row tall).
+  // Mode 7: the texel comes from ax/ay/adx/ady/ardx/ardy below instead of sx/sy.
   kGpuQuadAffine = 16,
   kGpuQuadBorder = 32,   // affine: transparent outside the 1024x1024 plane (else it wraps)
 };
@@ -62,10 +62,11 @@ typedef struct {
   uint8_t tex;          // index into GpuFrame.tex
   uint8_t level;        // priority 1..15, higher wins over lower (the backdrop is 0)
   uint8_t flags;
-  // kGpuQuadAffine: plane position of the quad's leftmost pixel and its step per pixel,
-  // in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: the pixel at
-  // x + i shows texel ((ax + adx*i) >> 8, (ay + ady*i) >> 8), both & 1023.
-  int32_t ax, ay, adx, ady;
+  // kGpuQuadAffine: plane position of the quad's top-left pixel, its step per pixel and
+  // per row, in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: pixel
+  // (x + i, y + r) shows texel ((ax + adx*i + ardx*r) >> 8, (ay + ady*i + ardy*r) >> 8),
+  // both & 1023.
+  int32_t ax, ay, adx, ady, ardx, ardy;
 } GpuQuad;
 
 // Lines that share every register except the BG scrolls. Within a band, a pixel's

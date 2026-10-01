@@ -27,8 +27,8 @@ static void DrawRow(const GpuFrame *f, int first, int count, int row, Px *px) {
       if (qd->flags & kGpuQuadAffine) {
         // Mode 7, the CPU renderer's arithmetic: wraps at 32 bits, and with the large
         // field anything outside 0..1023 (either way) is transparent.
-        const uint32_t xpos = (uint32_t)qd->ax + (uint32_t)qd->adx * (uint32_t)dx;
-        const uint32_t ypos = (uint32_t)qd->ay + (uint32_t)qd->ady * (uint32_t)dx;
+        const uint32_t xpos = (uint32_t)qd->ax + (uint32_t)qd->adx * (uint32_t)dx + (uint32_t)qd->ardx * (uint32_t)dy;
+        const uint32_t ypos = (uint32_t)qd->ay + (uint32_t)qd->ady * (uint32_t)dx + (uint32_t)qd->ardy * (uint32_t)dy;
         if ((qd->flags & kGpuQuadBorder) && (xpos | ypos) > 0x3ffff) continue;
         v = t->px[GpuTexelIndex((xpos >> 8) & 1023, (ypos >> 8) & 1023, t->w)];
       } else {

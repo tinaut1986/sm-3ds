@@ -376,10 +376,10 @@ static void LogPeriodic(const UiPerf *p) {
   {
     const GpuPpuStats *st = GpuPpu_LastStats();
     Debug_Log("gpu: frames %lu fallback %lu (%s) | build %.1f, wait for GPU %.1f, submit %.1f ms | last frame: "
-              "%d surfaces, %d tiles decoded, %d sprites, %d rows composed",
+              "%d surfaces, %d tiles decoded, %d sprites, %d rows composed, %d mode 7 cells decoded",
               (unsigned long)p->gpu_frames, (unsigned long)p->gpu_fallbacks, p->gpu_reason ? p->gpu_reason : "-",
               p->gpu_build_ms, p->gpu_wait_ms, p->gpu_submit_ms, st->surfaces, st->tiles_decoded, st->sprites,
-              st->screen_rows_composed);
+              st->screen_rows_composed, st->m7_cells_decoded);
     Debug_Log("gpu build, last frame: lines+bands %.2f, vram diff %.2f, sprites %.2f, bg %.2f, shadow copy %.2f ms",
               TicksToMs(st->t_lines), TicksToMs(st->t_diff), TicksToMs(st->t_sprites), TicksToMs(st->t_bg),
               TicksToMs(st->t_shadow));
