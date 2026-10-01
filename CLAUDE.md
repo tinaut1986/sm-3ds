@@ -141,7 +141,8 @@ make -j FULL_NATIVE=1 ftp FTP_HOST=<3ds ip>   # build + upload to /cias/
 ```
 
 `DEBUG_TOOLS=1` adds the Debug tab, the teleport and the Status-tab cheats (a
-plain `make` leaves them out; CI passes 1 while releases are betas). It goes
+plain `make` leaves them out; CI passes 1 for Beta builds and 0 for Release ones,
+by the same "reachable from main" rule as the channel). It goes
 through `build/build_config.h`, so switching it needs no clean. See
 `docs/debug-tools.md`.
 
@@ -167,3 +168,7 @@ console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in
 
 Test on hardware whenever performance is involved; Azahar is fine for logic
 but its timings say nothing about Old 3DS.
+
+Host regression tests: `make test SM_ROM=/path/rom.sfc` (~90 s, `TEST_ARGS=--full`
+adds the teleport test), see `tools/test/README.md`. Run them before merging anything
+that touches the game, the renderer or the audio.
