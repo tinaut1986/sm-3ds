@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "src/types.h"
 #include "src/sm_rtl.h"
 #include "src/sm_cpu_infra.h"
@@ -52,6 +53,7 @@ static PpuLineCapture g_cap;
 static GpuFrame g_frame;
 static int g_frames, g_capture_bad, g_gpu_bad, g_refused, g_dumped;
 static long g_tiles, g_composed, g_quads, g_max_quads, g_composed_frames;
+static double g_build_us, g_build_max_us, g_replay_us;
 static char g_refuse_reasons[16][64];
 static int g_refuse_counts[16];
 
@@ -115,7 +117,11 @@ static void TestFrame(const char *label, bool check_capture) {
   RtlRunFrame(0);
   g_ppu_line_capture = NULL;
   memset(g_px, 0, sizeof(g_px));
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
   ppu_replayLines(g_snes->ppu, &g_cap, 1, g_cap.last_line);
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  g_replay_us += (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
   memcpy(g_b, g_px, sizeof(g_b));
   g_frames++;
   int x0, y0, x1, y1, n;
@@ -124,7 +130,13 @@ static void TestFrame(const char *label, bool check_capture) {
     printf("%s: CAPTURE REPLAY differs from the normal render: %d px in %d,%d..%d,%d\n", label, n, x0, y0, x1, y1);
   }
   const char *why;
-  if (!GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why)) {
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+  const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  const double us = (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
+  g_build_us += us;
+  if (us > g_build_max_us) g_build_max_us = us;
+  if (!built) {
     g_refused++;
     NoteRefusal(why);
     return;
@@ -159,6 +171,9 @@ static void Report(void) {
     printf("  per drawn frame: %.1f quads (max %ld), %.1f tiles decoded, %ld frames composed rows on the CPU (%.1f rows each)\n",
            (double)g_quads / drawn, g_max_quads, (double)g_tiles / drawn, g_composed_frames,
            g_composed_frames ? (double)g_composed / g_composed_frames : 0.0);
+  if (g_frames)
+    printf("  host time per frame: build %.0f us (max %.0f), CPU renderer %.0f us\n", g_build_us / g_frames,
+           g_build_max_us, g_replay_us / g_frames);
   for (int i = 0; i < 16 && g_refuse_reasons[i][0]; i++) printf("  refused %d: %s\n", g_refuse_counts[i], g_refuse_reasons[i]);
 }
 

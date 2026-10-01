@@ -259,9 +259,25 @@ static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e)
   g_stats.tiles_decoded++;
 }
 
+// Any VRAM change in words [a, a+n) (wrapping), in 8-word groups.
+static bool RangeDirty(int a, int n) {
+  for (int g = (a & 0x7fff) >> 3, k = 0; k < (n + 7) >> 3; k++, g = (g + 1) & 0xfff)
+    if (g_group_dirty[g]) return true;
+  return false;
+}
+
 static void SyncSurface(Surface *s, const Ppu *ppu) {
   if (s->last_frame == g_frame_no && !s->fresh) return;   // already synced this frame
   const int tw = SurfaceW(s) >> 3, th = SurfaceH(s) >> 3;
+  if (!s->fresh) {
+    // Nothing it reads changed: its tilemap, any of its 1024 chars, its palettes.
+    bool pal = false;
+    for (int i = 0; i < 8; i++) pal |= s->bpp == 4 ? g_pal4_dirty[i] : g_pal2_dirty[i];
+    if (!pal && !RangeDirty(s->tilemap, tw * th) && !RangeDirty(s->tiles, 1024 * (s->bpp == 4 ? 16 : 8))) {
+      s->last_frame = g_frame_no;
+      return;
+    }
+  }
   int y0 = th, y1 = -1;
   for (int ty = 0; ty < th; ty++) {
     for (int tx = 0; tx < tw; tx++) {
@@ -477,16 +493,24 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   const int w = SurfaceW(s) - 1, h = SurfaceH(s) - 1;
   GpuTex *t[2] = { ScreenTex(layer, 0), ScreenTex(layer, 1) };
   if (!t[0] || !t[1]) return "out of texture memory";
+  // GpuTexelIndex(x, y, w) = row part (y) + column part (x): precompute the columns.
+  static uint16_t dst_col[256], src_col[512];
+  static int src_col_w;
+  if (!dst_col[1]) for (int x = 0; x < 256; x++) dst_col[x] = (uint16_t)GpuTexelIndex(x, 0, 256);
+  if (src_col_w != w + 1) {
+    for (int x = 0; x <= w; x++) src_col[x] = (uint16_t)GpuTexelIndex(x, 0, w + 1);
+    src_col_w = w + 1;
+  }
   for (int l = l0; l <= l1; l++) {
     const int row = l - 1;
     if (g_composed[layer][row] == g_frame_no) continue;   // main and sub share it
     const BgLayer *bg = &cap->line[l].bgLayer[layer];
     const int ty = (l + bg->vScroll) & h;
+    const int src_row = GpuTexelIndex(0, ty, w + 1), dst_row = GpuTexelIndex(0, row, 256);
     for (int p = 0; p < 2; p++) {
-      const uint16_t *src = s->tex[p].px;
-      uint16_t *dst = t[p]->px;
-      for (int x = 0; x < 256; x++)
-        dst[GpuTexelIndex(x, row, 256)] = src[GpuTexelIndex((bg->hScroll + x) & w, ty, w + 1)];
+      const uint16_t *src = s->tex[p].px + src_row;
+      uint16_t *dst = t[p]->px + dst_row;
+      for (int x = 0; x < 256; x++) dst[dst_col[x]] = src[src_col[(bg->hScroll + x) & w]];
     }
     g_composed[layer][row] = g_frame_no;
     g_stats.screen_rows_composed++;

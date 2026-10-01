@@ -319,7 +319,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   // Top screen: 256x224 scaled to 274x240, centred, like the CPU path (DrawPpuFrame).
   C3D_RenderTargetClear(g_rt_top, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_top, &g_proj_top);
-  C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
   BlendOff();
@@ -358,7 +358,14 @@ void GpuPpu3ds_WaitIdle(void) {
   WaitGpu();
 }
 
-// Readback words are 0xRRGGBBAA.
+// Byte order of a readback word, found by Calibrate: 0xRRGGBBAA, or 0xAABBGGRR.
+static bool g_readback_abgr;
+
+static void Unpack(uint32_t p, int *r, int *g, int *b) {
+  if (g_readback_abgr) *r = p & 0xff, *g = (p >> 8) & 0xff, *b = (p >> 16) & 0xff;
+  else *r = p >> 24, *g = (p >> 16) & 0xff, *b = (p >> 8) & 0xff;
+}
+
 static inline uint32_t ReadPixel(int x, int y) {
   return g_readback[(g_readback_flipped ? kTexH - 1 - y : y) * kTexW + x];
 }
@@ -369,8 +376,9 @@ bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch) {
   for (int y = 0; y < kGpuRows; y++) {
     uint32_t *dst = (uint32_t *)(out + y * pitch);
     for (int x = 0; x < 256; x++) {
-      const uint32_t p = ReadPixel(x, y);
-      dst[x] = (p >> 8 & 0xff) | (p >> 16 & 0xff) << 8 | (p >> 24) << 16;   // b | g << 8 | r << 16
+      int r, g, b;
+      Unpack(ReadPixel(x, y), &r, &g, &b);
+      dst[x] = (uint32_t)b | (uint32_t)g << 8 | (uint32_t)r << 16;
     }
   }
   return true;
@@ -378,19 +386,43 @@ bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch) {
 
 // ---- Start-up ------------------------------------------------------------------------------
 
-static bool IsRed(uint32_t p) { return (p >> 24) > 0xc0 && ((p >> 16) & 0xff) < 0x40; }
-static bool IsGreen(uint32_t p) { return ((p >> 16) & 0xff) > 0xc0 && (p >> 24) < 0x40; }
+static bool IsRed(uint32_t p) {
+  int r, g, b;
+  Unpack(p, &r, &g, &b);
+  return r > 0xc0 && g < 0x40 && b < 0x40;
+}
 
-// See the comment at the top. Leaves g_depth_greater, g_rt_flip_v and
-// g_readback_flipped set from what the GPU actually did.
-static void Calibrate(void) {
-  // 1. Depth: level 5 red, then level 10 green with the "greater" test.
+static bool IsGreen(uint32_t p) {
+  int r, g, b;
+  Unpack(p, &r, &g, &b);
+  return g > 0xc0 && r < 0x40 && b < 0x40;
+}
+
+static void CalibFrameBegin(C3D_RenderTarget *rt) {
   C3D_FrameBegin(0);
   g_nverts = 0;
   BlendOff();
-  C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
-  SetTarget(g_rt_main, &g_proj_tex);
+  C3D_RenderTargetClear(rt, C3D_CLEAR_ALL, 0, 0);
+  SetTarget(rt, &g_proj_tex);
   C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+  C3D_AlphaTest(false, GPU_ALWAYS, 0);
+}
+
+// See the comment at the top. Sets g_readback_abgr, g_depth_greater,
+// g_readback_flipped and g_rt_flip_v from what the GPU actually did.
+static void Calibrate(void) {
+  // 1. Byte order: all green.
+  CalibFrameBegin(g_rt_main);
+  EnvSolid(0xff00ff00);
+  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
+  SolidRect(0, 0, 256, 256, 0);
+  C3D_FrameEnd(0);
+  ReadMain();
+  const uint32_t green = g_readback[128 * kTexW + 128];
+  g_readback_abgr = ((green >> 8) & 0xff) > 0xc0 && ((green >> 16) & 0xff) < 0x40;
+
+  // 2. Depth: level 5 red, then level 10 green with the "greater" test.
+  CalibFrameBegin(g_rt_main);
   EnvSolid(0xff0000ff);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
   SolidRect(0, 0, 256, 256, 5);
@@ -402,25 +434,19 @@ static void Calibrate(void) {
   const uint32_t mid = g_readback[128 * kTexW + 128];
   g_depth_greater = IsGreen(mid) ? GPU_GREATER : GPU_LESS;
 
-  // 2. Orientation: red on rows 0..7 of the main target only. Where the readback has it
+  // 3. Orientation: red on rows 0..7 of the main target only. Where the readback has it
   // says how a transfer orders rows; sampling rows 0..7 into the subscreen target and
   // reading that back says whether rendered textures come back upside down.
-  C3D_FrameBegin(0);
-  g_nverts = 0;
-  C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
-  SetTarget(g_rt_main, &g_proj_tex);
-  C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+  CalibFrameBegin(g_rt_main);
+  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   EnvSolid(0xff0000ff);
   SolidRect(0, 0, 256, 8, 0);
   C3D_FrameEnd(0);
   ReadMain();
   g_readback_flipped = !IsRed(g_readback[4 * kTexW + 128]) && IsRed(g_readback[(kTexH - 5) * kTexW + 128]);
 
-  C3D_FrameBegin(0);
-  g_nverts = 0;
-  C3D_RenderTargetClear(g_rt_sub, C3D_CLEAR_ALL, 0, 0);
-  SetTarget(g_rt_sub, &g_proj_tex);
-  C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+  CalibFrameBegin(g_rt_sub);
+  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_TexBind(0, &g_main_tex);
   EnvTexture();
   g_rt_flip_v = false;
@@ -433,7 +459,7 @@ static void Calibrate(void) {
                           GX_BUFFER_DIM(kTexW, kTexH), DISPLAY_TRANSFER_FLAGS);
   GSPGPU_InvalidateDataCache(g_readback, kTexW * kTexH * 4);
   g_rt_flip_v = !IsRed(g_readback[128 * kTexW + 128]);
-  snprintf(g_calib_text, sizeof(g_calib_text), "depth %s, rt %s, readback %s",
+  snprintf(g_calib_text, sizeof(g_calib_text), "%s, depth %s, rt %s, readback %s", g_readback_abgr ? "ABGR" : "RGBA",
            g_depth_greater == GPU_GREATER ? "GREATER" : "LESS", g_rt_flip_v ? "FLIPPED" : "ok",
            g_readback_flipped ? "bottom-up" : "top-down");
 }
@@ -459,7 +485,7 @@ bool GpuPpu3ds_Init(void) {
   C3D_TexSetFilter(&g_sub_tex, GPU_NEAREST, GPU_NEAREST);
   g_rt_main = C3D_RenderTargetCreateFromTex(&g_main_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_sub = C3D_RenderTargetCreateFromTex(&g_sub_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
-  g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, -1);
+  g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
   if (!g_rt_main || !g_rt_sub || !g_rt_top) return false;
   C3D_RenderTargetSetOutput(g_rt_top, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
