@@ -591,7 +591,7 @@ void BottomUi_GameReset(void) {
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_COUNT } OptCell;
+typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_COUNT } OptCell;
 
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
 static Rect ResetRect(void) { return (Rect){ 8, 168, 304, 22 }; }
@@ -617,6 +617,7 @@ static void DrawOptions(Surface s) {
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
   DrawOptCell(s, OPT_DISPLAY, "DISPLAY", g_ui.pixel_perfect ? "PIXEL PERFECT" : "SCALED", COL_GOOD);
+  DrawOnOffCell(s, OPT_WIDE, "WIDE VIEW", g_ui.wide);
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()), "RESET GAME");
 
   UiDrawTextCentered(s, SCREEN_W / 2, 196, RGB(90, 115, 145), "SUPER METROID 3DS");
@@ -648,6 +649,7 @@ static void OptionsTouch(int x, int y) {
       osSetSpeedupEnable(g_ui.new3ds_speedup);
       break;
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
+    case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     default: break;
     }
     return;
@@ -801,11 +803,11 @@ static void DebugTouch(int x, int y) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect };
+                         g_ui.pixel_perfect, g_ui.wide };
 }
 
 static void SaveConfig(void) {
@@ -813,8 +815,8 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\n", o.tab,
-          o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect);
+  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n",
+          o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide);
   fclose(f);
 }
 
@@ -840,6 +842,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "fps_overlay")) g_ui.fps_overlay = v != 0;
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
+    else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
   }
   fclose(f);
 }

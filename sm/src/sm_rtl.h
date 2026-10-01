@@ -113,6 +113,49 @@ typedef struct RtlWarpLoad {
 } RtlWarpLoad;
 extern RtlWarpLoad g_rtl_warp_load;
 
+// 3DS port, WIDE view: pixels shown left and right of the 256 px view (0 = off; uneven
+// next to a room edge). Widens the generic "on screen" checks that decide which enemies
+// run and are drawn and when enemy projectiles, sprite objects and Samus's projectiles are
+// dropped, so things in the margins behave as on screen.
+extern uint16 g_rtl_wide_margin_left, g_rtl_wide_margin_right;
+// 3DS port, WIDE view: the HUD lines (0-31) show the room under the HUD instead of black:
+// the HUD IRQ keeps BG1, BG2 and sprites on there (BG3 has priority, BGMODE 9).
+extern bool g_rtl_wide_hud_over_room;
+// 3DS port, WIDE view: rows shown above and below the 224 (PIXEL PERFECT). Widens the
+// sprite pieces' bottom cut (DrawSpritemap) and the enemies' top on-screen check.
+extern uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+// 3DS port, WIDE view: the full position of OAM entries drawn this frame by an object that
+// said where it is. OAM X has 9 bits and Y 8, so with margins (and the HUD lines showing
+// sprites) a piece far off one side reads as one on the other side, and a piece below the
+// screen as one at the top. The X/Y the drawers get cannot be trusted for this: their high
+// bits are often meaningless (Samus's X is -15153 for a piece at 207, the gunship's
+// -15487 for 385), since only the low bits reach the PPU. So an object sets an anchor, its
+// own screen position, and each piece it draws is the X mod 512 / Y mod 256 nearest to it.
+// Entries drawn without an anchor stay kRtlOamUnknown (the renderer decodes the 9 bits).
+enum { kRtlOamUnknown = -32768, kRtlOamHiddenY = 0x4000 };
+extern int16 g_rtl_oam_x[128], g_rtl_oam_y[128];
+extern int16 g_rtl_oam_anchor_x, g_rtl_oam_anchor_y;   // kRtlOamUnknown = none
+void RtlOamXReset(void);
+static inline void RtlOamSetAnchor(int x, int y) {
+  g_rtl_oam_anchor_x = (int16)x;
+  g_rtl_oam_anchor_y = (int16)y;
+}
+static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anchor_y = kRtlOamUnknown; }
+// The entry at OAM byte offset `idx` was written with X `x` and Y `y` (the 8 bits stored);
+// `hidden`: the drawer parked it off-screen on purpose.
+static inline void RtlOamTag(int idx, int x, int y, bool hidden) {
+  const int i = (idx >> 2) & 127;
+  if (g_rtl_oam_anchor_x == kRtlOamUnknown) {
+    g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown;
+    return;
+  }
+  int dx = (x - g_rtl_oam_anchor_x) & 0x1ff, dy = (y - g_rtl_oam_anchor_y) & 0xff;
+  if (dx >= 256) dx -= 512;
+  if (dy >= 128) dy -= 256;
+  g_rtl_oam_x[i] = (int16)(g_rtl_oam_anchor_x + dx);
+  g_rtl_oam_y[i] = hidden ? kRtlOamHiddenY : (int16)(g_rtl_oam_anchor_y + dy);
+}
+
 void RtlReset(int mode);
 void RtlSetupEmuCallbacks(uint8 *emu_ram, RunFrameFunc *func, SyncAllFunc *sync_all);
 void RtlClearKeyLog();

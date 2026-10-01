@@ -305,6 +305,26 @@ Lessons from mzm that apply directly:
   (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
   Status 2026-10-01: part A implemented on `feat/display-options` (OPTIONS -> DISPLAY,
   `pixel_perfect` in `config.ini`, both renderers); not yet seen on hardware.
+  Part B, renderer side (horizontal): `GpuPpu_SetMargin` widens the frame build (margins
+  outside both windows), 512-wide citro3d targets, black mask rectangles (HUD rows),
+  OPTIONS -> WIDE VIEW (`wide` in `config.ini`), margins only in gameplay states.
+  Host: `WIDE=M` in tools/gpu-ppu-test rebuilds every frame with margins and checks the
+  middle 256 columns equal the normal frame (every room, and power-on through Ceres
+  exploding with M = 72: all equal, nothing refused); `WIDE_DUMP=N` writes images. The
+  margins show stale BG1 columns until the game streams them (next step).
+  Game side done the same day: `source/sm_wide.c` fills the margins' tilemap areas from the
+  level data before the PPU draws (hook `g_rtl_before_ppu_draw`), masks what is outside the
+  room or in red scroll screens, and `g_rtl_wide_margin_x` widens the on-screen checks for
+  enemies, projectiles and sprite objects. HUD over the room: the HUD IRQ keeps BG1/BG2/OBJ
+  (from TM or TS) on in lines 0-31, the HUD's opaque blank cells (entry 0x2C0F) become a
+  transparent BG3 char while WIDE shows the room, and BG3 stays out of the margins on those
+  lines (`GpuPpu_SetNarrowBg3Rows`). Door transitions: margins masked whole. Not on hardware
+  yet. PIXEL PERFECT extra rows (8 above, 8 below): `GpuPpu_SetExtraRows` grows the first
+  and last bands with the first/last line's registers (not BG3 in the HUD band, not mode 7
+  or composed layers), the citro3d targets have 16 spare rows, the fill writes rows -1/0/15
+  for the game's columns, `DrawSpritemap`'s bottom cut and the enemies' top check move by
+  `g_rtl_wide_extra_*`, and the masks cover the extra rows too. Host: every room (72 px +
+  8 rows) and power-on through Ceres, middle identical, nothing refused.
   *Spec, part A (display style, renderer only):*
   - SCALED: what exists now.
   - PIXEL PERFECT: 256x224 at 1:1, centred (72 px sides, 8 px top and bottom).
@@ -313,8 +333,17 @@ Lessons from mzm that apply directly:
   *Spec, part B (WIDE, renderer + game):* fill the sides with the room instead of black,
   in gameplay only (`game_state` 8, and door transitions); title, file select, pause map,
   cutscenes and Ceres mode 7 stay 4:3. Margin per side M = 59 SNES px when SCALED (400 /
-  1.071 = 373 px), 72 when PIXEL PERFECT. No extra height: the BG tilemaps are 16 blocks
-  tall and the game rewrites one of them as it scrolls, so there is no spare row.
+  1.071 = 373 px; 60 used, 376 px fill the screen), 72 when PIXEL PERFECT.
+  Height (owner wants it too, 2026-10-01): SCALED already fills the 240 rows (224 x 1.071),
+  so it gains height only through the HUD over the room (32 rows). PIXEL PERFECT adds 8
+  rows above and 8 below (240 = 224 + 16), as mzm's PIXEL PERFECT has a Y margin and its
+  SCALED none. Cost: lines -8..231 span 240 px, and with the fine scroll they touch 16
+  block rows, the tilemap's full height. Over one `layer1_y_block` they need rows -1..15
+  (17), and rows -1 and 15 share a tilemap row, so the game's row upload (on block changes
+  only, rows `+1` / `+15`) is not enough: refresh row -1 or 15 when the fine scroll
+  crosses 8. The renderer extends the first and last captured lines' registers over the
+  extra rows (HDMA effects there are approximate). Enemy activation already reaches
+  `layer1_y_pos + 248`.
   Findings (2026-10-01) that make it feasible:
   - BG1 and BG2 use 64x32 tilemaps (`BG1SC = 0x51`, `BG2SC = 0x49`): 32 blocks of
     16 px across, of which the game keeps only 17 current. `UpdateBgGraphicsWhenScrolling`
@@ -329,9 +358,11 @@ Lessons from mzm that apply directly:
     upload those columns, and draw the margin there as black.
   - Hidden areas: the camera never enters a red scroll screen (`scrolls[]` at
     `$7E:CD20`, 0 = red, `room_width_in_scrolls` per row), so the original never shows
-    them; WIDE can show part of them. Left visible, as mzm's WIDE does (it shows
-    whatever the room has in the margin, no scroll-bound masking). If it spoils too
-    much in play, masking red screens is a later option, not part of this task.
+    them; WIDE can show part of them. First decided to leave them visible like mzm, but
+    on the host they are often unfinished filler (e.g. `CF80`: a screen of "X" blocks
+    behind the door), so the margins' parts in red screens are masked black, like those
+    outside the room (2026-10-01, decided while the owner was away; easy to drop in
+    `SmWide_AddMasks`). The 256 px view itself is never masked.
   - Enemies are only processed and drawn inside the 256 px view (`EnemyMain` and the
     active list in sm_a0.c: `x_pos + x_width` against `layer1_x_pos .. +256`, and
     `EnemyWithNormalSpritesIsOffScreen`), so without changes they would freeze and pop
@@ -707,4 +738,84 @@ Lessons from mzm that apply directly:
   bomb, soft resets), music queue under repeated warps, audio hash, optional warp test.
   ~90 s. Expected hashes in tools/test/expected.txt (`--update` after an intended change).
   Run it before merging anything that touches the game, the renderer or the audio.
-
+- 2026-10-01: WIDE view (P4.5 B) built while the owner was away; host-checked only. How it
+  works: the renderer builds frames over [-M, 256+M) x [-top, 224+bottom); margins are
+  outside both windows. The game is not taught to stream more: a hook between the game
+  logic (and its NMI, which runs last in RunOneFrameOfGame) and the PPU drawing writes the
+  margin tilemap columns, and the rows the game leaves stale, from the level data each
+  frame, compare-before-write, marking VRAM groups dirty for the GPU renderer. Only in
+  states where the level data is the room on screen (not door transitions: margins masked
+  whole there). Game logic changes only through g_rtl_wide_* (enemy activation/drawing,
+  projectile and sprite object culling, the sprite bottom cut, the HUD IRQ's layers); all
+  0 with WIDE off, and `make test` checks that. Decisions taken alone: red-scroll screens
+  masked in the margins (they show filler), the HUD over the room whenever WIDE is on (its
+  opaque blank cells swapped for a transparent char), heat rooms' sub-screen layers shown
+  under the HUD without colour math. Margins are drawn by the GPU renderer only; a frame
+  refused to the CPU renderer shows black sides.
+- 2026-10-01: Found while testing WIDE: LoadLevelDataAndOtherThings used memcpy on
+  overlapping ranges (room background data, rooms with > 0x3C00 bytes of level data), so
+  the result depended on the build; the ROM does a descending copy, i.e. memmove. Fixed;
+  two expected hashes changed. Technique: dump WRAM per frame from two builds
+  (`WRAM_TRACE=1`), diff, then a gdb watchpoint on the first differing address.
+- 2026-10-01: WIDE bug from hardware (Landing Site, owner's screen dumps 03/04): the gunship
+  showed in both margins. OAM X has 9 bits, so a piece really at x 433 read as -79 (left
+  margin) and one at -210 as 302 (right). The spritemap drawers (sm_81.c) now record each
+  entry's full X (`g_rtl_oam_x`), and the GPU builder uses it while margins are on. Enemies
+  pass an X whose high bits can be meaningless (gunship: -15487 for 385, from its spawn
+  offset), so WriteEnemyOams sets an anchor, the enemy's own screen X, and a piece is the
+  X mod 512 nearest to it. Reproduced on the host with `WARP_AT=` at the dumps' camera and
+  `WIDE_NO_FULLX=1` for the old decode; `WIDE_OAM=1` prints both X.
+- 2026-10-01: Second hardware round of WIDE bugs. (1) Samus invisible: the drawers' X has
+  meaningless high bits for Samus too (-15153 for 207), so "full X" from the caller was
+  wrong; now only objects that set an anchor (enemies in WriteEnemyOams, enemy projectiles,
+  sprite objects) get recorded positions, everything else keeps the 9-bit decode. (2) Ship
+  tiles flashing at the top while it left the bottom: the HUD lines now show sprites, and
+  the SNES wraps OAM Y at 256, so pieces below the screen (and pieces SM parks at y 0xF0)
+  appeared at the top; anchored entries now record their full Y (no wrap, parked ones
+  dropped). `WIDE_TOPCHECK=1` compares the top rows with/without and found such pieces in
+  Ceres (DBCD, DE7A). (3) Shaft in 92FD: masking every red screen hid real room until the
+  game turned it blue (pop-in); now only red screens made of a single repeated block
+  (filler, as in CF80) are masked. Superseded: "red screens masked" above.
+  Test gap that let (1) through: the middle check used the recorded positions on both
+  sides; `WIDE` now also counts frames where they change the view below the HUD.
+- 2026-10-01: Room edges in WIDE: the margins lean away from a room edge (all of the margin
+  goes to the other side), so the edge sits on the screen border as if the camera stopped
+  there; narrower rooms are centred. The game's camera is untouched (door transitions
+  scroll from a screen-aligned camera, DoorTransitionFunction_ScrollScreenToAlignment); the
+  lean is worked out in the WIDE hook from the room's screen rectangle, kept during door
+  transitions, and fed to the next frame's on-screen checks (left/right separately). The
+  HUD is drawn moved so it keeps its place on the screen; the citro3d targets take the
+  left margin as a per-frame offset (up to 256 px of margins in all). Vertical (PIXEL
+  PERFECT's 8 rows) not done.
+- 2026-10-01: Door at Landing Site's bottom left looked closed but let Samus through, and
+  only its top block took shots (owner, dump 09). Its cap's lower blocks are type D
+  (extension) and need BTS ff/fe/fd ("1/2/3 blocks up"); the console's RAM had 00, and
+  8948 of 8960 BTS bytes repeated the byte 0xA00 back: the forward memcpy of the
+  overlapping BTS copy. First blamed on old RAM, wrongly: the morning's memmove fix covered
+  LoadLevelDataAndOtherThings (game load, the teleport, which the host tests use) but not
+  its twin LoadLevelScrollAndCre, the door-transition path (same ROM loops at $82:EA73),
+  still memcpy; glibc happened to copy it right, newlib forwards. Fixed there too; checked
+  on the host by leaving Landing Site through that door and coming back (ROOM_INPUT2,
+  AUTOFIRE), under ASAN: no overlap reported, cap BTS ff/fe/fd. (Correction, 2026-10-02:
+  that run never left the room; the check was redone with ROOM_SEQ, a scripted route out
+  to 92B3 and back through the door, TRACE_SAMUS showing both transitions.) It affected every room
+  with more than 0x3C00 bytes of level data entered through a door (doors, slopes, special
+  blocks).
+- 2026-10-01: WIDE lean, second round (owner): (1) the parallax kept moving while the leaned
+  view stood still: the view stands for a camera the game does not have (layer 1 + margin
+  - left); BG2 is now moved to where CalculateLayer2Xpos would put it for that camera
+  (GpuPpu_SetLayerShiftX, and the BG2 fill follows it, writing every column then). (2) A
+  door at a leaned edge travelled 256 px and then jumped to the new room's lean: during a
+  transition the lean now goes from the old room's to the new room's (taken at
+  door_destination_x_pos) along door_transition_frame_counter (64 frames across, 57 up or
+  down), so the door crosses the screen once, smoothly. The HUD rows are left unmasked in
+  transitions (the moved HUD was cut).
+- 2026-10-02: WIDE lean, third round (owner): (1) Landing Site's sky still moved with Samus:
+  scrolling-sky rooms (room code ScrollingSkyLand/Ocean/Shakes) scroll BG2 by HDMA bands
+  that drift with time and ignore the camera's X, so BG2 is fixed to the screen there, not
+  the layer 2 formula. (2) From the second door on, the door jumped mid-transition: the
+  counter keeps the previous transition's 64 until it is reset, and the reset and the
+  first scrolling step happen in the same frame, so the hook never saw 0 and stayed on
+  the old lean (or used the old end). The reset is now detected as the counter going down.
+  Host check: ROOM_SEQ route out of Landing Site and back, both doors cross the screen
+  edge to edge with no jump.

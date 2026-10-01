@@ -2,6 +2,7 @@
 #include "ida_types.h"
 #include "variables.h"
 #include "funcs.h"
+#include "sm_rtl.h"
 #include "enemy_types.h"
 
 
@@ -92,15 +93,18 @@ void DrawSpriteObjects(void) {  // 0xB4BD32
     int v1 = i >> 1;
     if (sprite_instr_list_ptrs[v1]) {
       uint16 x = sprite_x_pos[v1] - layer1_x_pos;
-      if ((int16)(x + 16) >= 0) {
-        if (sign16(x - 272)) {
+      // 3DS port: widened by the WIDE margins.
+      if ((int16)(x + 16 + g_rtl_wide_margin_left) >= 0) {
+        if (sign16(x - 272 - g_rtl_wide_margin_right)) {
           int16 y = sprite_y_pos[v1] - layer1_y_pos;
           if (y >= 0) {
             if (sign16(y - 272)) {
               uint16 r3 = sprite_palettes[v1] & 0xE00;
               uint16 r0 = sprite_palettes[v1] & 0x1FF;
               const uint8 *v3 = RomPtr_B4(sprite_instr_list_ptrs[v1]);
+              RtlOamSetAnchor((int16)x, y);   // 3DS port, see g_rtl_oam_x
               DrawSpritemapWithBaseTile(0xB4, GET_WORD(v3 + 2), x, y, r3, r0);
+              RtlOamClearAnchor();
             }
           }
         }

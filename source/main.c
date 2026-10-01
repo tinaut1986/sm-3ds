@@ -20,10 +20,12 @@
 #include "src/spc_player.h"
 #include "src/audio_prof.h"
 #include "src/variables.h"
+#include "src/ida_types.h"
 
 #include "bottom_ui.h"
 #include "cheats.h"
 #include "sm_warp.h"
+#include "sm_wide.h"
 #include "debug_tools.h"
 #include "gpu_ppu.h"
 #include "gpu_ppu_3ds.h"
@@ -104,7 +106,8 @@ void RtlDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
 // to 274x240 (nearest, aspect-correct), PIXEL PERFECT copies it 1:1 with 8 black rows
 // above and below. Source pixels are 0x00RRGGBB, the framebuffer wants R,G,B,A from
 // the high byte down, so one shift does the conversion.
-static void DrawPpuFrame(bool pixel_perfect) {
+// `clear_sides`: the screen has something outside this layout (a WIDE frame from the GPU).
+static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
     enum { SRC_W = 256, SRC_H = 224, FB_W = 400, FB_H = 240, SCALED_W = 274 };
     static uint16_t xmap[2][SCALED_W];
     static const uint32_t *rows[2][FB_H];   // source row for each destination row
@@ -129,7 +132,7 @@ static void DrawPpuFrame(bool pixel_perfect) {
     // in both buffers, after a switch (the GPU path clears its own frames).
     static int clear_frames = 2, last_layout = -1;
     const int layout = pixel_perfect;
-    if (layout != last_layout) clear_frames = 2;
+    if (layout != last_layout || clear_sides) clear_frames = 2;
     last_layout = layout;
 
     UiDraw_WaitSwapShown();
@@ -154,6 +157,24 @@ static void DrawPpuFrame(bool pixel_perfect) {
 static PpuLineCapture g_line_capture;
 static GpuFrame g_gpu_frame;
 static bool g_top_by_gpu;
+static bool g_top_wide;   // the last frame shown had WIDE margins
+
+// WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
+// title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
+// fill the 400 px screen.
+static int WideMargin(void) {
+  if (!g_ui.wide) return 0;
+  switch (game_state) {
+  case kGameState_7_MainGameplayFadeIn: case kGameState_8_MainGameplay: case kGameState_9_HitDoorBlock:
+  case kGameState_10_LoadingNextRoom: case kGameState_11_LoadingNextRoom: case kGameState_12_Pausing:
+  case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
+    return g_ui.pixel_perfect ? 72 : 60;
+  default:
+    return 0;
+  }
+}
+
+
 
 // Debug tools -> GPU CHECK: draws the frame just shown by the GPU again with the CPU
 // renderer (from the same capture) and compares them. Writes a dump set with the CPU
@@ -632,6 +653,17 @@ int main(int argc, char** argv) {
       }
       g_snes->disableRender = !draw;
       g_ppu_line_capture = gpu ? &g_line_capture : NULL;
+      // Decided before the frame runs, like the game state the margin depends on. Not
+      // from `gpu`: the margin changes game logic (which enemies run), and that must not
+      // depend on whether this frame happens to be drawn.
+      const int margin = g_ui.gpu_render ? WideMargin() : 0;
+      // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
+      const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
+      GpuPpu_SetExtraRows(extra, extra);
+      GpuPpu_SetNarrowBg3Rows(margin ? 32 : 0);
+      g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
+      g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
+      SmWide_SetView(margin, extra, extra);
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons;
@@ -656,8 +688,15 @@ int main(int argc, char** argv) {
         t0 = svcGetSystemTick();
         const char *why = NULL;
         const u64 t_build = svcGetSystemTick();
+        // The margins this frame ended up with (SmWide leans them off room edges).
+        int margin_l, margin_r, hud_x, bg2_dx;
+        SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
+        GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetHudX(hud_x);
+        GpuPpu_SetLayerShiftX(1, bg2_dx);
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
+          SmWide_AddMasks(&g_gpu_frame);
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
@@ -679,9 +718,10 @@ int main(int argc, char** argv) {
           }
           // The GPU may still be presenting its last frame into the framebuffer.
           if (g_top_by_gpu) GpuPpu3ds_WaitIdle();
-          DrawPpuFrame(g_ui.pixel_perfect);
+          DrawPpuFrame(g_ui.pixel_perfect, g_top_wide);
         }
         g_top_by_gpu = gpu_presented;
+        g_top_wide = built && g_gpu_frame.x0 < 0;
         t_draw = svcGetSystemTick() - t0;
         presented = true;
       }

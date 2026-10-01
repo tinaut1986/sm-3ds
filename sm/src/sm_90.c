@@ -2922,8 +2922,9 @@ uint8 DeleteProjectileIfFarOffScreen(void) {  // 0x90B16A
   int16 v2;
 
   v0 = projectile_x_pos[projectile_index >> 1] - layer1_x_pos;
-  if (!sign16(v0 + 64)) {
-    if (sign16(v0 - 320)) {
+  // 3DS port: widened by the WIDE margins.
+  if (!sign16(v0 + 64 + g_rtl_wide_margin_left)) {
+    if (sign16(v0 - 320 - g_rtl_wide_margin_right)) {
       v2 = projectile_y_pos[projectile_index >> 1] - layer1_y_pos;
       if (!sign16(v2 + 64)) {
         if (sign16(v2 - 320))

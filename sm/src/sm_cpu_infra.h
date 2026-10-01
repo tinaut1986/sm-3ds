@@ -25,4 +25,8 @@ void RunOneFrameOfGame_Both();
 
 void SwapEmulatedNative(void);
 
+// 3DS port: called in FULL_NATIVE frames after the game logic (and its NMI) and before
+// the PPU draws the lines; null unless set. The WIDE view fills tilemap areas here.
+extern void (*g_rtl_before_ppu_draw)(void);
+
 #endif  // SM_CPU_INFRA_H_  

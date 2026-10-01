@@ -4,7 +4,45 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ---- Window evaluation (PpuWindows_Calc in ppu.c, without the extra border) --------
+// Columns drawn by the frame being built: [0, 256) plus the WIDE margins.
+static int g_margin_l, g_margin_r, g_x0 = 0, g_x1 = 256, g_hud_x;
+
+static int g_narrow_bg3_rows;
+const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
+static int g_extra_top, g_extra_bottom;
+
+void GpuPpu_SetExtraRows(int top, int bottom) {
+  g_extra_top = top < 0 ? 0 : top > kGpuMaxExtraRows ? kGpuMaxExtraRows : top;
+  g_extra_bottom = bottom < 0 ? 0 : bottom > kGpuMaxExtraRows ? kGpuMaxExtraRows : bottom;
+}
+
+void GpuPpu_SetNarrowBg3Rows(int rows) { g_narrow_bg3_rows = rows; }
+
+void GpuPpu_SetMargins(int left, int right) {
+  g_margin_l = left < 0 ? 0 : left > kGpuMaxMargin ? kGpuMaxMargin : left;
+  g_margin_r = right < 0 ? 0 : right > kGpuMaxMargin ? kGpuMaxMargin : right;
+  if (g_margin_l + g_margin_r > kGpuMaxMargins) g_margin_r = kGpuMaxMargins - g_margin_l;
+}
+
+void GpuPpu_SetHudX(int x) { g_hud_x = x; }
+
+static int g_layer_dx[3];
+
+void GpuPpu_SetLayerShiftX(int layer, int dx) {
+  if (layer >= 0 && layer < 3) g_layer_dx[layer] = dx;
+}
+
+bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h) {
+  if (x < f->x0) w -= f->x0 - x, x = f->x0;
+  if (x + w > f->x1) w = f->x1 - x;
+  if (w <= 0 || h <= 0) return true;
+  if (f->mask_count >= kGpuMaxMasks) return false;
+  f->mask[f->mask_count++] = (GpuMaskRect){ (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h };
+  return true;
+}
+
+// ---- Window evaluation (PpuWindows_Calc in ppu.c) ----------------------------------
+// The margins are outside both windows, like PpuWindows_Calc's extra border.
 
 typedef struct {
   int16_t edges[6];
@@ -17,17 +55,17 @@ static void WinCalc(Win *win, const PpuLineState *st, int layer) {
   const uint32_t winflags = st->windowsel >> (layer * 4);
   unsigned nr = 1, i, j;
   int t;
-  win->edges[0] = 0;
-  win->edges[1] = 256;
+  win->edges[0] = (int16_t)g_x0;
+  win->edges[1] = (int16_t)g_x1;
   const bool w1 = (winflags & kWin1Enabled) && st->window1left <= st->window1right;
   if (w1) {
     if (st->window1left > win->edges[0]) {
       win->edges[nr] = st->window1left;
-      win->edges[++nr] = 256;
+      win->edges[++nr] = (int16_t)g_x1;
     }
-    if (st->window1right + 1 < 256) {
+    if (st->window1right + 1 < g_x1) {
       win->edges[nr] = st->window1right + 1;
-      win->edges[++nr] = 256;
+      win->edges[++nr] = (int16_t)g_x1;
     }
   }
   const bool w2 = (winflags & kWin2Enabled) && st->window2left <= st->window2right;
@@ -525,14 +563,15 @@ static void M7LineStart(const PpuLineState *st, int y, uint32_t *xpos, uint32_t 
 
 // ---- Screen-space layers ---------------------------------------------------------------
 // Fallback for a layer whose scroll runs would not fit in the quad list (see EmitBg):
-// its rows are copied from the surface into a 256x256 screen texture on the CPU and
-// drawn as one quad.
+// its rows are copied from the surface into a screen texture on the CPU and drawn as
+// one quad. 512 wide for the WIDE margins (never resized: the GPU may still be reading
+// the previous frame's texture while the next one is built).
 
 static GpuTex g_screen_tex[3][2];
 
 static GpuTex *ScreenTex(int layer, int prio) {
   GpuTex *t = &g_screen_tex[layer][prio];
-  if (!t->px && !GpuBackend_TexCreate(t, 256, 256)) return NULL;
+  if (!t->px && !GpuBackend_TexCreate(t, 512, 256)) return NULL;
   return t;
 }
 
@@ -546,7 +585,8 @@ enum { kAtlasW = 512, kAtlasH = 512 };
 static GpuTex g_atlas;
 
 typedef struct {
-  int size, x, y;         // screen position (x signed, y 0..255)
+  int size, x, y;         // screen position (x signed, may be in a margin; y 0..255, wraps)
+  bool no_wrap;           // y is the full row (g_gpu_ppu_obj_y): no wrap at 256
   int ax, ay;             // in the atlas
   uint8_t level;
   bool hflip, vflip, math;
@@ -609,11 +649,30 @@ static const char *BuildSprites(const Ppu *ppu, const PpuLineState *st) {
     const int size = kSpriteSizes[st->objSize][(ppu->highOam[index >> 3] >> ((index & 7) + 1)) & 1];
     int x = ppu->oam[index] & 0xff;
     x |= ((ppu->highOam[index >> 3] >> (index & 7)) & 1) << 8;
-    if (x > 255) x -= 512;
-    if (x <= -size) continue;
-    const int y = ppu->oam[index] >> 8;
-    // Visible on rows y .. y+size-1, wrapping at 256; rows 224+ are not shown.
-    if (y + size <= 256 && y >= kGpuRows) continue;
+    // X is 9 bits: 256..511 is off-screen left. With a right margin, 256..256+margin is
+    // there instead; a sprite seen in the left margin (x >= -margin-64) never reads as
+    // that while the margin is under 96.
+    int y = ppu->oam[index] >> 8;
+    // SM parks unused sprites at x 0x180, y 0xE0: off-screen on the SNES, but in reach of
+    // the extra rows and a wide left margin.
+    if (x == 0x180 && y == 0xe0 && (g_margin_l || g_margin_r || g_extra_bottom)) continue;
+    // The full position when the game recorded it (and it matches these bits).
+    const int16_t fx = g_gpu_ppu_obj_x ? g_gpu_ppu_obj_x[index >> 1] : INT16_MIN;
+    const int16_t fy = g_gpu_ppu_obj_y ? g_gpu_ppu_obj_y[index >> 1] : INT16_MIN;
+    const bool full = fx != INT16_MIN && (fx & 0x1ff) == x;
+    if (full) x = fx;
+    else if (x >= g_x1) x -= 512;
+    if (x <= g_x0 - size || x >= g_x1) continue;
+    bool no_wrap = false;
+    if (full && fy != INT16_MIN) {
+      if (fy >= 0x4000) continue;   // parked off-screen on purpose
+      if ((fy & 0xff) == y) y = fy, no_wrap = true;
+    }
+    // Visible on rows y .. y+size-1, wrapping at 256 (unless no_wrap); rows 224+ (plus the
+    // extra rows) are not shown.
+    if (no_wrap ? (y + size <= -g_extra_top || y >= kGpuRows + g_extra_bottom)
+                : (y + size <= 256 && y >= kGpuRows + g_extra_bottom))
+      continue;
     const uint16_t attr = ppu->oam[index + 1];
     Sprite *sp = &g_sprites[g_sprite_count];
     if (!AtlasPlace(ppu, st, attr, size, &sp->ax, &sp->ay)) return "sprite atlas full";
@@ -623,6 +682,7 @@ static const char *BuildSprites(const Ppu *ppu, const PpuLineState *st) {
     sp->level = (uint8_t)(((attr >> 12) & 3) * 4 + 2);
     sp->hflip = attr & 0x4000;
     sp->vflip = attr & 0x8000;
+    sp->no_wrap = no_wrap;
     sp->math = (attr & 0x800) && st->mathEnabled[4];
     g_sprite_count++;
   }
@@ -703,7 +763,7 @@ static bool EmitSprites(int y0, int y1, bool main) {
     const Sprite *sp = &g_sprites[i];
     const int flags = kGpuQuadObj | (sp->hflip ? kGpuQuadFlipX : 0) | (sp->vflip ? kGpuQuadFlipY : 0) |
                       (main && sp->math ? kGpuQuadMath : 0);
-    for (int top = sp->y; top >= sp->y - 256; top -= 256) {
+    for (int top = sp->y; top >= (sp->no_wrap ? sp->y : sp->y - 256); top -= 256) {
       const int r0 = top > y0 ? top : y0, r1 = top + sp->size < y1 ? top + sp->size : y1;
       if (r0 >= r1) continue;
       const int h = r1 - r0, skip = r0 - top;
@@ -731,6 +791,12 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   Surface *s = GetSurface(&cap->line[l0].bgLayer[layer], layer < 2 ? 4 : 2);
   if (!s) return "out of texture memory";
   SyncSurface(s, ppu);
+  // Columns this layer covers (the band's last output row is l1-1).
+  const bool narrow = layer == 2 && l1 <= g_narrow_bg3_rows;
+  const int vx0 = narrow ? g_hud_x : g_x0, vx1 = narrow ? g_hud_x + 256 : g_x1;
+  // Texel column of screen column vx0 (the narrow layer is moved, not scrolled), with the
+  // layer's extra shift.
+  const int sx0 = (narrow ? 0 : vx0) + g_layer_dx[layer];
   const int flags = math ? kGpuQuadMath : 0;
   int runs = 1;
   for (int l = l0 + 1; l <= l1; l++) {
@@ -750,20 +816,22 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
                cap->line[b + 1].bgLayer[layer].vScroll == bg->vScroll)
           b++;
         // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
-        if (!AddQuadWin(&s->tex[prio], 0, a - 1, 256, b - a + 1, bg->hScroll, a + bg->vScroll, kBgLevel[layer][prio],
-                        flags, scr, layer))
+        if (!AddQuadWin(&s->tex[prio], vx0, a - 1, vx1 - vx0, b - a + 1, bg->hScroll + sx0, a + bg->vScroll,
+                        kBgLevel[layer][prio], flags, scr, layer))
           return "too many quads";
         a = b + 1;
       }
     return NULL;
   }
   const int w = SurfaceW(s) - 1, h = SurfaceH(s) - 1;
+  // Screen column x (from vx0) is texture column x - vx0.
+  const int view_w = vx1 - vx0;
   GpuTex *t[2] = { ScreenTex(layer, 0), ScreenTex(layer, 1) };
   if (!t[0] || !t[1]) return "out of texture memory";
   // GpuTexelIndex(x, y, w) = row part (y) + column part (x): precompute the columns.
-  static uint16_t dst_col[256], src_col[512];
+  static uint16_t dst_col[512], src_col[512];
   static int src_col_w;
-  if (!dst_col[1]) for (int x = 0; x < 256; x++) dst_col[x] = (uint16_t)GpuTexelIndex(x, 0, 256);
+  if (!dst_col[1]) for (int x = 0; x < 512; x++) dst_col[x] = (uint16_t)GpuTexelIndex(x, 0, 512);
   if (src_col_w != w + 1) {
     for (int x = 0; x <= w; x++) src_col[x] = (uint16_t)GpuTexelIndex(x, 0, w + 1);
     src_col_w = w + 1;
@@ -773,11 +841,12 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     if (g_composed[layer][row] == g_frame_no) continue;   // main and sub share it
     const BgLayer *bg = &cap->line[l].bgLayer[layer];
     const int ty = (l + bg->vScroll) & h;
-    const int src_row = GpuTexelIndex(0, ty, w + 1), dst_row = GpuTexelIndex(0, row, 256);
+    const int src_row = GpuTexelIndex(0, ty, w + 1), dst_row = GpuTexelIndex(0, row, t[0]->w);
+    const int col0 = bg->hScroll + sx0;
     for (int p = 0; p < 2; p++) {
       const uint16_t *src = s->tex[p].px + src_row;
       uint16_t *dst = t[p]->px + dst_row;
-      for (int x = 0; x < 256; x++) dst[dst_col[x]] = src[src_col[(bg->hScroll + x) & w]];
+      for (int x = 0; x < view_w; x++) dst[dst_col[x]] = src[src_col[(col0 + x) & w]];
     }
     g_composed[layer][row] = g_frame_no;
     g_stats.screen_rows_composed++;
@@ -785,8 +854,8 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   GpuBackend_TexWritten(t[0], l0 - 1, l1);
   GpuBackend_TexWritten(t[1], l0 - 1, l1);
   for (int prio = 0; prio < 2; prio++)
-    if (!AddQuadWin(&g_screen_tex[layer][prio], 0, l0 - 1, 256, l1 - l0 + 1, 0, l0 - 1, kBgLevel[layer][prio], flags,
-                    scr, layer))
+    if (!AddQuadWin(&g_screen_tex[layer][prio], vx0, l0 - 1, view_w, l1 - l0 + 1, 0, l0 - 1, kBgLevel[layer][prio],
+                    flags, scr, layer))
       return "too many quads";
   return NULL;
 }
@@ -905,7 +974,9 @@ static const char *EmitScreen(const Ppu *ppu, const PpuLineCapture *cap, uint8_t
       if (err) return err;
       *sprites_built = true;
     }
-    if (!EmitSprites(l0 - 1, l1, main)) return "too many quads";
+    // The first and last bands also cover the extra rows.
+    const int r0 = l0 == 1 ? -g_extra_top : l0 - 1, r1 = l1 == kGpuRows ? kGpuRows + g_extra_bottom : l1;
+    if (!EmitSprites(r0, r1, main)) return "too many quads";
   }
   const uint64_t t0 = Clock();
   if (st->mode == 7) {
@@ -938,6 +1009,31 @@ static bool EmitCwRects(GpuFrame *out, int l0, int l1) {
   return true;
 }
 
+// The extra rows above (`up`) or below the 224: BG quads and colour window rectangles
+// touching that edge grow by `n` rows with the same scroll (their texel rows go on).
+// Sprites were emitted over the extra rows already; mode 7 rows and composed layers are
+// left as they are (backdrop there).
+static void ExtendBand(GpuFrame *out, const GpuBand *b, bool up, int n, bool keep_bg3) {
+  const int firsts[2] = { b->main_first, b->sub_first }, counts[2] = { b->main_count, b->sub_count };
+  for (int s = 0; s < 2; s++)
+    for (int q = firsts[s]; q < firsts[s] + counts[s]; q++) {
+      GpuQuad *qd = &out->quads[q];
+      if (qd->flags & (kGpuQuadObj | kGpuQuadAffine)) continue;
+      // A composed screen texture has only rows 0..223 (EmitBg's fallback).
+      const GpuTex *t = out->tex[qd->tex];
+      if (t >= &g_screen_tex[0][0] && t <= &g_screen_tex[2][1]) continue;
+      // BG3 (levels 1 and 15) in a band that keeps it narrow: the HUD, nothing above it.
+      if (keep_bg3 && (qd->level == kBgLevel[2][0] || qd->level == kBgLevel[2][1])) continue;
+      if (up && qd->y == 0) qd->y -= n, qd->h += n, qd->sy -= n;
+      else if (!up && qd->y + qd->h == kGpuRows) qd->h += n;
+    }
+  for (int i = b->cw_first; i < b->cw_first + b->cw_count; i++) {
+    GpuCwRect *c = &out->cw[i];
+    if (up && c->y == 0) c->y -= n, c->h += n;
+    else if (!up && c->y + c->h == kGpuRows) c->h += n;
+  }
+}
+
 static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineState *b, const LineInfo *ib) {
   LineKey ka, kb;
   MakeKey(&ka, a, ia);
@@ -948,7 +1044,13 @@ static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineSta
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason) {
   static LineInfo info[kPpuCaptureLines];
   memset(&g_stats, 0, sizeof(g_stats));
-  out->tex_count = out->quad_count = out->band_count = out->cw_count = 0;
+  out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
+  g_x0 = -g_margin_l;
+  g_x1 = 256 + g_margin_r;
+  out->x0 = g_x0;
+  out->x1 = g_x1;
+  out->y0 = -g_extra_top;
+  out->y1 = kGpuRows + g_extra_bottom;
   g_out = out;
   *reason = NULL;
   uint64_t t0 = Clock();
@@ -1012,7 +1114,12 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       if (b->math && b->add_subscreen && inf->sub &&
           (*reason = EmitScreen(ppu, cap, inf->sub, l0, l1, false, &sprites_built))) { ok = false; break; }
       b->sub_count = out->quad_count - b->sub_first;
+      const bool hud = l1 <= g_narrow_bg3_rows;
+      if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud);
+      if (l1 == kGpuRows && g_extra_bottom) ExtendBand(out, b, false, g_extra_bottom, hud);
     }
+    if (l0 == 1) b->y0 = -g_extra_top;
+    if (l1 == kGpuRows) b->y1 = kGpuRows + g_extra_bottom;
     l0 = l1 + 1;
   }
   // band detection time = loop time minus what sprites and BGs took inside it

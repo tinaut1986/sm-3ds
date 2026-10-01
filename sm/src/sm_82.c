@@ -677,6 +677,7 @@ CoroutineRet RunOneFrameOfGameInner(void) {
   NextRandom();
   ClearOamExt();
   oam_next_ptr = 0;
+  RtlOamXReset();   // 3DS port, see g_rtl_oam_x
   nmi_copy_samus_halves = 0;
   nmi_copy_samus_top_half_src = 0;
   nmi_copy_samus_bottom_half_src = 0;
