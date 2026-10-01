@@ -65,7 +65,12 @@ Frame building:
    key, so they may change on every line), and the layer's quads are cut to those spans,
    rows with the same spans grouped, texture offsets and flips kept. Power bombs (BG3 on
    the subscreen) and the file-select area map (BG1/BG2/OBJ) use this.
-6. **Refused** (CPU fallback): mode other than 1, OBJ interlace, a colour window that
+6. **Mode 7** (title, intro, Ceres): the 1024x1024 plane is one texture whose cells are
+   decoded when about to be shown and stale (map byte, tile pixels, or a colour the tile
+   uses changed); one affine row per line from the CPU renderer's per-line setup
+   (`GpuQuad.ax/ay/adx/ady`, 1/256 texel), so any matrix per line works. Large-field rows
+   are cut on the CPU to the part inside the plane. Freed after 2 s without mode 7.
+7. **Refused** (CPU fallback): modes other than 1 and 7, mode 7 EXTBG or tile-0 fill, OBJ interlace, a colour window that
    splits a line while clip-to-black or prevent-math depend on it (modes "inside" or
    "outside"; "never"/"always" ignore the window), VRAM/CGRAM/OAM written during the
    lines, out of quads/textures.
@@ -126,4 +131,5 @@ renderer (`tools/gpu-ppu-test/run.sh ROM pbomb STATE.sav`).
 - Sprite per-line limits if a scene needs them.
 - Stereo 3D (phase 3): every layer is already its own quad; per-eye offsets go in
   the vertex positions.
-- Mode 7 (Ceres, ending) on the GPU, or keep it on the CPU.
+- Mode 7 on hardware: GPU CHECK on the title and in Ceres (texture coordinates are
+  interpolated by the GPU, so a few texels may differ at boundaries when rotated).

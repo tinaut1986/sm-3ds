@@ -581,4 +581,10 @@ Lessons from mzm that apply directly:
   `kGameStateFuncs` with 0xffff. Now it sets `coroutine_state_0 = 3` (Vector_RESET_Async)
   there too. Reproduced and checked on the host: `MASH_B=400 tools/gpu-ppu-test/run.sh
   ROM boot SRAM` (B every other frame from the file-select map on). Not GPU related.
+- 2026-10-01: Mode 7 on the GPU (title, intro, Ceres; the 2DS showed ~22-30 fps there on
+  the CPU renderer). SM only uses one matrix per frame, but rows are emitted per line,
+  so perspective would work too. Host: new game from power-on through Ceres (9000
+  frames) and every room identical to the CPU renderer, nothing refused any more.
+  Bug found on the way: VRAM change marks are cleared after every frame built, so the
+  mode 7 plane must take note of them on every frame, not only on mode 7 frames.
 
