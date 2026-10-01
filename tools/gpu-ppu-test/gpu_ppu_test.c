@@ -212,9 +212,19 @@ static void TestFrame(const char *label, bool check_capture) {
   }
 }
 
+static int g_music_rooms, g_music_stuck, g_music_wrong;
+
 static void Report(void) {
+  if (g_music_rooms)
+    printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
+           g_music_wrong);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);
+  // Game state at the end, for tools/test: any change to the game logic changes it.
+  uint64_t h = 1469598103934665603ull;
+  for (int i = 0; i < 0x20000; i++) h = (h ^ g_ram[i]) * 1099511628211ull;
+  printf("WRAM hash %016llx (game_state %02x room %04x)\n", (unsigned long long)h, (unsigned)game_state,
+         (unsigned)room_ptr);
   const int drawn = g_frames - g_refused;
   if (drawn)
     printf("  per drawn frame: %.1f quads (max %ld), %.1f tiles decoded, %ld frames composed rows on the CPU (%.1f rows each)\n",
@@ -281,6 +291,7 @@ int main(int argc, char **argv) {
   enum { A = 0x100, START = 0x08 };
   if (!strcmp(argv[2], "boot")) {
     const int frames = argc > 3 ? atoi(argv[3]) : 1500;
+    int soft_resets = 0;
     for (int i = 0; i < frames; i++) {
       char label[48];
       snprintf(label, sizeof(label), "boot frame %d (state %02x room %04x)", i, (unsigned)game_state, (unsigned)room_ptr);
@@ -295,14 +306,18 @@ int main(int argc, char **argv) {
       }
       // MASH_B=N: from the file-select map on, B on every other frame for N frames.
       static int mash_left = -1;
-      if (getenv("MASH_B") && mash_left < 0 && game_state == 5) mash_left = atoi(getenv("MASH_B"));
+      // MASH_B_STATE: the game state to start at (default 5, the file-select map)
+      const int mash_state = getenv("MASH_B_STATE") ? (int)strtol(getenv("MASH_B_STATE"), 0, 16) : 5;
+      if (getenv("MASH_B") && mash_left < 0 && game_state == mash_state) mash_left = atoi(getenv("MASH_B"));
       if (mash_left > 0) {
         mash_left--;
         g_input = (i & 1) ? 0x01 : 0;
         if (i % 20 == 0) printf("mash: frame %d state %02x coroutine %04x\n", i, (unsigned)game_state, (unsigned)coroutine_state_0);
       }
       TestFrame(label, i % 10 == 0);
+      soft_resets += game_state == 0xffff;
     }
+    printf("soft resets seen: %d\n", soft_resets);
     Report();
     return g_capture_bad || g_gpu_bad;
   }
@@ -320,8 +335,10 @@ int main(int argc, char **argv) {
   for (int r = 0; r < n; r++) {
     if (only && rooms[r].header != only) continue;
     if (SmWarp_DoorCount(&rooms[r]) == 0) continue;
-    RtlSaveLoad(kSaveLoad_Load, 7);
-    GpuPpu_Invalidate();
+    if (!getenv("MUSIC_CHAIN")) {   // MUSIC_CHAIN: warp from wherever the last warp left
+      RtlSaveLoad(kSaveLoad_Load, 7);
+      GpuPpu_Invalidate();
+    }
     for (int k = 0; k < 5; k++) { g_snes->disableRender = true; RtlRunFrame(0); }
     if (SmWarp_ToRoom(&rooms[r], 0) != kWarp_Ok) continue;
     for (int k = 0; k < 400 && !(game_state == 8 && room_ptr == rooms[r].header); k++) {
@@ -330,8 +347,48 @@ int main(int argc, char **argv) {
       RtlRunFrame(0);
       SmWarp_AfterFrame();
     }
+    if (getenv("MUSIC_CHECK")) {
+      // The music queue after a warp: pending delays with read == write and no timer is
+      // the state that hangs the next door (DoorTransition_WaitForMusicToClear).
+      int stuck_at = -1;
+      const int settle = getenv("MUSIC_SETTLE") ? atoi(getenv("MUSIC_SETTLE")) : 600;
+      for (int k = 0; k < settle && stuck_at < 0; k++) {
+        samus_health = 99;
+        g_snes->disableRender = true;
+        RtlRunFrame(0);
+        SmWarp_AfterFrame();
+        if (getenv("MUSIC_TRACE"))
+          printf("  %04X f%d state %02x: r%d w%d timer %d entry %04x | %d:%d %d:%d %d:%d %d:%d %d:%d %d:%d %d:%d %d:%d\n",
+                 rooms[r].header, k, (unsigned)game_state, music_queue_read_pos, music_queue_write_pos, music_timer,
+                 music_entry, music_queue_track[0], music_queue_delay[0], music_queue_track[1], music_queue_delay[1],
+                 music_queue_track[2], music_queue_delay[2], music_queue_track[3], music_queue_delay[3],
+                 music_queue_track[4], music_queue_delay[4], music_queue_track[5], music_queue_delay[5],
+                 music_queue_track[6], music_queue_delay[6], music_queue_track[7], music_queue_delay[7]);
+        if (HasQueuedMusic() && music_queue_read_pos == music_queue_write_pos && music_timer == 0) stuck_at = k;
+      }
+      g_music_rooms++;
+      // After settling, the area's music bank must be the one uploaded.
+      if (settle >= 600 && room_music_data_index && music_data_index != room_music_data_index) {
+        g_music_wrong++;
+        printf("room %04X: music bank %02x, room wants %02x\n", rooms[r].header, music_data_index, room_music_data_index);
+      }
+      if (stuck_at >= 0) {
+        g_music_stuck++;
+        printf("room %04X: music queue stuck %d frames after arrival (delays %d %d %d %d %d %d %d %d, pos %d)\n",
+               rooms[r].header, stuck_at, music_queue_delay[0], music_queue_delay[1], music_queue_delay[2],
+               music_queue_delay[3], music_queue_delay[4], music_queue_delay[5], music_queue_delay[6],
+               music_queue_delay[7], music_queue_read_pos);
+      }
+      continue;
+    }
     for (int k = 0; k < frames; k++) {
       samus_health = 99;
+      if (getenv("PBOMB") && k == 2) {   // a power bomb where Samus stands
+        power_bomb_explosion_x_pos = samus_x_pos;
+        power_bomb_explosion_y_pos = samus_y_pos;
+        EnableHdmaObjects();
+        SpawnPowerBombExplosion();
+      }
       char label[48];
       snprintf(label, sizeof(label), "room %04X frame %d", rooms[r].header, k);
       TestFrame(label, k == 0);

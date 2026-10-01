@@ -1,0 +1,13 @@
+# Expected values for tools/test/run.sh. Regenerate with --update after a change
+# that is meant to alter them, and say why in the commit.
+audio-rooms.hash=2711ed38f007843a
+gpu-newgame.refused=0
+gpu-newgame.wram=4487f05b19bb87be
+gpu-pbomb.refused=0
+gpu-pbomb.wram=f69e2c154977d711
+gpu-rooms.refused=0
+gpu-rooms.wram=eea086f0dca547f8
+soft-reset.refused=0
+soft-reset.wram=b5af9e0e16ec4393
+warp-music.result=rooms 148, music queue stuck in 0, wrong music bank in 0
+warp.result=ok 583 fail 3 nodoor 6 of 262
