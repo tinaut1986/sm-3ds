@@ -21,7 +21,8 @@ static const char kRomMd5[] = "21f3e98df4780ee1c667b84e57d88675";
 #define RA_INI "retroachievements.ini"
 #define RA_LOG "debug/retroachievements.log"
 
-enum { kMaxPending = 8, kRequestMax = 1024, kResponseMax = 65536, kMaxAchievements = 256, kToastMs = 3000 };
+// A response grows as needed: Super Metroid's achievement set alone is over 64 KB.
+enum { kMaxPending = 8, kRequestMax = 1024, kResponseMax = 4 << 20, kMaxAchievements = 256, kToastMs = 3000 };
 
 static rc_client_t *g_client;
 static bool g_enabled;
@@ -33,7 +34,11 @@ static uint32_t g_version;
 
 static RaAchievement g_list[kMaxAchievements];
 static int g_count;
+static uint16_t g_view[kMaxAchievements];   // g_list in the chosen order
 static RaAchievement g_toast;
+static bool g_notify_top, g_sound = true, g_descending;
+static RaSort g_sort;
+static volatile int g_sound_pos = -1;   // fixed point 16.16 into the sound, -1 = silent
 static u64 g_toast_until;
 
 static void Changed(void) { g_version++; }
@@ -66,6 +71,7 @@ static void SaveIni(void) {
   // The token logs in as the player: keep this file to yourself.
   fprintf(f, "# RetroAchievements login (written by the bottom screen)\nenabled=%d\nuser=%s\ntoken=%s\n", g_enabled,
           g_user, g_token);
+  fprintf(f, "notify_top=%d\nsound=%d\nsort=%d\ndescending=%d\n", g_notify_top, g_sound, g_sort, g_descending);
   fclose(f);
 }
 
@@ -82,6 +88,10 @@ static void LoadIni(void) {
     if (!strcmp(line, "enabled")) g_enabled = atoi(v) != 0;
     else if (!strcmp(line, "user")) snprintf(g_user, sizeof(g_user), "%s", v);
     else if (!strcmp(line, "token")) snprintf(g_token, sizeof(g_token), "%s", v);
+    else if (!strcmp(line, "notify_top")) g_notify_top = atoi(v) != 0;
+    else if (!strcmp(line, "sound")) g_sound = atoi(v) != 0;
+    else if (!strcmp(line, "sort") && atoi(v) >= 0 && atoi(v) < kRaSortCount) g_sort = (RaSort)atoi(v);
+    else if (!strcmp(line, "descending")) g_descending = atoi(v) != 0;
   }
   fclose(f);
 }
@@ -132,7 +142,8 @@ static void UserAgent(char *out, size_t size) {
   if (len > 0 && (size_t)len < size && g_client) rc_client_get_user_agent_clause(g_client, out + len, size - len);
 }
 
-static int HttpOnce(const char *url, const char *post, const char *content_type, char *out, size_t size,
+// Downloads into *buf (grown with realloc up to kResponseMax; *cap is its size).
+static int HttpOnce(const char *url, const char *post, const char *content_type, char **buf, size_t *cap,
                     int *status_out, char *why, size_t why_size) {
   EnsureHttp();
   if (!g_http_ready) { snprintf(why, why_size, "httpc not available"); return -1; }
@@ -166,22 +177,33 @@ static int HttpOnce(const char *url, const char *post, const char *content_type,
   *status_out = (int)status;
   // Drain the whole body: httpcCloseContext hangs on a context with data pending.
   u32 total = 0;
+  bool too_big = false;
   do {
+    if (total + 1 >= *cap) {
+      char *bigger = *cap * 2 <= kResponseMax ? realloc(*buf, *cap * 2) : NULL;
+      if (bigger) *buf = bigger, *cap *= 2;
+    }
     u32 got = 0;
-    const u32 space = (u32)(size - 1) - total;
-    if (!space) break;
-    r = httpcDownloadData(&ctx, (u8 *)out + total, space, &got);
+    const u32 space = (u32)(*cap - 1) - total;
+    if (!space) {   // still pending, but no more room: drain it and fail
+      static u8 sink[4096];
+      too_big = true;
+      r = httpcDownloadData(&ctx, sink, sizeof(sink), &got);
+      continue;
+    }
+    r = httpcDownloadData(&ctx, (u8 *)*buf + total, space, &got);
     total += got;
   } while (r == (Result)HTTPC_RESULTCODE_DOWNLOADPENDING);
-  out[total] = 0;
+  (*buf)[total] = 0;
   httpcCloseContext(&ctx);
+  if (too_big) { snprintf(why, why_size, "response over %d KB", kResponseMax >> 10); return -6; }
   // RA always answers with a body: an empty one is a failed transfer (mzm saw HTTPS
   // answer 200 with nothing behind it).
   if (!total) { snprintf(why, why_size, "empty (http %lu)", (unsigned long)status); return -5; }
   return (int)total;
 }
 
-static int Http(const char *url, const char *post, const char *content_type, char *out, size_t size, int *status) {
+static int Http(const char *url, const char *post, const char *content_type, char **out, size_t *size, int *status) {
   static const char kHttps[] = "https://";
   char why[48] = "";
   char plain[kRequestMax + 8];
@@ -220,7 +242,8 @@ typedef struct {
 
 static RaCall g_pending[kMaxPending], g_done[kMaxPending];
 static int g_pending_count, g_done_count;
-static char g_response[kResponseMax];   // the worker's buffer, one call at a time
+static char *g_response;   // the worker's buffer, one call at a time
+static size_t g_response_cap;
 static LightLock g_lock;
 static Thread g_worker;
 static volatile bool g_worker_stop;
@@ -243,8 +266,10 @@ static void Worker(void *arg) {
       continue;
     }
     int status = 0;
+    if (!g_response && (g_response = malloc(64 * 1024))) g_response_cap = 64 * 1024;
+    if (!g_response) continue;
     const int n = Http(call.url, call.has_post ? call.post : NULL, call.has_post ? call.content_type : NULL,
-                       g_response, sizeof(g_response), &status);
+                       &g_response, &g_response_cap, &status);
     call.body = n < 0 ? NULL : g_response;
     call.body_length = n < 0 ? 0 : n;
     call.status = n < 0 ? RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR : status;
@@ -299,18 +324,20 @@ static void ServerCall(const rc_api_request_t *request, rc_client_server_callbac
 }
 
 static void DrainResponses(void) {
-  static char body[kResponseMax];
   for (;;) {
+    char *body = NULL;
     RaCall call;
     bool have = false;
     LightLock_Lock(&g_lock);
     if (g_done_count > 0) {
       call = g_done[0];
-      if (call.body) {
+      // Copied out: once the queue is empty the worker reuses its buffer.
+      if (call.body && (body = malloc(call.body_length + 1))) {
         memcpy(body, call.body, call.body_length);
         body[call.body_length] = 0;
-        call.body = body;
       }
+      call.body = body;
+      if (!body) call.body_length = 0, call.status = RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR;
       memmove(&g_done[0], &g_done[1], (g_done_count - 1) * sizeof(RaCall));
       g_done_count--;
       have = true;
@@ -323,10 +350,53 @@ static void DrainResponses(void) {
     response.body_length = call.body_length;
     response.http_status_code = call.status;
     call.callback(&response, call.callback_data);
+    free(body);
   }
 }
 
 // ---- Achievement list -------------------------------------------------------------------
+
+// The comparators are ascending and apply the direction themselves; ties keep rcheevos'
+// order, so equal entries never swap places between rebuilds (qsort is not stable).
+static int Dir(int cmp) { return g_descending ? -cmp : cmp; }
+
+static int ByTitle(const void *a, const void *b) {
+  const int ia = *(const uint16_t *)a, ib = *(const uint16_t *)b;
+  const int c = strcasecmp(g_list[ia].title, g_list[ib].title);
+  return c ? Dir(c) : ia - ib;
+}
+
+static int ByPoints(const void *a, const void *b) {
+  const int ia = *(const uint16_t *)a, ib = *(const uint16_t *)b;
+  if (g_list[ia].points != g_list[ib].points) return Dir(g_list[ia].points < g_list[ib].points ? -1 : 1);
+  return ia - ib;
+}
+
+// Unlocked ones first whatever the direction: a locked one has no time to sort by.
+static int ByRecent(const void *a, const void *b) {
+  const int ia = *(const uint16_t *)a, ib = *(const uint16_t *)b;
+  if (g_list[ia].unlocked != g_list[ib].unlocked) return g_list[ia].unlocked ? -1 : 1;
+  if (g_list[ia].unlock_time != g_list[ib].unlock_time)
+    return Dir(g_list[ia].unlock_time > g_list[ib].unlock_time ? -1 : 1);   // newest first
+  return ia - ib;
+}
+
+static void RebuildView(void) {
+  for (int i = 0; i < g_count; i++) g_view[i] = (uint16_t)i;
+  switch (g_sort) {
+  case kRaSortTitle: qsort(g_view, g_count, sizeof(g_view[0]), ByTitle); break;
+  case kRaSortPoints: qsort(g_view, g_count, sizeof(g_view[0]), ByPoints); break;
+  case kRaSortRecent: qsort(g_view, g_count, sizeof(g_view[0]), ByRecent); break;
+  default:
+    if (g_descending)
+      for (int i = 0; i < g_count / 2; i++) {
+        const uint16_t t = g_view[i];
+        g_view[i] = g_view[g_count - 1 - i], g_view[g_count - 1 - i] = t;
+      }
+    break;
+  }
+  Changed();
+}
 
 static void RefreshList(void) {
   g_count = 0;
@@ -346,9 +416,11 @@ static void RefreshList(void) {
       snprintf(o->description, sizeof(o->description), "%s", a->description ? a->description : "");
       o->points = a->points;
       o->unlocked = a->unlocked != RC_CLIENT_ACHIEVEMENT_UNLOCKED_NONE;
+      o->unlock_time = o->unlocked ? (uint32_t)a->unlock_time : 0;
     }
   }
   rc_client_destroy_achievement_list(list);
+  RebuildView();
 }
 
 // ---- Events, login, game ----------------------------------------------------------------
@@ -365,6 +437,7 @@ static void EventHandler(const rc_client_event_t *event, rc_client_t *client) {
     g_toast.points = a->points;
     g_toast.unlocked = true;
     g_toast_until = osGetTime() + kToastMs;
+    if (g_sound) g_sound_pos = 0;
     RefreshList();
     break;
   }
@@ -623,7 +696,7 @@ const char *RetroAch_User(void) { return g_user; }
 const char *RetroAch_Message(void) { return g_message; }
 bool RetroAch_GameLoaded(void) { return g_client && rc_client_is_game_loaded(g_client); }
 int RetroAch_Count(void) { return g_count; }
-const RaAchievement *RetroAch_Get(int i) { return i >= 0 && i < g_count ? &g_list[i] : NULL; }
+const RaAchievement *RetroAch_Get(int i) { return i >= 0 && i < g_count ? &g_list[g_view[i]] : NULL; }
 
 int RetroAch_UnlockedCount(void) {
   int n = 0;
@@ -641,3 +714,64 @@ uint32_t RetroAch_Points(bool unlocked_only) {
 uint32_t RetroAch_Version(void) { return g_version; }
 
 const RaAchievement *RetroAch_Toast(void) { return g_toast_until ? &g_toast : NULL; }
+
+bool RetroAch_NotifyTop(void) { return g_notify_top; }
+
+void RetroAch_SetNotifyTop(bool top) {
+  g_notify_top = top;
+  SaveIni();
+  Changed();
+}
+
+bool RetroAch_Sound(void) { return g_sound; }
+
+void RetroAch_SetSound(bool on) {
+  g_sound = on;
+  if (!on) g_sound_pos = -1;
+  SaveIni();
+  Changed();
+}
+
+RaSort RetroAch_Sort(void) { return g_sort; }
+bool RetroAch_Descending(void) { return g_descending; }
+
+void RetroAch_SetSort(RaSort sort, bool descending) {
+  g_sort = (unsigned)sort < kRaSortCount ? sort : kRaSortDefault;
+  g_descending = descending;
+  SaveIni();
+  RebuildView();
+}
+
+void RetroAch_ShowPreview(void) {
+  memset(&g_toast, 0, sizeof(g_toast));
+  snprintf(g_toast.title, sizeof(g_toast.title), "%s", "RetroAchievements");
+  g_toast.points = 5;
+  g_toast.unlocked = true;
+  g_toast_until = osGetTime() + kToastMs;
+  if (g_sound) g_sound_pos = 0;
+  Changed();
+}
+
+// The unlock sound: mzm's (ra_unlock_sound_data.c), mono at 32000 Hz, resampled to the
+// output's 44100 Hz by nearest sample.
+extern const uint32_t gRaUnlockSoundRate, gRaUnlockSoundFrames;
+extern const int16_t gRaUnlockSoundPcm[];
+
+void RetroAch_MixAudio(int16_t *out, int frames) {
+  int pos = g_sound_pos;
+  if (pos < 0) return;
+  const uint32_t step = (uint32_t)(((uint64_t)gRaUnlockSoundRate << 16) / 44100);
+  for (int i = 0; i < frames; i++, pos += (int)step) {
+    const uint32_t k = (uint32_t)pos >> 16;
+    if (k >= gRaUnlockSoundFrames) {
+      g_sound_pos = -1;
+      return;
+    }
+    const int v = gRaUnlockSoundPcm[k] * 3 / 4;   // under the game, not over it
+    for (int c = 0; c < 2; c++) {
+      const int m = out[i * 2 + c] + v;
+      out[i * 2 + c] = (int16_t)(m > 32767 ? 32767 : m < -32768 ? -32768 : m);
+    }
+  }
+  g_sound_pos = pos;
+}

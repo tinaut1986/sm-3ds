@@ -264,6 +264,8 @@ static volatile u64 g_cb_last;
 
 static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
   const u64 cb_start = svcGetSystemTick();
+  Uint8 *const stream_start = stream;
+  const int stream_len = len;
   const float buffer_ms = len * 1000.0f / (44100 * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
@@ -288,6 +290,7 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
     len -= n;
   }
   SDL_UnlockMutex(g_audio_mutex);
+  RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
   g_cb_slow += cb_ms > buffer_ms;
@@ -740,6 +743,8 @@ int main(int argc, char** argv) {
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
+          static uint32_t toast_px[512 * 64];
+          GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);

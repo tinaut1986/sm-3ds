@@ -27,7 +27,8 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 | `feat/ui-languages` (on top of the one above) | P4.7 | OPTIONS -> LANGUAGE cycles the five languages, the choice survives a reboot, accents readable |
 | `fix/wide-vertical-lean` (on top of the one above) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
 | `feat/retroachievements` (on top of the one above) | P4.4 | trophy tab: log in, the list loads, an unlock shows the notice and reaches the RA site; a save state keeps progress |
-| `feat/game-text` (on top of the one above; its CIA has all five) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
+| `feat/game-text` (on top of the one above) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
+| `feat/ra-options` (on top of the one above; its CIA has all six) | P4.4 | the list loads (no "Invalid JSON"); SETTINGS: notice top/bottom with the sample, sound, order |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -302,8 +303,11 @@ Lessons from mzm that apply directly:
   The existing SNES set runs as is: rcheevos' "System RAM" is `g_ram` (same layout as the
   SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
   Progress goes with save states (`saves/saveN.rap`); a cheat or the teleport pauses it
-  until restart. Not done: badges (a drawn notice only), an unlock sound, the notice on the
-  top screen. *Done when:* logged in on the console, the list loads, an unlock in play
+  until restart. Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
+  notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
+  game's audio), the list's order and direction. A response may grow to 4 MB (the set is
+  over 64 KB: the first build cut it there, "Invalid JSON" on the console). Not done: badges
+  (a drawn notice only). *Done when:* logged in on the console, the list loads, an unlock in play
   shows the notice and appears on the RA site.
 - [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
   the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display

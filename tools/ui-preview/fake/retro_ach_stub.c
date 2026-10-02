@@ -36,3 +36,14 @@ int RetroAch_UnlockedCount(void) { return 2; }
 uint32_t RetroAch_Points(bool unlocked_only) { return unlocked_only ? 15 : 215; }
 uint32_t RetroAch_Version(void) { return g_preview_ra_toast; }
 const RaAchievement *RetroAch_Toast(void) { return g_preview_ra_toast ? &g_list[1] : NULL; }
+static bool g_top, g_snd = true, g_desc;
+static RaSort g_sort;
+bool RetroAch_NotifyTop(void) { return g_top; }
+void RetroAch_SetNotifyTop(bool top) { g_top = top; }
+bool RetroAch_Sound(void) { return g_snd; }
+void RetroAch_SetSound(bool on) { g_snd = on; }
+RaSort RetroAch_Sort(void) { return g_sort; }
+bool RetroAch_Descending(void) { return g_desc; }
+void RetroAch_SetSort(RaSort sort, bool descending) { g_sort = sort, g_desc = descending; }
+void RetroAch_ShowPreview(void) {}
+void RetroAch_MixAudio(int16_t *out, int frames) { (void)out, (void)frames; }

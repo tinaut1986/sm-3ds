@@ -41,7 +41,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -889,8 +889,9 @@ static void DebugTouch(int x, int y) {
 enum { kRaListY = 96, kRaRowH = 11, kRaRows = 10 };
 static int g_ra_scroll, g_ra_sel = -1;
 
-static Rect RaOnRect(void) { return (Rect){ 8, 60, 150, 18 }; }
-static Rect RaLoginRect(void) { return (Rect){ 162, 60, 150, 18 }; }
+static Rect RaOnRect(void) { return (Rect){ 8, 60, 100, 18 }; }
+static Rect RaLoginRect(void) { return (Rect){ 112, 60, 100, 18 }; }
+static Rect RaSettingsRect(void) { return (Rect){ 216, 60, 96, 18 }; }
 static Rect RaUpRect(void) { return (Rect){ 294, kRaListY, 22, kRaRows * kRaRowH / 2 - 1 }; }
 static Rect RaDownRect(void) { return (Rect){ 294, kRaListY + kRaRows * kRaRowH / 2 + 1, 22, kRaRows * kRaRowH / 2 - 1 }; }
 static Rect RaRowRect(int row) { return (Rect){ 8, kRaListY + row * kRaRowH, 284, kRaRowH - 1 }; }
@@ -939,6 +940,7 @@ static void DrawAchievements(Surface s) {
                  buf);
   UiDrawBoxLabel(s, RaLoginRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaLoginRect()),
                  Tr(RaLoggedIn() ? kStrRaLogout : kStrRaLogin));
+  UiDrawBoxLabel(s, RaSettingsRect(), COL_BTN, COL_BORDER, COL_TEXT, Pressed(RaSettingsRect()), Tr(kStrRaSettings));
 
   const int n = RetroAch_Count();
   if (!n) {
@@ -1003,6 +1005,10 @@ static void AchievementsTouch(int x, int y) {
     RetroAch_SetEnabled(!RetroAch_Enabled());
     return;
   }
+  if (UiIn(RaSettingsRect(), x, y)) {
+    g_modal = MODAL_RA;
+    return;
+  }
   if (UiIn(RaLoginRect(), x, y)) {
     if (RaLoggedIn()) RetroAch_Logout();
     else RetroAch_PromptLogin();
@@ -1021,11 +1027,50 @@ static void AchievementsTouch(int x, int y) {
     if (UiIn(RaRowRect(row), x, y) && g_ra_scroll + row < n) g_ra_sel = g_ra_scroll + row;
 }
 
-// The unlock notice, over the tab bar on any tab, for as long as RetroAch_Toast says.
-static void DrawUnlockNotice(Surface s) {
-  const RaAchievement *a = RetroAch_Toast();
-  if (!a) return;
-  const Rect r = { 10, 2, 300, 36 };
+// Achievement settings, as in mzm: where the notice shows (with a sample), the sound, the
+// list's order and direction.
+static Rect RaSetRowRect(int i) { return (Rect){ 24, 66 + i * 28, 272, 22 }; }
+static Rect RaPreviewRect(void) { return (Rect){ 266, 66, 30, 22 }; }
+static Rect RaCloseRect(void) { return (Rect){ 112, 182, 96, 20 }; }
+
+static void DrawRaModal(Surface s) {
+  UiFillRect(s, 14, 34, 292, 176, COL_MODAL_EDGE);
+  UiFillRect(s, 15, 35, 290, 174, COL_MODAL);
+  UiDrawTextCentered(s, SCREEN_W / 2, 46, COL_TITLE, Tr(kStrRaSettings));
+  static const UiStr kSorts[kRaSortCount] = { kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints, kStrRaSortRecent };
+  const struct { UiStr label; UiStr value; } rows[4] = {
+    { kStrRaNotify, RetroAch_NotifyTop() ? kStrRaTop : kStrRaBottom },
+    { kStrRaSound, RetroAch_Sound() ? kStrOn : kStrOff },
+    { kStrRaOrder, kSorts[RetroAch_Sort()] },
+    { kStrRaDirection, RetroAch_Descending() ? kStrRaDescending : kStrRaAscending },
+  };
+  for (int i = 0; i < 4; i++) {
+    Rect r = RaSetRowRect(i);
+    if (i == 0) r.w -= RaPreviewRect().w + 4;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s: %s", Tr(rows[i].label), Tr(rows[i].value));
+    UiDrawBox(s, r, COL_BOX, COL_BOX_EDGE, Pressed(r));
+    UiDrawText(s, r.x + 8, r.y + (r.h - 7) / 2, 1, COL_TEXT, buf);
+  }
+  // The sample: a play triangle.
+  const Rect p = RaPreviewRect();
+  UiDrawBox(s, p, COL_BTN, COL_BORDER, Pressed(p));
+  for (int i = 0; i < 5; i++) UiFillRect(s, p.x + 12 + i, p.y + 6 + i, 1, 11 - 2 * i, COL_GOOD);
+  UiDrawBoxLabel(s, RaCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaCloseRect()), Tr(kStrClose));
+}
+
+static void RaModalTouch(int x, int y) {
+  if (UiIn(RaPreviewRect(), x, y)) RetroAch_ShowPreview();
+  else if (UiIn(RaSetRowRect(0), x, y)) RetroAch_SetNotifyTop(!RetroAch_NotifyTop());
+  else if (UiIn(RaSetRowRect(1), x, y)) RetroAch_SetSound(!RetroAch_Sound());
+  else if (UiIn(RaSetRowRect(2), x, y)) RetroAch_SetSort((RaSort)((RetroAch_Sort() + 1) % kRaSortCount), RetroAch_Descending());
+  else if (UiIn(RaSetRowRect(3), x, y)) RetroAch_SetSort(RetroAch_Sort(), !RetroAch_Descending());
+  else if (UiIn(RaCloseRect(), x, y)) g_modal = MODAL_NONE;
+}
+
+// The unlock notice's box, 300x36 at (x, y).
+static void DrawNoticeBox(Surface s, int x, int y, const RaAchievement *a) {
+  const Rect r = { x, y, 300, 36 };
   UiFillRect(s, r.x, r.y, r.w, r.h, COL_GOOD);
   UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, RGB(14, 20, 32));
   UiFillRect(s, r.x + 3, r.y + 3, 2, r.h - 6, RGB(40, 150, 90));
@@ -1034,6 +1079,12 @@ static void DrawUnlockNotice(Surface s) {
   ClipText(title, sizeof(title), a->title, 38);
   snprintf(line, sizeof(line), "%s (+%u)", title, (unsigned)a->points);
   UiDrawText(s, r.x + 10, r.y + 21, 1, COL_TEXT, line);
+}
+
+// On the bottom screen: over the tab bar on any tab, for as long as RetroAch_Toast says.
+static void DrawUnlockNotice(Surface s) {
+  const RaAchievement *a = RetroAch_Toast();
+  if (a && !RetroAch_NotifyTop()) DrawNoticeBox(s, 10, 2, a);
 }
 
 // ---- Persistent options -----------------------------------------------------
@@ -1109,6 +1160,7 @@ static void TouchDownImpl(int x, int y) {
   // A window swallows every touch below the tab bar.
   switch (g_modal) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
+  case MODAL_RA: RaModalTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -1159,6 +1211,7 @@ static void DrawBottom(const UiPerf *p) {
   }
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
+  case MODAL_RA: DrawRaModal(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
 #endif
@@ -1213,6 +1266,8 @@ bool BottomUi_Frame(const UiPerf *p) {
 // the game with WIDE).
 enum { kOverlayMaxW = 60, kOverlayH = 51 };
 
+static void DrawTopToastCpu(void);
+
 static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
   char line[5][12];
   snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
@@ -1233,6 +1288,7 @@ static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
+  DrawTopToastCpu();
   // The game is centred (274 or 256 px wide on a 400 px screen); use the left margin,
   // which the game never redraws. The top screen is double buffered, so clear
   // it for two frames after the overlay is switched off.
@@ -1249,6 +1305,31 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
   // The box shrinks with the numbers: clear what a wider one left in this buffer.
   UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
   DrawOverlay(s, p, RGB(0, 0, 0));
+}
+
+// The achievement notice on the top screen, CPU path: drawn over the frame; once gone, the
+// margins it covered are cleared for both buffers (the game redraws its own columns).
+static void DrawTopToastCpu(void) {
+  static int clear_frames;
+  Surface s = UiDraw_Screen(GFX_TOP);
+  const RaAchievement *a = RetroAch_Toast();
+  if (a && RetroAch_NotifyTop()) {
+    DrawNoticeBox(s, 50, 4, a);
+    clear_frames = 2;
+  } else if (clear_frames > 0) {
+    clear_frames--;
+    const int game_x0 = g_ui.pixel_perfect ? 72 : 63;
+    UiFillRect(s, 50, 4, game_x0 - 50, 36, RGB(0, 0, 0));
+    UiFillRect(s, 400 - game_x0, 4, game_x0 - 50, 36, RGB(0, 0, 0));
+  }
+}
+
+bool BottomUi_DrawTopToastInto(uint32_t *px) {
+  const RaAchievement *a = RetroAch_Toast();
+  if (!a || !RetroAch_NotifyTop()) return false;
+  Surface s = { px, 512, 64 };
+  DrawNoticeBox(s, 0, 0, a);
+  return true;
 }
 
 bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
