@@ -201,8 +201,15 @@ void GpuPpu_SetMode7UnderHud(bool on);
 // Window 2's real extent per captured line, [x0, x1) in view columns, for shapes the game
 // cuts to 0..255 (the power bomb): used instead of the registers on lines where cutting it
 // as SM does gives exactly the captured WH2/WH3. x0 = kGpuWinNone: none. NULL = off.
-enum { kGpuWinNone = -32768 };
+enum { kGpuWinNone = -32768, kGpuWinFar = 16000 };
 void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]);
+
+// Window 1's or 2's (`window`) real shape per captured line for a cone the game cuts to
+// 0..255 (SM's X-ray scope: 2, security eyes: 1): within the 256 px view the registers
+// stand; where they touch the view's edge, or are empty, the cone's own columns in the
+// margins are used. [x0, x1) in view columns, kGpuWinFar for unbounded, x0 = kGpuWinNone:
+// no cone on that line. NULL = none.
+void GpuPpu_SetWindowCone(int window, const int16_t (*cone)[2]);
 
 // Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
 bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);

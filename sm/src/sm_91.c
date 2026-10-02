@@ -790,8 +790,11 @@ static void XrayHdmaOnScreen_BeamHoriz(XrayHdmaCtx *ctx) {  // 0x91C998
   XrayFillDown(ctx->dest, 0xff, v0 + 2);
 }
 
+RtlXrayCone g_rtl_xray_cone;   // 3DS port, see sm_rtl.h
+
 void CalculateXrayHdmaTableInner(uint16 k, uint16 j, uint16 r18, uint16 r20, bool off_screen, uint16 *dest_addr) {
   int v3;
+  g_rtl_xray_cone = (RtlXrayCone){ (int16)k, (int16)j, r18, r20, (uint16)((uint8 *)dest_addr - g_ram), true };   // 3DS port
   XrayHdmaCtx ctx[1];
   ctx->dest = (uint16*)dest_addr;
   ctx->r18_avoid = r18;

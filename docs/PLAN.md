@@ -28,7 +28,8 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 | `fix/wide-vertical-lean` (on top of the one above) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
 | `feat/retroachievements` (on top of the one above) | P4.4 | trophy tab: log in, the list loads, an unlock shows the notice and reaches the RA site; a save state keeps progress |
 | `feat/game-text` (on top of the one above) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
-| `feat/ra-options` (on top of the one above; its CIA has all six) | P4.4 | the list loads (no "Invalid JSON"); SETTINGS: notice top/bottom with the sample, sound, order |
+| `feat/ra-options` (on top of the one above) | P4.4 | the list loads (no "Invalid JSON"); SETTINGS: notice top/bottom with the sample, sound, order |
+| `fix/wide-xray-cone` (on top of the one above; its CIA has all seven) | security eyes' beam in WIDE (issue below) | the eyes' light in the margins follows the cone; X-ray scope: no garbage in the margins |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already

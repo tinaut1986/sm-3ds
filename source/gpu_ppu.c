@@ -77,6 +77,31 @@ static const int16_t (*g_win2_ext)[2];
 
 void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]) { g_win2_ext = ext; }
 
+static const int16_t (*g_cone)[2];
+static int g_cone_window;
+
+void GpuPpu_SetWindowCone(int window, const int16_t (*cone)[2]) { g_cone = cone, g_cone_window = window; }
+
+// Window `w` (1 or 2) on `line` with the cone's margins (GpuPpu_SetWindowCone): returns
+// whether it applies, with the window as [*l, *r) on the frame's columns.
+static bool WinCone(const PpuLineState *st, int w, int line, int *l, int *r) {
+  if (!g_cone || w != g_cone_window || line >= kPpuCaptureLines || g_cone[line][0] == kGpuWinNone) return false;
+  const int gl = g_cone[line][0], gr = g_cone[line][1];
+  const int wl = w == 1 ? st->window1left : st->window2left, wr = w == 1 ? st->window1right : st->window2right;
+  if (wl > wr) {
+    // Empty in the view: the cone may still cross a margin.
+    if (gl < 0) *l = gl, *r = gr < 0 ? gr : 0;
+    else if (gr > 256) *l = gl > 256 ? gl : 256, *r = gr;
+    else return false;
+  } else {
+    *l = wl == 0 && gl < 0 ? gl : wl;
+    *r = wr == 255 && gr > 256 ? gr : wr + 1;
+  }
+  *l = *l < g_x0 ? g_x0 : *l > g_x1 ? g_x1 : *l;
+  *r = *r > g_x1 ? g_x1 : *r < *l ? *l : *r;
+  return true;
+}
+
 // Window 2 on `line` from its real extent, when the registers are that extent cut to the
 // screen as SM's power bomb cuts it (wholly off one side: left 255 / right 254, or left 1
 // / right 0).
@@ -102,14 +127,15 @@ static void WinCalc(Win *win, const PpuLineState *st, int layer, int line) {
   unsigned nr = 1, i, j;
   int t;
   // Each window as [l, r) on the frame's columns.
-  const int l1 = st->window1left == 0 ? g_x0 : st->window1left;
-  const int r1 = st->window1right == 255 ? g_x1 : st->window1right + 1;
+  int l1 = st->window1left == 0 ? g_x0 : st->window1left;
+  int r1 = st->window1right == 255 ? g_x1 : st->window1right + 1;
+  const bool cone1 = WinCone(st, 1, line, &l1, &r1);
   int l2 = st->window2left == 0 ? g_x0 : st->window2left;
   int r2 = st->window2right == 255 ? g_x1 : st->window2right + 1;
-  const bool ext2 = Win2Extent(st, line, &l2, &r2);
+  const bool ext2 = WinCone(st, 2, line, &l2, &r2) || Win2Extent(st, line, &l2, &r2);
   win->edges[0] = (int16_t)g_x0;
   win->edges[1] = (int16_t)g_x1;
-  const bool w1 = (winflags & kWin1Enabled) && st->window1left <= st->window1right;
+  const bool w1 = (winflags & kWin1Enabled) && (cone1 ? l1 < r1 : st->window1left <= st->window1right);
   if (w1) {
     if (l1 > win->edges[0]) {
       win->edges[nr] = (int16_t)l1;
