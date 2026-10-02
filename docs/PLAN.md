@@ -1,58 +1,7 @@
 # Super Metroid 3DS: action plan
 
-Living document. Read it at the start of every session; update it at the end.
-
-**Active release branch:** `release/v0.1.3` (renamed from `release/v0.1.2` after the
-first stable release `v0.1.2` on 2026-10-01: merged into `main`, GitHub "Release
-v0.1.2", built without the debug tools). Betas `v0.1.0` and `v0.1.1` came before it.
-Open topic branches: `fix/firefly-and-fps-overlay` (WIDE fixes after `feat/display-options`
-was merged; not pushed, not merged; see "Where we are" below) and, stacked on it,
-`feat/debug-tools` (debug tools pass, see the 2026-10-02 decisions; not tested on hardware).
-
-## Where we are (2026-10-02)
-
-- P4.5 (PIXEL PERFECT/SCALED + WIDE) is merged into `release/v0.1.3` (merge ce8c95b) and
-  has been played on the owner's New 3DS over several rounds.
-- On top of it, branch `fix/firefly-and-fps-overlay` (commits 278add1, 9490a36, 3c41078)
-  fixes the last hardware reports. Its CIA (`v0.1.3-dev.12.3+3c41078`) is on the console,
-  **not yet confirmed by the owner**. Next step: the owner tests it; then close the issues
-  that are fine, squash by content if asked, merge into `release/v0.1.3` with `--no-ff`.
-- Bugs and pending work are GitHub issues #1-#8 on `tinaut1986/sm-3ds` (each says what was
-  fixed, in which commit, and what to check): #1 boss cut at the top / losing tiles,
-  #2 power bomb in the margins, #3 stray sprites on top (Ceres), #4 margins jitter while
-  the room shakes, #5 message box duplicated, #6 Ceres escape garbage, #7 vertical lean
-  (enhancement), #8 debug dumps always overwrite slot 00 (fixed in `feat/debug-tools`,
-  waiting for a hardware check).
-- How the WIDE view works and why: P4.5 below and the decisions log (2026-10-01/02
-  entries). Host tools for it: the env vars listed in `tools/gpu-ppu-test/run.sh` and
-  gpu_ppu_test.c (WIDE, WIDE_Y, WIDE_DUMP, ROOM_SEQ, WARP_AT, EARTHQUAKE, FRAME_HASH...).
-- Console FTP: FBI on port 5000, recently at 192.168.1.144 (the IP changes; ask).
-
-## Next up (updated 2026-10-02)
-
-Everything below "Phase 0" marked [x] has been checked on a New 3DS by the owner:
-the CIA without the ROM boots with the ROM on the SD card, saves survive a power
-cycle, save states load, the bottom UI (status, map, cheats, options, debug) and the
-teleport work. Do not re-propose those as pending. What is actually open, in the
-order that makes sense:
-
-State at v0.1.2 (first stable): the GPU renderer is on by default and draws everything
-SM shows in a new game through Ceres, every room, power bombs and the file-select
-screens (mode 7 and windows included; nothing refused on the host). 2DS: ~60 fps in
-gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
-
-1. **P0.3** finish the baseline table: Norfair heat and Maridia water with numbers from
-   the debug log on the 2DS, Brinstar, and the New 3DS columns after the GPU work.
-2. **P4.5** display options: done and merged; finish the open WIDE issues (#1-#8, see
-   "Where we are"). Before Phase 3 (owner's decision, 2026-10-01): stereo is then
-   designed with the margins already there.
-3. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
-   quad set, so per-eye offsets go in the vertex positions.
-4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
-5. Smaller: sprites decoded every frame (~0.5 ms on the 2DS), line analysis (~1.1 ms),
-   decoding only visible tiles after a palette change; the X-ray scope not yet seen on
-   hardware.
-6. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
+Living document. Read it at the start of every session; keep it current as things
+change (what goes where: the table in CLAUDE.md).
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
   finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
@@ -61,11 +10,33 @@ gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
+## Status (2026-10-02)
+
+Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
+boxes below. History: `git log` and the decisions log.
+
+**Release line:** `release/v0.1.3`. Last stable: `v0.1.2` (2026-10-01, built without the
+debug tools); betas `v0.1.0` and `v0.1.1` before it.
+
+**Branches waiting for the owner's check on the console** (merge into the release line
+with `--no-ff` only after they confirm, closing the issues that turned out fine):
+
+| Branch | What | State |
+|---|---|---|
+| `fix/firefly-and-fps-overlay` | WIDE fixes for issues #1-#6 | CIA was on the console, not confirmed |
+| `feat/debug-tools` | debug tools pass, fixes #8; stacked on the branch above, merge that first | CIA on the console, not confirmed |
+
+**Priority** (owner's order; the reasons are in the decisions log):
+P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
+there) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+
+Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
+
 ## How work is tracked
 
 - **This file** is the roadmap: phases, task specs with acceptance criteria,
-  decisions. It is the source of truth for "what next" and is what a new
-  Claude session reads.
+  decisions, and a short Status (open branches, priority). It is the source of
+  truth for "what next" and is what a new Claude session reads.
 - **GitHub issues** (enabled on `tinaut1986/sm-3ds`) are for bugs found by playing:
   things with a repro, screenshots, a console model. Link the issue from the
   task here when a task spawns from one; do not duplicate specs into issues.
@@ -295,6 +266,12 @@ Lessons from mzm that apply directly:
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
   debugging the teleport); fix that before relying on host frame diffs.
+
+- [ ] **P2.5** GPU renderer leftovers (moved from the old "Next up", 2026-10-02).
+  *Spec:* sprites are decoded every frame (~0.5 ms on the 2DS) and the line analysis
+  costs ~1.1 ms; after a palette change decode only the visible tiles; check the X-ray
+  scope on hardware (never seen there). *Done when:* each is either measured and cut on
+  the 2DS or noted here as not worth it, and the X-ray scope has been seen on the console.
 
 ## Phase 3: stereoscopic 3D
 
@@ -893,3 +870,7 @@ Lessons from mzm that apply directly:
   Phase 3), kill Samus. Issue #8 (dumps always slot 00): most likely libctru's stat() leaves
   st_mtime at 0 (not checked on the console), so "least recently written" was always
   slot 0; slots now follow a `debug/sm-<kind>-last.txt` counter, which works either way.
+- 2026-10-02: PLAN's "Where we are" and "Next up" removed (owner agreed): they retold the
+  issues and the specs and went stale. Replaced by a short Status (branches waiting for
+  the owner, priority line). What goes where is a table in CLAUDE.md. The small GPU
+  leftovers that lived only in "Next up" became P2.5.

@@ -1,9 +1,10 @@
-// On-device diagnostics: log to SD, state dumps, frame-time recorder, crash note.
+// On-device diagnostics: log to SD, state dumps, frame-time recorder, crash note
+// (the scene recorder is scene_rec.h).
 //
 // Everything lands in `debug/` inside the data folder (the game's working
 // directory), so it can be fetched over FTP. Captures rotate over a fixed
-// number of slots; the newest slot is whichever was free or least recently
-// written, so order a fetched set by modification time, not by name.
+// number of slots (Debug_NextSlot): the first free one, else the one after the
+// slot written last, which debug/sm-<kind>-last.txt names.
 #pragma once
 
 #include <stdbool.h>

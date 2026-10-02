@@ -6,8 +6,22 @@ goal. The owner already shipped the same kind of port for Metroid: Zero Mission
 
 **Start every session by reading [`docs/PLAN.md`](docs/PLAN.md).** It holds the
 phase roadmap, the task specs with acceptance criteria, and the decisions log.
-When a task is finished, tick it there and add anything non-obvious to the
-decisions log. The next session starts from that file, not from chat history.
+The next session starts from that file, not from chat history.
+
+Each fact lives in one place; keep that place current in the same change that alters it:
+
+| What changed | Update |
+|---|---|
+| A task finished | tick it in PLAN; anything non-obvious goes to the decisions log |
+| A task added, changed, split or dropped | its spec in PLAN (IDs are never reused or renumbered); a dropped one stays, struck through, with the reason in the decisions log |
+| Priorities (the owner reorders, or a task becomes blocked) | the **Priority** line in PLAN's Status, and why in the decisions log |
+| A branch opened, handed to the owner for testing, confirmed or merged | the branch table in PLAN's Status |
+| A bug found or fixed | its GitHub issue (what, which commit, what to check); never a copy in PLAN |
+| A tool, option, file format or workflow added or changed | its doc (`docs/debug-tools.md`, `tools/*/README.md`, this file's Build section) |
+
+PLAN's Status section holds only what no other place records: open branches, what
+waits for the owner's check, and the priority order. Do not grow it into a summary of
+issues or specs.
 
 ## Language
 
@@ -161,7 +175,8 @@ an error screen otherwise. Saves, `config.ini` and `debug/` live in that folder 
 Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
-room. Installing on the owner's console: FBI's FTP server, `curl -T
+room, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
+(see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
 console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in
 `/luma/dumps/arm11/`).
