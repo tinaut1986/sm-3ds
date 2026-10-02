@@ -4,6 +4,12 @@
 #include "funcs.h"
 
 uint16 message_box_das0l_value;
+void (*g_rtl_message_box_hook)(int shown);   // 3DS port, see sm_rtl.h
+uint16 g_rtl_message_box_vram;
+
+static void MessageBoxHook(int shown) {
+  if (g_rtl_message_box_hook) g_rtl_message_box_hook(shown);
+}
 
 
 #define kMessageBoxDefs ((MsgBoxConfig*)RomFixedPtr(0x85869b))
@@ -179,6 +185,7 @@ static void SetupMessageBoxBg3YscrollHdma(void) {  // 0x858363
 static void SetupPpuForActiveMessageBox(uint16 r52) {  // 0x85831E
   SetupMessageBoxBg3YscrollHdma();
   r52 += 22528;
+  g_rtl_message_box_vram = r52;   // 3DS port
   WriteRegWord(VMADDL, r52);
   WriteRegWord(DMAP1, 0x1801);
   WriteRegWord(A1T1L, ADDR16_OF_RAM(ram3000) + 512);
@@ -279,6 +286,7 @@ static void ToggleSaveConfirmationSelection(void) {
   WriteRegWord(A2A1H, 0);
   WriteReg(VMAIN, 0x80);
   WriteReg(MDMAEN, 2);
+  MessageBoxHook(1);   // 3DS port: the box is back in English in VRAM
 }
 
 static void RestorePpuForMessageBox(void) {  // 0x85861A
@@ -377,6 +385,7 @@ CoroutineRet DisplayMessageBox_Async(uint16 a) {  // 0x858080
   InitializePpuForMessageBoxes();
   ClearMessageBoxBg3Tilemap();
   InitializeMessageBox();
+  MessageBoxHook(1);   // 3DS port
   COROUTINE_AWAIT(2, OpenMessageBox_Async());
   COROUTINE_AWAIT(3, HandleMessageBoxInteraction_Async());
   COROUTINE_AWAIT(4, CloseMessageBox_Async());
@@ -394,12 +403,14 @@ CoroutineRet DisplayMessageBox_Async(uint16 a) {  // 0x858080
     } while (--my_counter);
 
     InitializeMessageBox();
+    MessageBoxHook(1);   // 3DS port
     COROUTINE_AWAIT(5, OpenMessageBox_Async());
     COROUTINE_AWAIT(6, HandleMessageBoxInteraction_Async());
     COROUTINE_AWAIT(7, CloseMessageBox_Async());
     message_box_index = 28;
   }
   ClearMessageBoxBg3Tilemap();
+  MessageBoxHook(0);   // 3DS port
   RestorePpuForMessageBox();
   QueueSamusMovementSfx();
 

@@ -67,6 +67,13 @@ bottom screen is operated by touch: save states on the States tab (tap a button
 twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
 (New 3DS) and reset on the Options tab.
 
+### Languages
+
+OPTIONS -> LANGUAGE switches the bottom screen and the game's message boxes (items,
+stations, the save prompt) between English, Spanish, Catalan, French and Portuguese. The
+ROM is not modified (the translation is drawn on screen only), so saves and achievements
+are the same in every language.
+
 ### RetroAchievements
 
 The trophy tab runs the existing Super Metroid achievement set from

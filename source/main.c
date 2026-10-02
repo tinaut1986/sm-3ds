@@ -33,6 +33,7 @@
 #include "rom_loader.h"
 #include "ui_draw.h"
 #include "retro_ach.h"
+#include "game_text.h"
 #include "version.h"
 #include "build_config.h"
 
@@ -528,6 +529,7 @@ int main(int argc, char** argv) {
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
+  GameText_Init();
 
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
@@ -654,7 +656,10 @@ int main(int argc, char** argv) {
     }
     // A reset or a loaded state replaces VRAM without going through the PPU's data port,
     // which is how the GPU renderer learns what changed.
-    if (g_ui.req_reset || g_ui.req_load_state) GpuPpu_Invalidate();
+    if (g_ui.req_reset || g_ui.req_load_state) {
+      GpuPpu_Invalidate();
+      GameText_Forget();
+    }
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
     u64 t_logic = 0, t_draw = 0;
     bool presented = false, gpu_presented = false;

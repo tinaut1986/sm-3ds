@@ -28,6 +28,8 @@
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "game_text.h"
+#include "ui_lang.h"
 
 bool g_debug_flag, g_is_turbo, g_want_dump_memmap_flags, g_new_ppu = true, g_other_image;
 struct SpcPlayer *g_spc_player;
@@ -388,6 +390,29 @@ static void TestFrame(const char *label, bool check_capture) {
   g_replay_us += (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
   memcpy(g_b, g_px, sizeof(g_b));
   g_frames++;
+  // SHOTS=a-b: tested frames a..b (counted from 1) as shot-NNNN.ppm (CPU renderer, 256x224)
+  // with VRAM as vram-NNNN.bin, e.g. to look at a message box (MSGBOX) and its font.
+  int shot_a, shot_b;
+  if (getenv("SHOTS") && sscanf(getenv("SHOTS"), "%d-%d", &shot_a, &shot_b) == 2 && g_frames >= shot_a &&
+      g_frames <= shot_b) {
+    char name[32];
+    snprintf(name, sizeof(name), "shot-%04d.ppm", g_frames);
+    FILE *f = fopen(name, "wb");
+    if (f) {
+      fprintf(f, "P6\n256 224\n255\n");
+      for (int y = 0; y < 224; y++)
+        for (int x = 0; x < 256; x++) {
+          const uint8_t *q = &g_b[y * kPitch + x * 4];
+          const uint8_t rgb[3] = { q[2], q[1], q[0] };
+          fwrite(rgb, 1, 3, f);
+        }
+      fclose(f);
+    }
+    snprintf(name, sizeof(name), "vram-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->vram, 2, 0x8000, f), fclose(f);
+    snprintf(name, sizeof(name), "cgram-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->cgram, 2, 256, f), fclose(f);
+  }
   int x0, y0, x1, y1, n;
   if (check_capture && (n = Diff(g_a, g_b, &x0, &y0, &x1, &y1))) {
     g_capture_bad++;
@@ -519,6 +544,11 @@ int main(int argc, char **argv) {
   g_spc_player = SpcPlayer_Create();
   SpcPlayer_Initialize(g_spc_player);
   PpuBeginDrawing(snes->snes_ppu, g_px, kPitch, 0);
+  // GAME_LANG=n: the game's message boxes in UI language n (ui_lang.h), as on the console.
+  if (getenv("GAME_LANG")) {
+    g_ui_lang = (UiLang)atoi(getenv("GAME_LANG"));
+    GameText_Init();
+  }
   // WIDE: the game side fills the margins' tilemap areas in every frame run from here on
   // (they are outside the normal view, so the normal checks are unaffected).
   if (getenv("WIDE"))
