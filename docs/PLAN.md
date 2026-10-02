@@ -5,8 +5,9 @@ Living document. Read it at the start of every session; update it at the end.
 **Active release branch:** `release/v0.1.3` (renamed from `release/v0.1.2` after the
 first stable release `v0.1.2` on 2026-10-01: merged into `main`, GitHub "Release
 v0.1.2", built without the debug tools). Betas `v0.1.0` and `v0.1.1` came before it.
-Open topic branch: `fix/firefly-and-fps-overlay` (WIDE fixes after `feat/display-options`
-was merged; not pushed, not merged; see "Where we are" below).
+Open topic branches: `fix/firefly-and-fps-overlay` (WIDE fixes after `feat/display-options`
+was merged; not pushed, not merged; see "Where we are" below) and, stacked on it,
+`feat/debug-tools` (debug tools pass, see the 2026-10-02 decisions; not tested on hardware).
 
 ## Where we are (2026-10-02)
 
@@ -20,8 +21,8 @@ was merged; not pushed, not merged; see "Where we are" below).
   fixed, in which commit, and what to check): #1 boss cut at the top / losing tiles,
   #2 power bomb in the margins, #3 stray sprites on top (Ceres), #4 margins jitter while
   the room shakes, #5 message box duplicated, #6 Ceres escape garbage, #7 vertical lean
-  (enhancement), #8 debug dumps always overwrite slot 00 (open, likely why captures get
-  lost: ask the owner for FRAME DUMPs only after fixing it, or one at a time).
+  (enhancement), #8 debug dumps always overwrite slot 00 (fixed in `feat/debug-tools`,
+  waiting for a hardware check).
 - How the WIDE view works and why: P4.5 below and the decisions log (2026-10-01/02
   entries). Host tools for it: the env vars listed in `tools/gpu-ppu-test/run.sh` and
   gpu_ppu_test.c (WIDE, WIDE_Y, WIDE_DUMP, ROOM_SEQ, WARP_AT, EARTHQUAKE, FRAME_HASH...).
@@ -878,3 +879,17 @@ Lessons from mzm that apply directly:
   sprites under the HUD. (4) The margins jittered while the room shook: the lean followed
   the shaken scroll; it now uses the unshaken one (masks still the shaken). Dumps always
   overwrite slot 00 (found when the owner's captures were lost): open.
+- 2026-10-02: Debug tools pass (branch `feat/debug-tools`, cut from
+  `fix/firefly-and-fps-overlay` because both touch bottom_ui.c/main.c; merge that one
+  first). Removed PPU RENDER (no use since the GPU renderer), GIVE ALL and FULL HEAL;
+  STATUS got an ALL button (every item and beam) in the free item cell, capacities stay
+  MAX's job. Added from mzm: buffered log writes (16 KB blocks by default, or direct per
+  line) and a SCENE RECORDER; both cells have mzm's side start/stop button, the rest of
+  the cell picks the option (owner's request). The recorder stores what was shown (RGB565 framebuffer, GPU
+  target read back) in a RAM ring and writes on stop, like mzm's RAM presets: mzm records
+  GBA state per sample instead, but SNES state alone cannot be redrawn offline (per-line
+  HDMA/IRQ writes), and the pixels are what a renderer bug needs. Not done from mzm: log
+  stream filters (ALL/GPU/AUDIO/PERF; our log is a few lines every 5 s), depth tint (for
+  Phase 3), kill Samus. Issue #8 (dumps always slot 00): most likely libctru's stat() leaves
+  st_mtime at 0 (not checked on the console), so "least recently written" was always
+  slot 0; slots now follow a `debug/sm-<kind>-last.txt` counter, which works either way.

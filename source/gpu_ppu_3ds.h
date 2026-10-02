@@ -34,5 +34,10 @@ void GpuPpu3ds_WaitIdle(void);
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);
 
+// Debug: the top screen as the GPU presented its last frame, 240x400 column-major
+// RGBA8 exactly like the framebuffer (valid until the next call), or NULL. Blocks until
+// the GPU is done.
+const uint32_t *GpuPpu3ds_ReadTop(void);
+
 // What the start-up calibration found, for the debug screens.
 const char *GpuPpu3ds_CalibrationText(void);

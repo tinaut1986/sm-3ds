@@ -13,9 +13,13 @@
 void Debug_Init(const char *version);
 
 // --- Log -------------------------------------------------------------------
-// Off until enabled. Lines are flushed to the SD card as they are written, so
-// the last line before a crash is on disk.
+// Off until enabled. Buffered by default: lines reach the SD card in 16 KB blocks
+// (and on a mark, an exit step, an assert). Direct mode writes each line at once,
+// for hangs that would swallow what is still in RAM.
 void Debug_LogSetEnabled(bool on);
+void Debug_LogSetBuffered(bool on);
+bool Debug_LogBuffered(void);
+void Debug_LogFlush(void);
 bool Debug_LogEnabled(void);
 const char *Debug_LogName(void);   // current log file name, "" if none
 void Debug_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -47,3 +51,10 @@ void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_m
 
 // Last status line for the UI ("Dump 03 saved", "Perf: 1234 frames", ...).
 const char *Debug_LastMessage(void);
+void Debug_SetMessage(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+const char *Debug_Version(void);
+
+// Slot for a new capture of `kind` ("dump", "rec", ...): the first of `slots` whose
+// marker file (`marker_fmt` with the slot number) does not exist, else the one after
+// the slot this kind wrote last (remembered in debug/sm-<kind>-last.txt).
+int Debug_NextSlot(const char *kind, const char *marker_fmt, int slots);

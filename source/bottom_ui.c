@@ -13,6 +13,7 @@
 #include "src/variables.h"
 #include "cheats.h"
 #include "debug_tools.h"
+#include "scene_rec.h"
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "ui_draw.h"
@@ -26,7 +27,6 @@
 
 UiOptions g_ui = {
   .audio_on = true,
-  .render_on = true,
   .frameskip = true,
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -159,7 +159,8 @@ static void DrawTabBar(Surface s) {
   }
   // Things that are on whatever tab is shown.
   int x = TabRect(n).x;
-  if (Debug_PerfRecording()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
+  if (SceneRec_Active()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
+  if (Debug_PerfRecording()) { UiDrawText(s, x, 9, 1, COL_BAD, "PRF"); x += 24; }
   if (g_cheats.invincible || g_cheats.max_mode) UiDrawText(s, x, 9, 1, COL_WARN, "CHT");
   DrawSystemStatus(s);
 }
@@ -288,8 +289,9 @@ static void DrawMap(Surface s, const UiPerf *p) {
 
 // ---- Status tab -----------------------------------------------------------------
 // In DEBUG_TOOLS builds it is also where the cheats live, as in mzm: tap an item or
-// beam to add or remove it, GOD and MAX next to the energy, and the map-station boxes
-// unlock an area's map (so any room can be picked for a warp).
+// beam to add or remove it, ALL (the free item cell) to get every item and beam, GOD
+// and MAX next to the energy, and the map-station boxes unlock an area's map (so any
+// room can be picked for a warp).
 
 static Rect ItemRect(int i) { return (Rect){ 8 + (i % 4) * 77, 111 + (i / 4) * 14, 74, 13 }; }
 static Rect BeamRect(int i) { return (Rect){ 8 + i * 61, 165, 58, 13 }; }
@@ -298,6 +300,8 @@ static Rect StationRect(int i) { return (Rect){ 8 + i * 51, 191, 49, 14 }; }
 #if DEBUG_TOOLS
 static Rect GodRect(void) { return (Rect){ 254, 48, 26, 16 }; }
 static Rect MaxRect(void) { return (Rect){ 282, 48, 26, 16 }; }
+// The free cell after the last item.
+static Rect AllRect(void) { return ItemRect(kSmItemCount); }
 
 static void DrawCheatButton(Surface s, Rect r, bool on, const char *label) {
   UiDrawBoxLabel(s, r, on ? RGB(110, 85, 20) : RGB(24, 34, 52), on ? RGB(255, 220, 90) : RGB(60, 90, 140),
@@ -357,6 +361,14 @@ static void DrawStatus(Surface s) {
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmItems[i].name);
   }
+#if DEBUG_TOOLS
+  {
+    bool all = true;
+    for (int i = 0; i < kSmItemCount; i++) all &= (collected_items & kSmItems[i].mask) != 0;
+    for (int i = 0; i < kSmBeamCount; i++) all &= (collected_beams & kSmBeams[i].mask) != 0;
+    DrawCheatButton(s, AllRect(), all, "ALL");
+  }
+#endif
   UiDrawText(s, 8, 156, 1, COL_DIM, "BEAMS");
   for (int i = 0; i < kSmBeamCount; i++) {
     const Rect r = BeamRect(i);
@@ -397,6 +409,10 @@ static void StatusTouch(int x, int y) {
   }
   if (UiIn(MaxRect(), x, y)) {
     ReportGameplay(Cheats_SetMax(!g_cheats.max_mode));
+    return;
+  }
+  if (UiIn(AllRect(), x, y)) {
+    ReportGameplay(Cheats_GiveAll());
     return;
   }
   for (int i = 0; i < kSmItemCount; i++)
@@ -683,12 +699,18 @@ static void ResetModalTouch(int x, int y) {
 // Debug tools: a 2-column grid in a window over the Debug tab, like mzm's.
 #if DEBUG_TOOLS
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_PERF, TOOL_PPU, TOOL_GIVE_ALL, TOOL_HEAL, TOOL_RENDERER,
-  TOOL_GPU_CHECK, TOOL_COUNT
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK,
+  TOOL_COUNT
 } Tool;
 
 static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 44 + (i / 2) * 29, 140, 26 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
+// Cells with something that runs (log, scene recorder), as in mzm: the right side is a
+// start/stop button, the rest of the cell changes its option.
+static Rect SideRect(int i) {
+  const Rect r = ToolRect(i);
+  return (Rect){ r.x + r.w - 32, r.y, 32, r.h };
+}
 
 static void DrawToolCell(Surface s, int i, const char *label, const char *state, uint32_t state_col) {
   const Rect r = ToolRect(i);
@@ -697,21 +719,43 @@ static void DrawToolCell(Surface s, int i, const char *label, const char *state,
   UiDrawText(s, r.x + 6, r.y + 15, 1, state_col, state);
 }
 
+// Green play triangle while stopped (tap to start), red stop square while running.
+static void DrawSideButton(Surface s, int i, bool running) {
+  const Rect r = SideRect(i);
+  const uint32_t fg = running ? RGB(255, 90, 90) : RGB(120, 230, 140);
+  UiFillRect(s, r.x, r.y + 3, 1, r.h - 6, RGB(90, 110, 150));
+  UiFillRect(s, r.x + 1, r.y + 3, r.w - 4, r.h - 6, Pressed(r) ? COL_PRESSED : running ? RGB(70, 22, 22) : RGB(22, 44, 30));
+  const int cx = r.x + 1 + (r.w - 4) / 2, cy = r.y + r.h / 2;
+  if (running) {
+    UiFillRect(s, cx - 5, cy - 5, 10, 10, fg);
+  } else {
+    for (int dy = -6; dy <= 6; dy++) {   // pointing right: widest in the middle row
+      const int len = 11 - (dy < 0 ? -dy : dy) * 11 / 6;
+      if (len > 0) UiFillRect(s, cx - 4, cy + dy, len, 1, fg);
+    }
+  }
+}
+
 static void DrawToolsModal(Surface s) {
   UiFillRect(s, 10, 26, 300, 210, COL_MODAL_EDGE);
   UiFillRect(s, 11, 27, 298, 208, COL_MODAL);
   UiDrawText(s, 20, 33, 1, COL_TITLE, "DEBUG TOOLS");
-  const uint32_t act = RGB(140, 170, 210);
+  const uint32_t act = RGB(140, 170, 210), opt = RGB(255, 215, 0);
   DrawToolCell(s, TOOL_DUMP, "SCREEN DUMP", "DUMP SET", act);
   DrawToolCell(s, TOOL_FRAME_DUMP, "FRAME DUMP", "SET + PPU/HDMA LOG", act);
-  DrawToolCell(s, TOOL_LOG, "LOG TO SD", Debug_LogEnabled() ? Debug_LogName() : "OFF",
-               Debug_LogEnabled() ? COL_GOOD : act);
+  DrawToolCell(s, TOOL_LOG, "LOG TO SD",
+               Debug_LogBuffered() ? "BUFFERED" : "DIRECT", Debug_LogBuffered() ? opt : COL_WARN);
+  DrawSideButton(s, TOOL_LOG, Debug_LogEnabled());
   DrawToolCell(s, TOOL_MARK, "LOG MARK", Debug_LogEnabled() ? "MARK" : "LOG IS OFF", Debug_LogEnabled() ? act : COL_FAINT);
+  {
+    char rec[16];
+    if (SceneRec_Active()) snprintf(rec, sizeof(rec), "%d/%d", SceneRec_Frames(), SceneRec_Capacity());
+    else snprintf(rec, sizeof(rec), "%s", SceneRec_RateLabel());
+    DrawToolCell(s, TOOL_SCENE_REC, "SCENE REC", rec, SceneRec_Active() ? COL_BAD : opt);
+    DrawSideButton(s, TOOL_SCENE_REC, SceneRec_Active());
+  }
   DrawToolCell(s, TOOL_PERF, "PERF RECORDER", Debug_PerfRecording() ? "RECORDING" : "OFF",
                Debug_PerfRecording() ? COL_BAD : act);
-  DrawToolCell(s, TOOL_PPU, "PPU RENDER", g_ui.render_on ? "ON" : "OFF", g_ui.render_on ? COL_GOOD : COL_WARN);
-  DrawToolCell(s, TOOL_GIVE_ALL, "GIVE ALL", "ITEMS, BEAMS, MAX", act);
-  DrawToolCell(s, TOOL_HEAL, "FULL HEAL", "ENERGY AND AMMO", act);
   DrawToolCell(s, TOOL_RENDERER, "RENDERER", g_ui.gpu_render ? "GPU (CPU FALLBACK)" : "CPU",
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
@@ -727,21 +771,37 @@ static void ToolsModalTouch(int x, int y) {
   }
   for (int i = 0; i < TOOL_COUNT; i++) {
     if (!UiIn(ToolRect(i), x, y)) continue;
+    const bool side = UiIn(SideRect(i), x, y);
     switch ((Tool)i) {
     case TOOL_DUMP: g_ui.req_dump = true; break;
     case TOOL_FRAME_DUMP:
       g_ui.req_frame_dump = true;
       if (g_ui.paused) Toast("Frame dump: waits for unpause");
       break;
-    case TOOL_LOG: Debug_LogSetEnabled(!Debug_LogEnabled()); Toast(Debug_LastMessage()); break;
+    case TOOL_LOG:
+      if (side) {
+        Debug_LogSetEnabled(!Debug_LogEnabled());
+        Toast(Debug_LastMessage());
+      } else {
+        Debug_LogSetBuffered(!Debug_LogBuffered());
+        Toast(Debug_LogBuffered() ? "Log: buffered, 16 KB blocks" : "Log: direct, every line");
+      }
+      break;
     case TOOL_MARK:
       if (Debug_LogEnabled()) { Debug_LogMark(); Toast("Mark written"); }
       else Toast("Turn the log on first");
       break;
+    case TOOL_SCENE_REC:
+      if (side) {
+        SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
+        Toast(Debug_LastMessage());
+      } else if (SceneRec_Active()) {
+        Toast("Stop the recorder to change the rate");
+      } else {
+        SceneRec_CycleRate();
+      }
+      break;
     case TOOL_PERF: Debug_PerfToggle(); Toast(Debug_LastMessage()); break;
-    case TOOL_PPU: g_ui.render_on = !g_ui.render_on; break;
-    case TOOL_GIVE_ALL: if (Cheats_GiveAll()) Toast("Everything"); else ReportGameplay(false); break;
-    case TOOL_HEAL: if (Cheats_FullHeal()) Toast("Refilled"); else ReportGameplay(false); break;
     case TOOL_RENDERER: g_ui.gpu_render = !g_ui.gpu_render; break;
     case TOOL_GPU_CHECK:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
@@ -798,7 +858,7 @@ static void DebugTouch(int x, int y) {
 
 // ---- Persistent options -----------------------------------------------------
 // Saved to config.ini in the data folder whenever one changes. Not persisted on
-// purpose: pause, turbo, PPU render off, cheats and the log/perf recorders,
+// purpose: pause, turbo, cheats and the log/perf recorders,
 // which would be confusing or harmful to find switched on at the next boot.
 
 #define CONFIG_PATH "config.ini"
