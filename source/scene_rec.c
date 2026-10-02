@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#ifdef __3DS__
+#include <3ds.h>
+#endif
 
 #include "debug_tools.h"
 
@@ -95,6 +100,14 @@ static size_t Pack(const uint16_t *px, uint16_t *out) {
   return o;
 }
 
+static unsigned NowMs(void) {
+#ifdef __3DS__
+  return (unsigned)osGetTime();
+#else
+  return (unsigned)(clock() * 1000 / CLOCKS_PER_SEC);
+#endif
+}
+
 // File: a 64-byte header, then per frame its FrameHead, a uint32 count of packed words
 // and the words. Little endian.
 static void Save(void) {
@@ -124,22 +137,31 @@ static void Save(void) {
   head.frames = (uint32_t)g_count;
   head.every = (uint32_t)kRates[g_rate].every;
   snprintf(head.version, sizeof(head.version), "%s", Debug_Version());
-  fwrite(&head, 1, sizeof(head), f);
-  size_t bytes = sizeof(head);
+  const unsigned t0 = NowMs();
   const int first = g_count < g_capacity ? 0 : g_head;
+  // The file's final size first: on the console every write that grows a file is slow
+  // (12 MB written by appending froze the game for over a minute), so it is sized once.
+  size_t bytes = sizeof(head);
+  for (int k = 0; k < g_count; k++) {
+    const uint8_t *s = g_ring + (size_t)((first + k) % g_capacity) * kSlotBytes;
+    bytes += sizeof(FrameHead) + 4 + Pack((const uint16_t *)(s + sizeof(FrameHead)), packed) * 2;
+  }
+  fflush(f);
+  ftruncate(fileno(f), (off_t)bytes);
+  fwrite(&head, 1, sizeof(head), f);
   for (int k = 0; k < g_count; k++) {
     const uint8_t *s = g_ring + (size_t)((first + k) % g_capacity) * kSlotBytes;
     const uint32_t words = (uint32_t)Pack((const uint16_t *)(s + sizeof(FrameHead)), packed);
     fwrite(s, 1, sizeof(FrameHead), f);
     fwrite(&words, 1, 4, f);
     fwrite(packed, 2, words, f);
-    bytes += sizeof(FrameHead) + 4 + words * 2;
   }
   fclose(f);
+  const unsigned ms = NowMs() - t0;
   free(packed);
   Debug_SetMessage("Scene rec %02d: %d frames, %u KB", slot, g_count, (unsigned)(bytes / 1024));
-  Debug_Log("scene recording -> sm-rec-%02d.bin: %d frames every %d, %u KB", slot, g_count, kRates[g_rate].every,
-            (unsigned)(bytes / 1024));
+  Debug_Log("scene recording -> sm-rec-%02d.bin: %d frames every %d, %u KB in %u ms", slot, g_count,
+            kRates[g_rate].every, (unsigned)(bytes / 1024), ms);
 }
 
 void SceneRec_Toggle(void) {
