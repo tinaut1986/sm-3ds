@@ -12,6 +12,10 @@ SRAM, scripted inputs, warps).
 | gpu-rooms | every room reachable by a door, 10 frames each | GPU list == CPU renderer, nothing refused, WRAM hash |
 | gpu-newgame | power-on, title, intro, new game, Ceres (mode 7), Ceres exploding (`CERES_BOOM`) | same |
 | gpu-pbomb | a power bomb in Landing Site (layer and colour windows) | same |
+| wide-rooms | every room with WIDE on (60 px margins), 10 frames each | GPU list == CPU renderer; the WIDE middle equals the normal frame; margins black while the room is not filled in (doors, fades), except the HUD's columns |
+| wide-pbomb | the power bomb in Landing Site with WIDE on | same, and a hash of the whole WIDE images (margins and HUD rows, where the explosion was cut off once): when it changes, look at the frames (`WIDE_DUMP`) before `--update` |
+| wide-ceres | the Ceres elevator shaft (`DF45`, mode 7) tilting in the escape (`CERES_ESCAPE`), WIDE with PIXEL PERFECT's extra rows, Samus shooting left then right | same; a hash of the whole WIDE images (the plane in the margins, the extra rows and under the HUD); the WRAM hash covers where the beams and their explosions are drawn (once at a garbage Y / the previous shot's place, sm_93.c) |
+| wide-door | WIDE through Crateria `93D5`'s right door into `92FD` and back (garbage beside the HUD once; margins that skipped the fades) | same, it ends back in `93D5`, and the count of frames with the margins filled in (fades included) |
 | soft-reset | B on the file-select screens (`MASH_B`) | no crash, soft resets happen, same |
 | warp-music | a teleport every 30 frames, room after room (`MUSIC_CHECK`, `MUSIC_CHAIN`) | the music queue never ends up stuck (it froze the next door) |
 | audio-rooms | audio over every room, 120 frames each | output hash |

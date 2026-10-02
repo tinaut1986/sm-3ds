@@ -46,5 +46,6 @@ bool Cheats_ToggleBeam(int index);
 // 230/50/50 ammo, kept full. MAX off: gives the remembered capacities back.
 bool Cheats_SetMax(bool on);
 
-bool Cheats_FullHeal(void);   // energy, reserves and ammo up to their maximum
-bool Cheats_GiveAll(void);    // every item and beam, max capacities, full
+// Every item and beam, collected and equipped (Plasma rather than Spazer). Capacities
+// are MAX's job.
+bool Cheats_GiveAll(void);

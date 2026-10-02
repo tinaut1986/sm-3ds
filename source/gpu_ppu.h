@@ -100,9 +100,24 @@ typedef struct {
   bool clip, no_math;
 } GpuCwRect;
 
-enum { kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224, kGpuMaxCwRects = 1024 };
+enum {
+  kGpuMaxQuads = 4096, kGpuMaxBands = 32, kGpuMaxTex = 48, kGpuRows = 224, kGpuMaxCwRects = 1024,
+  // Margins: up to 160 px a side and 256 in all (the citro3d targets are 512 wide).
+  kGpuMaxMargin = 160, kGpuMaxMargins = 256,
+  kGpuMaxMasks = 16, kGpuMaxExtraRows = 16,
+};
+
+// Drawn black over the finished image (e.g. the WIDE margins next to the HUD).
+typedef struct {
+  int16_t x, y, w, h;
+} GpuMaskRect;
 
 typedef struct {
+  // Columns the frame covers: [0, 256), or wider for the WIDE view (GpuPpu_SetMargin).
+  // Outside 0..255 the windows count as "outside" both windows, as the zelda3/snesrev
+  // extra side space does. Rows: [0, 224), or with extra rows above and below
+  // (GpuPpu_SetExtraRows), which repeat the first and last line's registers.
+  int x0, x1, y0, y1;
   GpuTex *tex[kGpuMaxTex];
   int tex_count;
   GpuQuad quads[kGpuMaxQuads];
@@ -111,6 +126,9 @@ typedef struct {
   int band_count;
   GpuCwRect cw[kGpuMaxCwRects];
   int cw_count;
+  // Cleared by GpuPpu_BuildFrame; the caller may add masks before drawing the frame.
+  GpuMaskRect mask[kGpuMaxMasks];
+  int mask_count;
 } GpuFrame;
 
 // Implemented by the backend. Texels start out as zero (transparent).
@@ -122,6 +140,62 @@ void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
 // Forget every cached texture. Required whenever VRAM changes other than through the
 // PPU's data port (a loaded state, a reset). Cheap; the next frame decodes what it needs.
 void GpuPpu_Invalidate(void);
+
+// Pixels to add on the left and right of the next frames built: the WIDE view. BG layers
+// and sprites are drawn there as the PPU would if the screen were wider; mode 7 rows stay
+// 256 wide. Not necessarily even: next to a room edge the view leans away from it.
+void GpuPpu_SetMargins(int left, int right);
+static inline void GpuPpu_SetMargin(int margin) { GpuPpu_SetMargins(margin, margin); }
+
+// Where BG3 is drawn on the narrow (HUD) rows of GpuPpu_SetNarrowBg3Rows: columns
+// [x, x + 256). 0 = where the PPU puts it; with uneven margins, the HUD keeps its place on
+// the screen by moving by the difference.
+void GpuPpu_SetHudX(int x);
+
+// Added to a BG layer's horizontal scroll on every line of the next frames (0..2 = BG1..3).
+void GpuPpu_SetLayerShiftX(int layer, int dx);
+
+// Full position of each of the 128 OAM entries (INT16_MIN = unknown, a Y of 0x4000 or more
+// = hidden), used instead of the 9-bit X and the wrapping 8-bit Y when set: with margins
+// a sprite far off one side would read as one in the other side's margin, and one below
+// the screen as one at the top. Set them only then (SM's WIDE view: g_rtl_oam_x/y); without
+// margins they would hide what the SNES shows (a piece at x 500 appears at -12). NULL = none.
+extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
+// Per OAM entry, non-zero: the sprite is part of the HUD and is drawn moved by the HUD's
+// offset (GpuPpu_SetHudX), as the HUD keeps its place when the view leans. NULL = none.
+extern const uint8_t *g_gpu_ppu_obj_hud;
+
+// Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show
+// sprites, which on the SNES never showed there).
+void GpuPpu_SetNoSpriteWrap(bool no_wrap);
+
+// Rows to add above and below the 224 of the next frames built (0..kGpuMaxExtraRows):
+// the first band grows up and the last one down, BG layers keep their scroll, sprites
+// show there (an SM sprite parked off-screen at x 0x180, y 0xE0 is left out).
+void GpuPpu_SetExtraRows(int top, int bottom);
+
+// Bands entirely within output rows [0, rows) keep BG3 within 0..255 when margins are
+// on: SM's HUD is a 256 px BG3 tilemap that would repeat into them.
+void GpuPpu_SetNarrowBg3Rows(int rows);
+
+// Also narrow (and drawn at the HUD's place): any band whose BG3 uses this 32x32 tilemap
+// (VRAM word address; -1 = none). SM's message boxes: BG3SC 0x58.
+void GpuPpu_SetNarrowBg3Map(int tilemap_adr);
+
+// Bands entirely within the narrow BG3 rows (the HUD, GpuPpu_SetNarrowBg3Rows) that are
+// not mode 7 get the mode 7 plane on the main screen under them, from their own lines'
+// matrix registers: SM switches to mode 7 below the HUD, so with WIDE the plane goes on
+// under it (the HUD lines keep only BG3 and sprites there).
+void GpuPpu_SetMode7UnderHud(bool on);
+
+// Window 2's real extent per captured line, [x0, x1) in view columns, for shapes the game
+// cuts to 0..255 (the power bomb): used instead of the registers on lines where cutting it
+// as SM does gives exactly the captured WH2/WH3. x0 = kGpuWinNone: none. NULL = off.
+enum { kGpuWinNone = -32768 };
+void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]);
+
+// Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
+bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);
 
 // Builds `out` for the frame in `cap`. Returns false when the frame needs the CPU
 // renderer; `*reason` then says why (a static string).

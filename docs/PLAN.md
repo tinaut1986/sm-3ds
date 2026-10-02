@@ -1,30 +1,7 @@
 # Super Metroid 3DS: action plan
 
-Living document. Read it at the start of every session; update it at the end.
-
-**Active release branch:** `release/v0.1.2` (renamed from `release/v0.1.1` after
-tagging the beta `v0.1.1` on 2026-10-01: GPU renderer on by default, Old 3DS at ~60 fps
-in gameplay, cheaper audio, exit and soft-reset crashes fixed). `v0.1.0` was the first
-beta. All topic branches so far are merged and deleted (`feat/gpu-ppu` still exists on
-the remote, merged).
-
-## Next up (updated 2026-10-01)
-
-Everything below "Phase 0" marked [x] has been checked on a New 3DS by the owner:
-the CIA without the ROM boots with the ROM on the SD card, saves survive a power
-cycle, save states load, the bottom UI (status, map, cheats, options, debug) and the
-teleport work. Do not re-propose those as pending. What is actually open, in the
-order that makes sense:
-
-1. **P2.3/P2.4** GPU PPU renderer (`docs/gpu-ppu-design.md`), on by default since
-   v0.1.1; 2DS at ~60 fps in gameplay. Open: Mode 7 (title, intro, Ceres: ~22-30 fps on
-   the CPU renderer at 268 MHz), a colour window that splits a line with clip/prevent
-   (maybe X-ray), New 3DS numbers after the optimisations.
-2. **P0.3** the rest of the baseline table (only New 3DS / Landing Site so far;
-   no Old 3DS numbers at all).
-3. **P2.2** the DSP cost for Old 3DS (lock split done; DSP itself untouched).
-4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present); fits with P2.3.
-5. **P1.9 E**, **P1.7** remap, **P0.4** logic check on PC: when useful.
+Living document. Read it at the start of every session; keep it current as things
+change (what goes where: the table in CLAUDE.md).
 
 - **Goal:** a native 3DS port of Super Metroid that is completable start to
   finish, runs at 60 fps on New 3DS and as close as possible on Old 3DS/2DS,
@@ -33,11 +10,28 @@ order that makes sense:
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
+## Status (2026-10-02)
+
+Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
+boxes below. History: `git log` and the decisions log.
+
+**Release line:** `release/v0.1.4`. Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
+tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
+
+**Branches waiting for the owner's check on the console** (merge into the release line
+with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+
+**Priority** (owner's order; the reasons are in the decisions log):
+P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
+there) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+
+Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
+
 ## How work is tracked
 
 - **This file** is the roadmap: phases, task specs with acceptance criteria,
-  decisions. It is the source of truth for "what next" and is what a new
-  Claude session reads.
+  decisions, and a short Status (open branches, priority). It is the source of
+  truth for "what next" and is what a new Claude session reads.
 - **GitHub issues** (enabled on `tinaut1986/sm-3ds`) are for bugs found by playing:
   things with a repro, screenshots, a console model. Link the issue from the
   task here when a task spawns from one; do not duplicate specs into issues.
@@ -101,7 +95,7 @@ structure carries over but GBA-specific parts must be rewritten for SNES.
 | Bezel | `port_gba_bezel.c` | Adapt (new art, 8:7 area) |
 | RetroAchievements | `port_retroachievements_3ds.c`, `tools/gen_ra_iwram_map.py` | Adapt: network/toasts/badges as is; memory map to SNES WRAM. Hardcore stays off (unofficial port) |
 | Save states | `port_save_state.c` | Idea only. snesrev already has snapshot code in `sm_cpu_infra.c`/`sm_rtl.c` |
-| WIDE view | `port_wide_view.c` | Probably not needed: snesrev has `extended_aspect_ratio` |
+| WIDE view | `port_wide_view.c`, `platform_gpu_3ds.c` (display style / aspect) | Adapt: margins and option names. snesrev's `extended_aspect_ratio` does not help: nothing in the game reads it and `kPpuExtraLeftRight` is 0 (P4.5) |
 
 Lessons from mzm that apply directly:
 
@@ -128,8 +122,9 @@ Lessons from mzm that apply directly:
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
   and `FULL_NATIVE`. Record in a table below.
   *Done when:* table filled in.
-  Status 2026-10-01: New 3DS / Landing Site only (see the table and decisions
-  log). Tool: Debug tab -> PERF writes `debug/sm-perf-NN.csv`.
+  Status 2026-10-01: Landing Site on both, title/intro/Ceres on the 2DS (see the
+  table). Tools: the debug log (every 5 s: speed, work, logic, GPU build/submit, audio)
+  and Debug tab -> PERF (`debug/sm-perf-NN.csv`).
 - [ ] **P0.4** Establish game-logic correctness on PC.
   *Spec:* build the PC version from `sm/` on Linux; play or replay with the
   native-vs-ROM comparison on; note mismatches. Check whether snesrev's
@@ -160,8 +155,9 @@ Lessons from mzm that apply directly:
 - [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
   a texture, scale with citro3d.
   *Done when:* no per-pixel CPU copy remains in the frontend.
-  Status: the bottom screen no longer mirrors the game; the top copy is
-  table-driven (2.8 ms on New 3DS) but still CPU.
+  Status 2026-10-01: with the GPU renderer (on by default) citro3d draws and presents
+  the top screen; the table-driven CPU copy (`DrawPpuFrame`) is only used for frames
+  drawn by the CPU renderer (refused by the GPU path, or the renderer switched off).
 - [x] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay.
   Done 2026-09-30, checked on hardware: 804 MHz at boot (Options toggle, saved),
   vblank-locked pacing with adaptive frameskip, FPS/timing overlay on the top
@@ -224,10 +220,12 @@ Lessons from mzm that apply directly:
   4000 frames). Table-driven top-screen copy (5.0 -> 2.8 ms).
 - [ ] **P2.1** Profile. Split frame time into game logic, PPU, audio, present;
   write `docs/perf.md` with the numbers.
-  Status: the split exists (perf CSV, decisions log); `docs/perf.md` not written,
-  no Old 3DS numbers.
-- [ ] **P2.2** Audio cost.
-  Status 2026-10-01 (2DS): the system core gives the app 30 % and no more
+  Status: the split exists (perf CSV, the debug log, decisions log) with Old 3DS
+  numbers; `docs/perf.md` not written (the decisions log has the numbers).
+- [x] **P2.2** Audio cost. Done 2026-10-01: the S-DSP is ~40 % cheaper with the output
+  bit-identical (decisions log); 2DS audio blocks take 10-14 ms of the 16.7 ms budget,
+  no late callbacks in play, no crackling. A quality setting was not needed.
+  History, 2026-10-01 (2DS): the system core gives the app 30 % and no more
   (`APT_SetAppCpuTimeLimit` 80/70/50 -> 0xD8E05BF4, PM "not implemented"); the audio
   block takes ~16 ms of wall time for 16.7 ms of sound (DSP ~14), most callbacks miss
   their buffer: sound breaks up on Old 3DS. Needs a cheaper DSP or core 0.
@@ -236,9 +234,10 @@ Lessons from mzm that apply directly:
   lock. Open: the DSP itself (~1.5 ms CPU per frame on New 3DS, likely over the
   30 % core-1 budget on Old 3DS). Options: cheaper interpolation/echo behind a
   quality setting, or core 2 on New 3DS.
-- [ ] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
-  Status 2026-10-01: designed and implemented (see the doc); checked on a New 3DS with
-  GPU CHECK (identical within the 8-bit maths). Open: FPS comparison, Old 3DS.
+- [x] **P2.3** GPU PPU renderer, design first (`docs/gpu-ppu-design.md`).
+  Done 2026-10-01: implemented including mode 7 and windows, on by default since
+  v0.1.1; checked on a New 3DS with GPU CHECK (identical within the 8-bit maths) and
+  played on a 2DS.
   Original spec:
   tiles/palettes to a texture atlas, BG layers and OBJ as quads, priorities as
   draw order/depth, colour math as blending, HDMA as per-scanline register
@@ -254,12 +253,20 @@ Lessons from mzm that apply directly:
   map.
 - [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
-  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host) and GPU CHECK
-  (console). Host: 2560 frames over every room identical; New 3DS: 6 sets, max error 8.
+  Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host, in `make test`) and
+  GPU CHECK (console). Host: every room, a new game through Ceres exploding, power bombs,
+  file select identical to the CPU renderer, nothing refused; New 3DS: 6 sets, max
+  error 8. Open for "done": the remaining P0.3 spots on Old 3DS.
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
   debugging the teleport); fix that before relying on host frame diffs.
+
+- [ ] **P2.5** GPU renderer leftovers (moved from the old "Next up", 2026-10-02).
+  *Spec:* sprites are decoded every frame (~0.5 ms on the 2DS) and the line analysis
+  costs ~1.1 ms; after a palette change decode only the visible tiles; check the X-ray
+  scope on hardware (never seen there). *Done when:* each is either measured and cut on
+  the 2DS or noted here as not worth it, and the X-ray scope has been seen on the console.
 
 ## Phase 3: stereoscopic 3D
 
@@ -282,6 +289,127 @@ Lessons from mzm that apply directly:
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
 - [ ] **P4.4** RetroAchievements (softcore only).
+- [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
+  the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
+  style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
+  `port_wide_view.c`).
+  *Today:* there is only one mode. Both paths scale 256x224 to 274x240 with nearest
+  sampling (x1.071, uneven rows and columns), centred, black sides
+  (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
+  Status 2026-10-02: parts A and B merged into `release/v0.1.3` and played on hardware;
+  follow-up fixes and open bugs: see "Where we are" at the top and issues #1-#8. The
+  history below is kept for the reasoning.
+  Status 2026-10-01: part A implemented on `feat/display-options` (OPTIONS -> DISPLAY,
+  `pixel_perfect` in `config.ini`, both renderers).
+  Part B, renderer side (horizontal): `GpuPpu_SetMargin` widens the frame build (margins
+  outside both windows), 512-wide citro3d targets, black mask rectangles (HUD rows),
+  OPTIONS -> WIDE VIEW (`wide` in `config.ini`), margins only in gameplay states.
+  Host: `WIDE=M` in tools/gpu-ppu-test rebuilds every frame with margins and checks the
+  middle 256 columns equal the normal frame (every room, and power-on through Ceres
+  exploding with M = 72: all equal, nothing refused); `WIDE_DUMP=N` writes images. The
+  margins show stale BG1 columns until the game streams them (next step).
+  Game side done the same day: `source/sm_wide.c` fills the margins' tilemap areas from the
+  level data before the PPU draws (hook `g_rtl_before_ppu_draw`), masks what is outside the
+  room or in red scroll screens, and `g_rtl_wide_margin_x` widens the on-screen checks for
+  enemies, projectiles and sprite objects. HUD over the room: the HUD IRQ keeps BG1/BG2/OBJ
+  (from TM or TS) on in lines 0-31, the HUD's opaque blank cells (entry 0x2C0F) become a
+  transparent BG3 char while WIDE shows the room, and BG3 stays out of the margins on those
+  lines (`GpuPpu_SetNarrowBg3Rows`). Door transitions: margins masked whole. Not on hardware
+  yet. PIXEL PERFECT extra rows (8 above, 8 below): `GpuPpu_SetExtraRows` grows the first
+  and last bands with the first/last line's registers (not BG3 in the HUD band, not mode 7
+  or composed layers), the citro3d targets have 16 spare rows, the fill writes rows -1/0/15
+  for the game's columns, `DrawSpritemap`'s bottom cut and the enemies' top check move by
+  `g_rtl_wide_extra_*`, and the masks cover the extra rows too. Host: every room (72 px +
+  8 rows) and power-on through Ceres, middle identical, nothing refused.
+  *Spec, part A (display style, renderer only):*
+  - SCALED: what exists now.
+  - PIXEL PERFECT: 256x224 at 1:1, centred (72 px sides, 8 px top and bottom).
+  - Both renderers (GPU, and the CPU path for refused frames) honour it; the FPS overlay
+    and the bottom-screen tricks that use the left margin (`bottom_ui.c:970`) still fit.
+  *Spec, part B (WIDE, renderer + game):* fill the sides with the room instead of black,
+  in gameplay only (`game_state` 8, and door transitions); title, file select, pause map,
+  cutscenes and Ceres mode 7 stay 4:3. Margin per side M = 59 SNES px when SCALED (400 /
+  1.071 = 373 px; 60 used, 376 px fill the screen), 72 when PIXEL PERFECT.
+  Height (owner wants it too, 2026-10-01): SCALED already fills the 240 rows (224 x 1.071),
+  so it gains height only through the HUD over the room (32 rows). PIXEL PERFECT adds 8
+  rows above and 8 below (240 = 224 + 16), as mzm's PIXEL PERFECT has a Y margin and its
+  SCALED none. Cost: lines -8..231 span 240 px, and with the fine scroll they touch 16
+  block rows, the tilemap's full height. Over one `layer1_y_block` they need rows -1..15
+  (17), and rows -1 and 15 share a tilemap row, so the game's row upload (on block changes
+  only, rows `+1` / `+15`) is not enough: refresh row -1 or 15 when the fine scroll
+  crosses 8. The renderer extends the first and last captured lines' registers over the
+  extra rows (HDMA effects there are approximate). Enemy activation already reaches
+  `layer1_y_pos + 248`.
+  Findings (2026-10-01) that make it feasible:
+  - BG1 and BG2 use 64x32 tilemaps (`BG1SC = 0x51`, `BG2SC = 0x49`): 32 blocks of
+    16 px across, of which the game keeps only 17 current. `UpdateBgGraphicsWhenScrolling`
+    (sm_80.c) uploads the column at `layer1_x_block + 16` (scrolling right) or `+ 0`
+    (left), and `DisplayViewablePartOfRoom` loads columns 0..16 when a room is entered.
+    With M = 59 or 72, 4 or 5 more columns per side give 25 or 27 columns, which fit in
+    32 without wrapping onto themselves. Change: upload `x - m` / `x + 16 + m` there, and
+    the wider range on room load (same for BG2 when it scrolls with level data,
+    `layer2_scroll_x & 1 == 0`; a library BG2 is static and already 512 px).
+  - Outside the room (camera at a room edge, `layer1_x_pos` clamped to
+    `[0, room width - 256]`) the level-data read would wrap into the previous row: never
+    upload those columns, and draw the margin there as black.
+  - Hidden areas: the camera never enters a red scroll screen (`scrolls[]` at
+    `$7E:CD20`, 0 = red, `room_width_in_scrolls` per row), so the original never shows
+    them; WIDE can show part of them. First decided to leave them visible like mzm, but
+    on the host they are often unfinished filler (e.g. `CF80`: a screen of "X" blocks
+    behind the door), so the margins' parts in red screens are masked black, like those
+    outside the room (2026-10-01, decided while the owner was away; easy to drop in
+    `SmWide_AddMasks`). The 256 px view itself is never masked.
+  - Enemies are only processed and drawn inside the 256 px view (`EnemyMain` and the
+    active list in sm_a0.c: `x_pos + x_width` against `layer1_x_pos .. +256`, and
+    `EnemyWithNormalSpritesIsOffScreen`), so without changes they would freeze and pop
+    in at the old screen edge. Widen those checks by M while WIDE is on. This changes
+    game logic (enemies wake a few blocks earlier), as mzm's
+    `Port_WideMarginSubPixelX` does; with WIDE off it must stay bit-identical
+    (`make test` hashes unchanged). Enemy projectiles (`CheckIfEprojIsOffScreen`,
+    sm_86.c) need the same; Samus's projectiles already live to -64 / +320.
+  - Sprites: `DrawSpritemap` (sm_81.c) culls only in Y and stores the 9-bit X, so a
+    piece in the right margin (x 256..256+M) arrives in OAM as -256..-256+M, which the
+    SNES treats as off-screen left. A piece visible in the left margin starts at
+    -M-64 or later (sprites are at most 64 px wide), so the ranges never overlap while
+    M <= 96: decode x < -128 as x + 512 in the renderer, only in WIDE gameplay. Watch the 128-sprite OAM limit (more on screen at once).
+  - HUD over the room (owner's request): in the original, lines 0-31 show only the HUD
+    on black. `IrqHandler_4_Main_BeginHudDraw` (sm_80.c) sets `TM = 4` (BG3 only) and
+    colour math off for them, and `IrqHandler_6_Main_EndHudDraw` restores
+    `gameplay_TM` at line 31. Those 32 lines are inside the camera (`layer1_y_pos` is
+    screen line 0), so the room is there, just switched off. With WIDE on, the HUD lines
+    show the room under the HUD: BG3 (HUD) plus `gameplay_TM`'s BG1/BG2/OBJ, across the
+    whole width including the margins. The HUD's own 32-tile BG3 tilemap stays centred
+    (no repeat into the margins).
+    To check first, with a FRAME DUMP or the host harness: (1) the HUD's empty
+    pixels are transparent (colour 0) rather than opaque black tiles, and its tiles have
+    the BG3 priority bit so they stay above BG1 in mode 1; (2) the top tilemap row is up to date:
+    scrolling up, `UpdateBgGraphicsWhenScrolling` refreshes row `layer1_y_block + 1`,
+    not `+ 0`, so the row under the HUD may be stale. If so, refresh `+ 0` while WIDE is on
+    (rows y..y+15 are the 16 rows of the tilemap, no overlap); (3) the door-transition
+    and Draygon IRQ variants (handlers 8-26) do the same HUD split: keep their band
+    black or handle them alike; (4) readability over bright rooms.
+  - BG3 FX layers below the HUD (water, lava, fog) wrap at 256 px; that repetition in
+    the margins is expected to look right, check it.
+  - Renderer: the GPU main/sub targets are 256x256 (`gpu_ppu_3ds.c`), the frame build
+    clips at 256, and quads, backdrop, windows and colour math rectangles span 0..256.
+    WIDE needs 512x256 targets and those spans widened. The CPU renderer has
+    zelda3-style side space half wired (`extraLeftCur/extraRightCur` in ppu.c, never
+    set, `kPpuExtraLeftRight = 0`): finish it or show black margins on refused frames
+    (they should be rare in gameplay).
+  - Stereo (Phase 3): per-eye offsets need a few more pixels at the edges; size the
+    margins once for both.
+  *Done when:* the three modes (SCALED, PIXEL PERFECT, each with WIDE on or off) work in
+  both renderers; with WIDE on, a walk through Landing Site, Brinstar, a Norfair heat
+  room and Maridia shows no garbage columns or rows, the HUD over the room and not
+  repeated, no frozen or popping enemies, no sprite on the wrong side; WIDE off
+  keeps `make test` hashes; 2DS still ~60 fps in Landing Site with WIDE on.
+
+- [ ] **P4.6** FRAME SKIP off warns. It is on by default (`frameskip` in `config.ini`) and
+  keeps heavy scenes playable (the Ceres escape shaft ran at 20-30 fps without it); players
+  who do not know what it does may switch it off and blame the port. Turning it off in
+  OPTIONS shows a short toast ("FRAME SKIP OFF: heavy rooms may slow down"); turning it on
+  says nothing. The option stays (useful for debugging and for those who prefer it).
+  *Done when:* the toast shows on every switch to off, not at boot with it saved off.
 
 ## Phase 5: completion
 
@@ -297,11 +425,11 @@ Lessons from mzm that apply directly:
 
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
-| Ceres intro | | | |
-| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. Before the build/submit work: speed ~58, shown ~48. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01, audio on (broken, see P2.2) |
+| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer | | 2026-10-01 |
+| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer) | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
 | Brinstar | | | |
-| Norfair heat room | | | |
-| Maridia water | | | |
+| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | | numbers pending from the log |
+| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after | | numbers pending from the log |
 
 ## Decisions log
 
@@ -613,4 +741,144 @@ Lessons from mzm that apply directly:
   bomb, soft resets), music queue under repeated warps, audio hash, optional warp test.
   ~90 s. Expected hashes in tools/test/expected.txt (`--update` after an intended change).
   Run it before merging anything that touches the game, the renderer or the audio.
-
+- 2026-10-01: WIDE view (P4.5 B) built while the owner was away; host-checked only. How it
+  works: the renderer builds frames over [-M, 256+M) x [-top, 224+bottom); margins are
+  outside both windows. The game is not taught to stream more: a hook between the game
+  logic (and its NMI, which runs last in RunOneFrameOfGame) and the PPU drawing writes the
+  margin tilemap columns, and the rows the game leaves stale, from the level data each
+  frame, compare-before-write, marking VRAM groups dirty for the GPU renderer. Only in
+  states where the level data is the room on screen (not door transitions: margins masked
+  whole there). Game logic changes only through g_rtl_wide_* (enemy activation/drawing,
+  projectile and sprite object culling, the sprite bottom cut, the HUD IRQ's layers); all
+  0 with WIDE off, and `make test` checks that. Decisions taken alone: red-scroll screens
+  masked in the margins (they show filler), the HUD over the room whenever WIDE is on (its
+  opaque blank cells swapped for a transparent char), heat rooms' sub-screen layers shown
+  under the HUD without colour math. Margins are drawn by the GPU renderer only; a frame
+  refused to the CPU renderer shows black sides.
+- 2026-10-01: Found while testing WIDE: LoadLevelDataAndOtherThings used memcpy on
+  overlapping ranges (room background data, rooms with > 0x3C00 bytes of level data), so
+  the result depended on the build; the ROM does a descending copy, i.e. memmove. Fixed;
+  two expected hashes changed. Technique: dump WRAM per frame from two builds
+  (`WRAM_TRACE=1`), diff, then a gdb watchpoint on the first differing address.
+- 2026-10-01: WIDE bug from hardware (Landing Site, owner's screen dumps 03/04): the gunship
+  showed in both margins. OAM X has 9 bits, so a piece really at x 433 read as -79 (left
+  margin) and one at -210 as 302 (right). The spritemap drawers (sm_81.c) now record each
+  entry's full X (`g_rtl_oam_x`), and the GPU builder uses it while margins are on. Enemies
+  pass an X whose high bits can be meaningless (gunship: -15487 for 385, from its spawn
+  offset), so WriteEnemyOams sets an anchor, the enemy's own screen X, and a piece is the
+  X mod 512 nearest to it. Reproduced on the host with `WARP_AT=` at the dumps' camera and
+  `WIDE_NO_FULLX=1` for the old decode; `WIDE_OAM=1` prints both X.
+- 2026-10-01: Second hardware round of WIDE bugs. (1) Samus invisible: the drawers' X has
+  meaningless high bits for Samus too (-15153 for 207), so "full X" from the caller was
+  wrong; now only objects that set an anchor (enemies in WriteEnemyOams, enemy projectiles,
+  sprite objects) get recorded positions, everything else keeps the 9-bit decode. (2) Ship
+  tiles flashing at the top while it left the bottom: the HUD lines now show sprites, and
+  the SNES wraps OAM Y at 256, so pieces below the screen (and pieces SM parks at y 0xF0)
+  appeared at the top; anchored entries now record their full Y (no wrap, parked ones
+  dropped). `WIDE_TOPCHECK=1` compares the top rows with/without and found such pieces in
+  Ceres (DBCD, DE7A). (3) Shaft in 92FD: masking every red screen hid real room until the
+  game turned it blue (pop-in); now only red screens made of a single repeated block
+  (filler, as in CF80) are masked. Superseded: "red screens masked" above.
+  Test gap that let (1) through: the middle check used the recorded positions on both
+  sides; `WIDE` now also counts frames where they change the view below the HUD.
+- 2026-10-01: Room edges in WIDE: the margins lean away from a room edge (all of the margin
+  goes to the other side), so the edge sits on the screen border as if the camera stopped
+  there; narrower rooms are centred. The game's camera is untouched (door transitions
+  scroll from a screen-aligned camera, DoorTransitionFunction_ScrollScreenToAlignment); the
+  lean is worked out in the WIDE hook from the room's screen rectangle, kept during door
+  transitions, and fed to the next frame's on-screen checks (left/right separately). The
+  HUD is drawn moved so it keeps its place on the screen; the citro3d targets take the
+  left margin as a per-frame offset (up to 256 px of margins in all). Vertical (PIXEL
+  PERFECT's 8 rows) not done.
+- 2026-10-01: Door at Landing Site's bottom left looked closed but let Samus through, and
+  only its top block took shots (owner, dump 09). Its cap's lower blocks are type D
+  (extension) and need BTS ff/fe/fd ("1/2/3 blocks up"); the console's RAM had 00, and
+  8948 of 8960 BTS bytes repeated the byte 0xA00 back: the forward memcpy of the
+  overlapping BTS copy. First blamed on old RAM, wrongly: the morning's memmove fix covered
+  LoadLevelDataAndOtherThings (game load, the teleport, which the host tests use) but not
+  its twin LoadLevelScrollAndCre, the door-transition path (same ROM loops at $82:EA73),
+  still memcpy; glibc happened to copy it right, newlib forwards. Fixed there too; checked
+  on the host by leaving Landing Site through that door and coming back (ROOM_INPUT2,
+  AUTOFIRE), under ASAN: no overlap reported, cap BTS ff/fe/fd. (Correction, 2026-10-02:
+  that run never left the room; the check was redone with ROOM_SEQ, a scripted route out
+  to 92B3 and back through the door, TRACE_SAMUS showing both transitions.) It affected every room
+  with more than 0x3C00 bytes of level data entered through a door (doors, slopes, special
+  blocks).
+- 2026-10-01: WIDE lean, second round (owner): (1) the parallax kept moving while the leaned
+  view stood still: the view stands for a camera the game does not have (layer 1 + margin
+  - left); BG2 is now moved to where CalculateLayer2Xpos would put it for that camera
+  (GpuPpu_SetLayerShiftX, and the BG2 fill follows it, writing every column then). (2) A
+  door at a leaned edge travelled 256 px and then jumped to the new room's lean: during a
+  transition the lean now goes from the old room's to the new room's (taken at
+  door_destination_x_pos) along door_transition_frame_counter (64 frames across, 57 up or
+  down), so the door crosses the screen once, smoothly. The HUD rows are left unmasked in
+  transitions (the moved HUD was cut).
+- 2026-10-02: WIDE lean, third round (owner): (1) Landing Site's sky still moved with Samus:
+  scrolling-sky rooms (room code ScrollingSkyLand/Ocean/Shakes) scroll BG2 by HDMA bands
+  that drift with time and ignore the camera's X, so BG2 is fixed to the screen there, not
+  the layer 2 formula. (2) From the second door on, the door jumped mid-transition: the
+  counter keeps the previous transition's 64 until it is reset, and the reset and the
+  first scrolling step happen in the same frame, so the hook never saw 0 and stayed on
+  the old lean (or used the old end). The reset is now detected as the counter going down.
+  Host check: ROOM_SEQ route out of Landing Site and back, both doors cross the screen
+  edge to edge with no jump.
+- 2026-10-02: Fireflea rooms (fx type 0x24) darken by subtracting COLDATA with colour math;
+  the HUD lines had math off, so with the room shown under the HUD that strip stayed lit.
+  With WIDE the HUD IRQ now keeps the room's math on its layers (not BG3) when it is
+  fixed-colour math (sub-screen math would add the room to itself there). Host:
+  FIREFLEA_DARK=n in tools/gpu-ppu-test. FPS overlay: box fitted to the text, translucent
+  black on the GPU path (the 64x64 overlay texture was drawn without blending, a black
+  square over the picture in WIDE).
+- Open (small): vertical lean. In PIXEL PERFECT the 8 extra rows show black at a room's top
+  or bottom edge instead of the edge sitting on the screen border, as the sides do.
+- 2026-10-02: Fourth WIDE round (owner; the screenshots did not reach the SD card, so worked
+  from the description). (1) Item message box repeated into a margin: message boxes are
+  BG3 with their own 32x32 tilemap (BG3SC 0x58); bands using it keep BG3 narrow, at the
+  HUD's place (GpuPpu_SetNarrowBg3Map). Gating on gameplay_BG3SC instead narrowed the lava
+  layer for the 3 frames before BG3 switched. Host: MSGBOX=n. (2) Ceres escape: the screen
+  shake (HandleRoomShaking, room shakes) adds to the BG scroll registers after the game
+  placed its columns; the fill mapped level blocks by the shaken scroll, one column off
+  whenever the shake crossed a block edge, and those columns showed once the camera came.
+  Now mapped by the unshaken scroll (bgN offset + layer position). Host: EARTHQUAKE=type
+  and FRAME_HASH (play area with WIDE on vs off): 300/300 frames differed before, 0 after.
+  (3) A boss losing tiles when moving up: not reproduced. Two likely causes fixed: extended
+  spritemap parts are anchored at their own position (a part far from the enemy's centre
+  put pieces 256 px off), and the BG2 fill stays off in rooms where an enemy writes BG2
+  (QueueEnemyBG2TilemapTransfers: Spore Spawn, Kraid, Mother Brain...). Waiting for a
+  FRAME DUMP if it persists.
+- 2026-10-02: Fifth WIDE round (owner, dump 00 + description). (1) Spore Spawn cut at the
+  HUD rows: the HUD lines put the room's sub-screen layers on the main screen with math
+  off, so a high-priority BG2 covered BG1. Now the HUD lines keep the room's own TM, TS
+  (minus BG3) and colour math, BG3 added on top outside the math; math is kept off only
+  when the colour window shapes it (power bomb: its window is not set up on those lines).
+  HUD rows are 0-30 (31 rows; 32 narrowed the first gameplay row's BG3). (2) Power bomb not
+  in the margins: a window touching the view's edge (left 0 / right 255) now continues to
+  the frame's edge (WinCalc). (3) Stray sprites on top in Ceres: with WIDE, sprites no
+  longer wrap from the bottom to the top (GpuPpu_SetNoSpriteWrap): the SNES hid those rows'
+  sprites under the HUD. (4) The margins jittered while the room shook: the lean followed
+  the shaken scroll; it now uses the unshaken one (masks still the shaken). Dumps always
+  overwrite slot 00 (found when the owner's captures were lost): open.
+- 2026-10-02: Debug tools pass (branch `feat/debug-tools`, cut from
+  `fix/firefly-and-fps-overlay` because both touch bottom_ui.c/main.c; merge that one
+  first). Removed PPU RENDER (no use since the GPU renderer), GIVE ALL and FULL HEAL;
+  STATUS got an ALL button (every item and beam) in the free item cell, capacities stay
+  MAX's job. Added from mzm: buffered log writes (16 KB blocks by default, or direct per
+  line) and a SCENE RECORDER; both cells have mzm's side start/stop button, the rest of
+  the cell picks the option (owner's request). The recorder stores what was shown (RGB565 framebuffer, GPU
+  target read back) in a RAM ring and writes on stop, like mzm's RAM presets: mzm records
+  GBA state per sample instead, but SNES state alone cannot be redrawn offline (per-line
+  HDMA/IRQ writes), and the pixels are what a renderer bug needs. Not done from mzm: log
+  stream filters (ALL/GPU/AUDIO/PERF; our log is a few lines every 5 s), depth tint (for
+  Phase 3), kill Samus. Issue #8 (dumps always slot 00): most likely libctru's stat() leaves
+  st_mtime at 0 (not checked on the console), so "least recently written" was always
+  slot 0; slots now follow a `debug/sm-<kind>-last.txt` counter, which works either way.
+- 2026-10-02: PLAN's "Where we are" and "Next up" removed (owner agreed): they retold the
+  issues and the specs and went stale. Replaced by a short Status (branches waiting for
+  the owner, priority line). What goes where is a table in CLAUDE.md. The small GPU
+  leftovers that lived only in "Next up" became P2.5.
+- 2026-10-02: `v0.1.3` released as stable (owner: "todo funcionando"). The three stacked
+  branches (`fix/firefly-and-fps-overlay`, `feat/debug-tools`, `fix/wide-door-hud-margins`)
+  were squashed by content before merging (WIDE round 1, debug tools, docs, scene recorder,
+  the snesrev escape-beam fix, WIDE round 2) and merged in that order. Issues #1-#6 and
+  #8-#14 closed with it; #7 (vertical lean) stays open as an enhancement, and P4.6
+  (FRAME SKIP off warning) was added at the owner's request.

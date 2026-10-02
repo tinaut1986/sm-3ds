@@ -97,6 +97,13 @@ echo "running (in parallel)..."
 run_gpu gpu-rooms rooms 10 &
 CERES_BOOM=1 run_gpu gpu-newgame boot "$OUT/empty.srm" 10500 &
 PBOMB=1 run_gpu gpu-pbomb rooms 200 91F8 &
+WIDE=60 run_gpu wide-rooms rooms 10 &
+WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# The Ceres elevator shaft (DF45, mode 7) tilting in the escape, PIXEL PERFECT margins,
+# Samus shooting left then right (the beams' OAM is in the WRAM hash).
+WIDE=72 WIDE_Y=8 CERES_ESCAPE=1 AUTOFIRE=1 ROOM_SEQ=0@0,240@40,280@120 run_gpu wide-ceres rooms 200 DF45 &
+# Room 93D5 (Crateria) out through its right door into 92FD and back. and back.
+WIDE=60 ROOM_SEQ=0@0,80@10,280@20,240@200 AUTOFIRE=1 WARP_AT=0,0,150,139 run_gpu wide-door rooms 400 93D5 &
 MASH_B=400 MASH_B_STATE=4 run_gpu soft-reset boot "$OUT/empty.srm" 1200 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
 run_audio audio-rooms rooms 120 &
@@ -122,6 +129,29 @@ echo "gpu-newgame: power-on, title, intro, new game, Ceres (mode 7), Ceres explo
 gpu_checks gpu-newgame
 echo "gpu-pbomb: a power bomb in Landing Site (layer and colour windows)"
 gpu_checks gpu-pbomb
+wide_checks() {   # wide_checks NAME: the WIDE build of every frame
+  local r
+  r=$(field "$OUT/$1.log" "WIDE frames.*")
+  check "$1" "WIDE middle equals the normal frame, margins black while the room is not filled in" \
+    "$(echo "$r" | grep -q "bad 0,"; echo $?)"
+}
+echo "wide-rooms: every room with WIDE on (60 px margins), 10 frames each"
+gpu_checks wide-rooms
+wide_checks wide-rooms
+echo "wide-pbomb: the power bomb in Landing Site with WIDE on"
+gpu_checks wide-pbomb
+wide_checks wide-pbomb
+expect wide-pbomb.image "$(field "$OUT/wide-pbomb.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-ceres: the Ceres elevator shaft (mode 7) tilting, WIDE PIXEL PERFECT, shooting"
+gpu_checks wide-ceres
+wide_checks wide-ceres
+expect wide-ceres.image "$(field "$OUT/wide-ceres.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-door: WIDE through a door and back (93D5 -> 92FD -> 93D5)"
+gpu_checks wide-door
+wide_checks wide-door
+check wide-door "back in room 93D5" "$(grep -q 'game_state 08 room 93d5' "$OUT/wide-door.log"; echo $?)"
+# Frames whose margins show the room: drops if the door fades go back to black margins.
+expect wide-door.filled "$(field "$OUT/wide-door.log" 'room filled in [0-9]*' | cut -d' ' -f4)"
 echo "soft-reset: B on the file-select screens, soft resets back to the title"
 gpu_checks soft-reset
 check soft-reset "soft resets happened" \

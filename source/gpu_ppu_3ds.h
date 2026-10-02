@@ -22,8 +22,9 @@ void GpuPpu3ds_SetOverlay(const uint32_t *px);
 // building plus submitting the command list.
 void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
 
-// Draws `f` and queues it for the top screen.
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f);
+// Draws `f` and queues it for the top screen, centred: scaled to 274x240, or 1:1 with
+// `pixel_perfect`.
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect);
 
 // Waits until the GPU has finished everything queued, so the CPU can write the top
 // framebuffer again (when switching back to the CPU renderer).
@@ -32,6 +33,11 @@ void GpuPpu3ds_WaitIdle(void);
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);
+
+// Debug: the top screen as the GPU presented its last frame, 240x400 column-major
+// RGBA8 exactly like the framebuffer (valid until the next call), or NULL. Blocks until
+// the GPU is done.
+const uint32_t *GpuPpu3ds_ReadTop(void);
 
 // What the start-up calibration found, for the debug screens.
 const char *GpuPpu3ds_CalibrationText(void);

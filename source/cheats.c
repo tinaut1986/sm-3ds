@@ -61,13 +61,6 @@ void Cheats_AfterFrame(void) {
   Cheats_BeforeFrame();
 }
 
-bool Cheats_FullHeal(void) {
-  if (!Cheats_InGameplay()) return false;
-  RefillEnergy();
-  RefillAmmo();
-  return true;
-}
-
 bool Cheats_ToggleItem(int index) {
   if (!Cheats_InGameplay() || index < 0 || index >= kSmItemCount) return false;
   const uint16_t m = kSmItems[index].mask;
@@ -143,13 +136,5 @@ bool Cheats_GiveAll(void) {
   for (int i = 0; i < kSmBeamCount; i++)
     collected_beams |= kSmBeams[i].mask;
   equipped_beams = (equipped_beams & ~kBeamSpazer) | 0x1000 | 0x0002 | 0x0001 | kBeamPlasma;
-  samus_max_health = kMaxEnergy;
-  samus_max_reserve_health = kMaxReserve;
-  samus_max_missiles = kMaxMissiles;
-  samus_max_super_missiles = kMaxSupers;
-  samus_max_power_bombs = kMaxPowerBombs;
-  if (!reserve_health_mode) reserve_health_mode = 1;
-  RefillEnergy();
-  RefillAmmo();
   return true;
 }

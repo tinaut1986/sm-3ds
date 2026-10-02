@@ -1105,15 +1105,19 @@ void IrqHandler_2_DisableIRQ(void) {  // 0x809680
   IrqHandler_SetResult(0, 0, 0);
 }
 
+static uint8 HudLinesTM(void);   // 3DS port, see g_rtl_wide_hud_over_room
+static void HudLinesColorMath(void);
+static void HudLinesEnd(void);
+
 void IrqHandler_4_Main_BeginHudDraw(void) {  // 0x80968B
   WriteReg(BG3SC, 0x5A);
-  WriteReg(CGWSEL, 0);
-  WriteReg(CGADSUB, 0);
-  WriteReg(TM, 4);
+  HudLinesColorMath();   // 3DS port: CGWSEL and CGADSUB 0 unless WIDE shows the room
+  WriteReg(TM, HudLinesTM());
   IrqHandler_SetResult(6, 31, 152);
 }
 
 void IrqHandler_6_Main_EndHudDraw(void) {  // 0x8096A9
+  HudLinesEnd();   // 3DS port
   WriteReg(CGWSEL, gameplay_CGWSEL);
   WriteReg(CGADSUB, gameplay_CGADSUB);
   WriteReg(BG3SC, gameplay_BG3SC);
@@ -1145,13 +1149,13 @@ void IrqHandler_10_StartOfDoor_EndHud(void) {  // 0x8096F1
 }
 
 void IrqHandler_12_Draygon_BeginHud(void) {  // 0x80971A
-  WriteReg(TM, 4);
-  WriteReg(CGWSEL, 0);
-  WriteReg(CGADSUB, 0);
+  WriteReg(TM, HudLinesTM());
+  HudLinesColorMath();   // 3DS port: CGWSEL and CGADSUB 0 unless WIDE shows the room
   IrqHandler_SetResult(14, 31, 152);
 }
 
 void IrqHandler_14_Draygon_EndHud(void) {  // 0x809733
+  HudLinesEnd();   // 3DS port
   WriteReg(BG3SC, gameplay_BG3SC);
   WriteReg(CGWSEL, gameplay_CGWSEL);
   WriteReg(CGADSUB, gameplay_CGADSUB);
@@ -1570,10 +1574,12 @@ uint8 ProcessTimer_Decrement(void) {  // 0x809EA9
 }
 
 void DrawTimer(void) {  // 0x809F6C
+  g_rtl_oam_hud_drawing = true;   // 3DS port: part of the HUD, see g_rtl_oam_hud
   DrawTimerSpritemap(0, addr_word_80A060);
   DrawTwoTimerDigits(*(uint16 *)&timer_minutes, 0xFFE4);
   DrawTwoTimerDigits(*(uint16 *)&timer_seconds, 0xFFFC);
   DrawTwoTimerDigits(*(uint16 *)&timer_centiseconds, 0x14);
+  g_rtl_oam_hud_drawing = false;
 }
 
 
@@ -2624,6 +2630,67 @@ void DecompressToVRAM(uint32 src, uint16 dst_addr) {  // 0x80B271
 
 
 RtlWarpLoad g_rtl_warp_load;
+uint16 g_rtl_wide_margin_left, g_rtl_wide_margin_right;
+bool g_rtl_wide_hud_over_room;
+uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+uint16 g_rtl_enemy_bg2_room;
+int16 g_rtl_oam_x[128], g_rtl_oam_y[128];
+int16 g_rtl_oam_anchor_x = kRtlOamUnknown, g_rtl_oam_anchor_y = kRtlOamUnknown;
+
+uint8 g_rtl_oam_hud[128];
+bool g_rtl_oam_hud_drawing;
+
+void RtlOamXReset(void) {
+  for (int i = 0; i < 128; i++) g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown, g_rtl_oam_hud[i] = 0;
+  RtlOamClearAnchor();
+}
+
+// The HUD lines (0-31): BG3 (the HUD) only, no colour math; or, with the 3DS port's WIDE
+// view showing the room under the HUD, the room's own layers and colour math exactly as on
+// the lines below (main screen, the sub screen it keeps, the math), plus BG3 on top kept
+// out of the math. Moving the room's sub-screen layers onto the main screen instead (the
+// first try) let a high-priority BG2 cover BG1 there (Spore Spawn cut off at the HUD).
+// In a mode 7 room (Ceres) these lines are still mode 1, whose BG1 and BG2 would read the
+// mode 7 VRAM: only the sprites join the HUD, and the renderer draws the plane under it.
+static uint8 HudLinesTM(void) {
+  if (!g_rtl_wide_hud_over_room) return 4;
+  return 4 | (gameplay_TM & (irq_enable_mode7 ? 0x10 : 0x13));
+}
+
+// Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer.
+static bool HudLinesKeepMath(void) {
+  return g_rtl_wide_hud_over_room;
+}
+
+// Whether a window shapes BG3 on the sub screen: the power bomb and crystal flash add the
+// fixed colour where window 2 hides BG3 there, which draws the explosion. On the HUD lines
+// BG3 is the HUD, so the colour window takes BG3's window instead and math happens only
+// inside it; without that the fixed colour covered the whole strip (or, with the math off,
+// the explosion stopped at line 31).
+static bool HudLinesBg3Windowed(void) {
+  return HudLinesKeepMath() && (reg_TS & 4) && (reg_TSW & 4) && (reg_W34SEL & 0x0a);
+}
+
+static void HudLinesColorMath(void) {
+  const bool keep = HudLinesKeepMath();
+  uint8 cgwsel = keep ? gameplay_CGWSEL : 0;
+  if (HudLinesBg3Windowed()) {
+    WriteReg(WOBJSEL, (reg_WOBJSEL & 0x0f) | (reg_W34SEL & 0x0f) << 4);
+    WriteReg(WOBJLOG, (reg_WOBJLOG & ~0x0c) | (reg_WBGLOG >> 2 & 0x0c));
+    cgwsel = (cgwsel & ~0x30) | 0x10;   // math only inside the colour window
+  }
+  WriteReg(CGWSEL, cgwsel);
+  WriteReg(CGADSUB, keep ? gameplay_CGADSUB & ~4 : 0);
+  if (keep) WriteReg(TS, reg_TS & ~4);
+}
+
+// After the HUD lines: the sub screen and the colour window back.
+static void HudLinesEnd(void) {
+  if (!g_rtl_wide_hud_over_room) return;
+  WriteReg(TS, reg_TS);
+  WriteReg(WOBJSEL, reg_WOBJSEL);
+  WriteReg(WOBJLOG, reg_WOBJLOG);
+}
 
 void LoadFromLoadStation(void) {  // 0x80C437
   save_station_lockout_flag = 1;

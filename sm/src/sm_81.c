@@ -151,10 +151,13 @@ void DrawSpritemap(uint8 db, uint16 j, uint16 x_r20, uint16 y_r18, uint16 chr_r2
     int x = x_r20 + GET_WORD(pp);
     int y = (uint8)y_r18 + pp[2];
     // can this be simplified?
-    if (!sign8(pp[2]) ? (y >= 0xe0) : (y & 0x100) ? ((uint8)y >= 0xe0) : ((uint8)y < 0xe0))
+    // 3DS port: the bottom limit (0xe0 = line 224) moves down with the WIDE extra rows.
+    const int bottom = 0xe0 + g_rtl_wide_extra_bottom;
+    if (!sign8(pp[2]) ? (y >= bottom) : (y & 0x100) ? ((uint8)y >= bottom) : ((uint8)y < 0xe0))
       x = 0x180, y = 0xe0;
     oam->xcoord = x;
     oam->ycoord = y;
+    RtlOamTag(idx, x, y, x == 0x180 && y == 0xe0);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r22 | GET_WORD(pp + 3) & 0xF1FF;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     idx += 4;
@@ -173,10 +176,13 @@ void DrawSpritemapOffScreen(uint16 j, uint16 x_r20, uint16 y_r18, uint16 chr_r22
     int x = x_r20 + GET_WORD(pp);
     int y = (uint8)y_r18 + pp[2];
     // can this be simplified?
-    if (!sign8(pp[2]) ? (y < 0xe0) : (y & 0x100) ? ((uint8)y < 0xe0) : ((uint8)y >= 0xe0))
+    // 3DS port: the bottom limit (0xe0 = line 224) moves down with the WIDE extra rows.
+    const int bottom = 0xe0 + g_rtl_wide_extra_bottom;
+    if (!sign8(pp[2]) ? (y < bottom) : (y & 0x100) ? ((uint8)y < bottom) : ((uint8)y >= 0xe0))
       x = 0x180, y = 0xe0;
     oam->xcoord = x;
     oam->ycoord = y;
+    RtlOamTag(idx, x, y, x == 0x180 && y == 0xe0);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r22 | *(uint16 *)(pp + 3) & 0xF1FF;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     idx += 4;
@@ -196,6 +202,7 @@ void DrawMenuSpritemap(uint16 a, uint16 k, uint16 j, uint16 chr_r3) {  // 0x8189
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     oam->ycoord = j + pp[2];
+    RtlOamTag(idx, x, oam->ycoord, false);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r3 | GET_WORD(pp + 3) & 0xF1FF;
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -216,6 +223,7 @@ void DrawSamusSpritemap(uint16 a, uint16 x_pos, uint16 y_pos) {  // 0x8189AE
     v9->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     v9->ycoord = y_pos + pp[2];
+    RtlOamTag(idx, x, v9->ycoord, false);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&v9->charnum = GET_WORD(pp + 3);
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -241,6 +249,7 @@ void DrawGrappleOrProjectileSpritemap(const uint8 *pp, uint16 x_r20, uint16 y_r1
     v4->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     v4->ycoord = y_r18 + pp[2];
+    RtlOamTag(idx, x, v4->ycoord, false);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&v4->charnum = GET_WORD(pp + 3);
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -261,6 +270,7 @@ void DrawSpritemapWithBaseTile(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, u
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     oam->ycoord = r18_y + pp[2];
+    RtlOamTag(idx, x, oam->ycoord, false);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = r3 | (r0 + GET_WORD(pp + 3));
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -279,7 +289,9 @@ void DrawSpritemapWithBaseTile2(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, 
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)r18_y;
-    oam->ycoord = (!(y & 0x100) == !sign8(pp[2])) ? y : 0xf0;
+    const bool shown = !(y & 0x100) == !sign8(pp[2]);
+    oam->ycoord = shown ? y : 0xf0;
+    RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = r3 | (r0 + GET_WORD(pp + 3));
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -298,7 +310,9 @@ void DrawSpritemapWithBaseTileOffscreen(uint8 db, uint16 j, uint16 r20_x, uint16
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)r18_y;
-    oam->ycoord = (!(y & 0x100) != !sign8(pp[2])) ? y : 0xf0;
+    const bool shown = !(y & 0x100) != !sign8(pp[2]);
+    oam->ycoord = shown ? y : 0xf0;
+    RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = r3 | (r0 + GET_WORD(pp + 3));
     pp += 5;
     idx = (idx + 4) & 0x1FF;
@@ -317,7 +331,9 @@ void DrawEprojSpritemapWithBaseTile(uint8 db, uint16 j, uint16 x_r20, uint16 y_r
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)y_r18;
-    oam->ycoord = (!(y & 0x100) == !sign8(pp[2])) ? y : 0xf0;
+    const bool shown = !(y & 0x100) == !sign8(pp[2]);
+    oam->ycoord = shown ? y : 0xf0;
+    RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r28 | (chr_r26 + GET_WORD(pp + 3));
     idx = (idx + 4) & 0x1FF;
     pp += 5;
@@ -336,7 +352,9 @@ void DrawEprojSpritemapWithBaseTileOffscreen(uint8 db, uint16 j, uint16 x_r20, u
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)y_r18;
-    oam->ycoord = (!(y & 0x100) != !sign8(pp[2])) ? y : 0xf0;
+    const bool shown = !(y & 0x100) != !sign8(pp[2]);
+    oam->ycoord = shown ? y : 0xf0;
+    RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r28 | (chr_r26 + GET_WORD(pp + 3));
     idx = (idx + 4) & 0x1FF;
     pp += 5;

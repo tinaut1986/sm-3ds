@@ -13,6 +13,7 @@
 #include "src/variables.h"
 #include "cheats.h"
 #include "debug_tools.h"
+#include "scene_rec.h"
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "ui_draw.h"
@@ -26,7 +27,6 @@
 
 UiOptions g_ui = {
   .audio_on = true,
-  .render_on = true,
   .frameskip = true,
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -159,7 +159,8 @@ static void DrawTabBar(Surface s) {
   }
   // Things that are on whatever tab is shown.
   int x = TabRect(n).x;
-  if (Debug_PerfRecording()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
+  if (SceneRec_Active()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
+  if (Debug_PerfRecording()) { UiDrawText(s, x, 9, 1, COL_BAD, "PRF"); x += 24; }
   if (g_cheats.invincible || g_cheats.max_mode) UiDrawText(s, x, 9, 1, COL_WARN, "CHT");
   DrawSystemStatus(s);
 }
@@ -288,8 +289,9 @@ static void DrawMap(Surface s, const UiPerf *p) {
 
 // ---- Status tab -----------------------------------------------------------------
 // In DEBUG_TOOLS builds it is also where the cheats live, as in mzm: tap an item or
-// beam to add or remove it, GOD and MAX next to the energy, and the map-station boxes
-// unlock an area's map (so any room can be picked for a warp).
+// beam to add or remove it, ALL (the free item cell) to get every item and beam, GOD
+// and MAX next to the energy, and the map-station boxes unlock an area's map (so any
+// room can be picked for a warp).
 
 static Rect ItemRect(int i) { return (Rect){ 8 + (i % 4) * 77, 111 + (i / 4) * 14, 74, 13 }; }
 static Rect BeamRect(int i) { return (Rect){ 8 + i * 61, 165, 58, 13 }; }
@@ -298,6 +300,8 @@ static Rect StationRect(int i) { return (Rect){ 8 + i * 51, 191, 49, 14 }; }
 #if DEBUG_TOOLS
 static Rect GodRect(void) { return (Rect){ 254, 48, 26, 16 }; }
 static Rect MaxRect(void) { return (Rect){ 282, 48, 26, 16 }; }
+// The free cell after the last item.
+static Rect AllRect(void) { return ItemRect(kSmItemCount); }
 
 static void DrawCheatButton(Surface s, Rect r, bool on, const char *label) {
   UiDrawBoxLabel(s, r, on ? RGB(110, 85, 20) : RGB(24, 34, 52), on ? RGB(255, 220, 90) : RGB(60, 90, 140),
@@ -357,6 +361,14 @@ static void DrawStatus(Surface s) {
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmItems[i].name);
   }
+#if DEBUG_TOOLS
+  {
+    bool all = true;
+    for (int i = 0; i < kSmItemCount; i++) all &= (collected_items & kSmItems[i].mask) != 0;
+    for (int i = 0; i < kSmBeamCount; i++) all &= (collected_beams & kSmBeams[i].mask) != 0;
+    DrawCheatButton(s, AllRect(), all, "ALL");
+  }
+#endif
   UiDrawText(s, 8, 156, 1, COL_DIM, "BEAMS");
   for (int i = 0; i < kSmBeamCount; i++) {
     const Rect r = BeamRect(i);
@@ -397,6 +409,10 @@ static void StatusTouch(int x, int y) {
   }
   if (UiIn(MaxRect(), x, y)) {
     ReportGameplay(Cheats_SetMax(!g_cheats.max_mode));
+    return;
+  }
+  if (UiIn(AllRect(), x, y)) {
+    ReportGameplay(Cheats_GiveAll());
     return;
   }
   for (int i = 0; i < kSmItemCount; i++)
@@ -591,10 +607,10 @@ void BottomUi_GameReset(void) {
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_COUNT } OptCell;
+typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_COUNT } OptCell;
 
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
-static Rect ResetRect(void) { return (Rect){ 8, 134, 304, 22 }; }
+static Rect ResetRect(void) { return (Rect){ 8, 168, 304, 22 }; }
 
 static void DrawOptCell(Surface s, int i, const char *label, const char *value, uint32_t value_col) {
   const Rect r = OptRect(i);
@@ -616,6 +632,8 @@ static void DrawOptions(Surface s) {
   if (g_is_new3ds) DrawOptCell(s, OPT_SPEEDUP, "CPU (NEW 3DS)", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
+  DrawOptCell(s, OPT_DISPLAY, "DISPLAY", g_ui.pixel_perfect ? "PIXEL PERFECT" : "SCALED", COL_GOOD);
+  DrawOnOffCell(s, OPT_WIDE, "WIDE VIEW", g_ui.wide);
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()), "RESET GAME");
 
   UiDrawTextCentered(s, SCREEN_W / 2, 196, RGB(90, 115, 145), "SUPER METROID 3DS");
@@ -646,6 +664,8 @@ static void OptionsTouch(int x, int y) {
       g_ui.new3ds_speedup = !g_ui.new3ds_speedup;
       osSetSpeedupEnable(g_ui.new3ds_speedup);
       break;
+    case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
+    case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     default: break;
     }
     return;
@@ -679,12 +699,18 @@ static void ResetModalTouch(int x, int y) {
 // Debug tools: a 2-column grid in a window over the Debug tab, like mzm's.
 #if DEBUG_TOOLS
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_PERF, TOOL_PPU, TOOL_GIVE_ALL, TOOL_HEAL, TOOL_RENDERER,
-  TOOL_GPU_CHECK, TOOL_COUNT
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK,
+  TOOL_COUNT
 } Tool;
 
 static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 44 + (i / 2) * 29, 140, 26 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
+// Cells with something that runs (log, scene recorder), as in mzm: the right side is a
+// start/stop button, the rest of the cell changes its option.
+static Rect SideRect(int i) {
+  const Rect r = ToolRect(i);
+  return (Rect){ r.x + r.w - 32, r.y, 32, r.h };
+}
 
 static void DrawToolCell(Surface s, int i, const char *label, const char *state, uint32_t state_col) {
   const Rect r = ToolRect(i);
@@ -693,21 +719,43 @@ static void DrawToolCell(Surface s, int i, const char *label, const char *state,
   UiDrawText(s, r.x + 6, r.y + 15, 1, state_col, state);
 }
 
+// Green play triangle while stopped (tap to start), red stop square while running.
+static void DrawSideButton(Surface s, int i, bool running) {
+  const Rect r = SideRect(i);
+  const uint32_t fg = running ? RGB(255, 90, 90) : RGB(120, 230, 140);
+  UiFillRect(s, r.x, r.y + 3, 1, r.h - 6, RGB(90, 110, 150));
+  UiFillRect(s, r.x + 1, r.y + 3, r.w - 4, r.h - 6, Pressed(r) ? COL_PRESSED : running ? RGB(70, 22, 22) : RGB(22, 44, 30));
+  const int cx = r.x + 1 + (r.w - 4) / 2, cy = r.y + r.h / 2;
+  if (running) {
+    UiFillRect(s, cx - 5, cy - 5, 10, 10, fg);
+  } else {
+    for (int dy = -6; dy <= 6; dy++) {   // pointing right: widest in the middle row
+      const int len = 11 - (dy < 0 ? -dy : dy) * 11 / 6;
+      if (len > 0) UiFillRect(s, cx - 4, cy + dy, len, 1, fg);
+    }
+  }
+}
+
 static void DrawToolsModal(Surface s) {
   UiFillRect(s, 10, 26, 300, 210, COL_MODAL_EDGE);
   UiFillRect(s, 11, 27, 298, 208, COL_MODAL);
   UiDrawText(s, 20, 33, 1, COL_TITLE, "DEBUG TOOLS");
-  const uint32_t act = RGB(140, 170, 210);
+  const uint32_t act = RGB(140, 170, 210), opt = RGB(255, 215, 0);
   DrawToolCell(s, TOOL_DUMP, "SCREEN DUMP", "DUMP SET", act);
   DrawToolCell(s, TOOL_FRAME_DUMP, "FRAME DUMP", "SET + PPU/HDMA LOG", act);
-  DrawToolCell(s, TOOL_LOG, "LOG TO SD", Debug_LogEnabled() ? Debug_LogName() : "OFF",
-               Debug_LogEnabled() ? COL_GOOD : act);
+  DrawToolCell(s, TOOL_LOG, "LOG TO SD",
+               Debug_LogBuffered() ? "BUFFERED" : "DIRECT", Debug_LogBuffered() ? opt : COL_WARN);
+  DrawSideButton(s, TOOL_LOG, Debug_LogEnabled());
   DrawToolCell(s, TOOL_MARK, "LOG MARK", Debug_LogEnabled() ? "MARK" : "LOG IS OFF", Debug_LogEnabled() ? act : COL_FAINT);
+  {
+    char rec[16];
+    if (SceneRec_Active()) snprintf(rec, sizeof(rec), "%d/%d", SceneRec_Frames(), SceneRec_Capacity());
+    else snprintf(rec, sizeof(rec), "%s", SceneRec_RateLabel());
+    DrawToolCell(s, TOOL_SCENE_REC, "SCENE REC", rec, SceneRec_Active() ? COL_BAD : opt);
+    DrawSideButton(s, TOOL_SCENE_REC, SceneRec_Active());
+  }
   DrawToolCell(s, TOOL_PERF, "PERF RECORDER", Debug_PerfRecording() ? "RECORDING" : "OFF",
                Debug_PerfRecording() ? COL_BAD : act);
-  DrawToolCell(s, TOOL_PPU, "PPU RENDER", g_ui.render_on ? "ON" : "OFF", g_ui.render_on ? COL_GOOD : COL_WARN);
-  DrawToolCell(s, TOOL_GIVE_ALL, "GIVE ALL", "ITEMS, BEAMS, MAX", act);
-  DrawToolCell(s, TOOL_HEAL, "FULL HEAL", "ENERGY AND AMMO", act);
   DrawToolCell(s, TOOL_RENDERER, "RENDERER", g_ui.gpu_render ? "GPU (CPU FALLBACK)" : "CPU",
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
@@ -723,21 +771,37 @@ static void ToolsModalTouch(int x, int y) {
   }
   for (int i = 0; i < TOOL_COUNT; i++) {
     if (!UiIn(ToolRect(i), x, y)) continue;
+    const bool side = UiIn(SideRect(i), x, y);
     switch ((Tool)i) {
     case TOOL_DUMP: g_ui.req_dump = true; break;
     case TOOL_FRAME_DUMP:
       g_ui.req_frame_dump = true;
       if (g_ui.paused) Toast("Frame dump: waits for unpause");
       break;
-    case TOOL_LOG: Debug_LogSetEnabled(!Debug_LogEnabled()); Toast(Debug_LastMessage()); break;
+    case TOOL_LOG:
+      if (side) {
+        Debug_LogSetEnabled(!Debug_LogEnabled());
+        Toast(Debug_LastMessage());
+      } else {
+        Debug_LogSetBuffered(!Debug_LogBuffered());
+        Toast(Debug_LogBuffered() ? "Log: buffered, 16 KB blocks" : "Log: direct, every line");
+      }
+      break;
     case TOOL_MARK:
       if (Debug_LogEnabled()) { Debug_LogMark(); Toast("Mark written"); }
       else Toast("Turn the log on first");
       break;
+    case TOOL_SCENE_REC:
+      if (side) {
+        SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
+        Toast(Debug_LastMessage());
+      } else if (SceneRec_Active()) {
+        Toast("Stop the recorder to change the rate");
+      } else {
+        SceneRec_CycleRate();
+      }
+      break;
     case TOOL_PERF: Debug_PerfToggle(); Toast(Debug_LastMessage()); break;
-    case TOOL_PPU: g_ui.render_on = !g_ui.render_on; break;
-    case TOOL_GIVE_ALL: if (Cheats_GiveAll()) Toast("Everything"); else ReportGameplay(false); break;
-    case TOOL_HEAL: if (Cheats_FullHeal()) Toast("Refilled"); else ReportGameplay(false); break;
     case TOOL_RENDERER: g_ui.gpu_render = !g_ui.gpu_render; break;
     case TOOL_GPU_CHECK:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
@@ -794,15 +858,16 @@ static void DebugTouch(int x, int y) {
 
 // ---- Persistent options -----------------------------------------------------
 // Saved to config.ini in the data folder whenever one changes. Not persisted on
-// purpose: pause, turbo, PPU render off, cheats and the log/perf recorders,
+// purpose: pause, turbo, cheats and the log/perf recorders,
 // which would be confusing or harmful to find switched on at the next boot.
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup };
+  return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
+                         g_ui.pixel_perfect, g_ui.wide };
 }
 
 static void SaveConfig(void) {
@@ -810,8 +875,8 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\n", o.tab, o.frameskip, o.audio,
-          o.fps_overlay, o.speedup);
+  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n",
+          o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide);
   fclose(f);
 }
 
@@ -836,6 +901,8 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "audio")) g_ui.audio_on = v != 0;
     else if (!strcmp(key, "fps_overlay")) g_ui.fps_overlay = v != 0;
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
+    else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
+    else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
   }
   fclose(f);
 }
@@ -951,23 +1018,33 @@ bool BottomUi_Frame(const UiPerf *p) {
   return false;
 }
 
-static void DrawOverlay(Surface s, const UiPerf *p) {
-  char buf[16];
-  UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
-  snprintf(buf, sizeof(buf), "%.1f", p->game_fps);
-  UiDrawText(s, 2, 2, 1, FpsColor(p->game_fps), buf);
-  snprintf(buf, sizeof(buf), "L%.1f", p->logic_ms);
-  UiDrawText(s, 2, 12, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "D%.1f", p->draw_ms);
-  UiDrawText(s, 2, 22, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "A%.1f", p->audio_ms);
-  UiDrawText(s, 2, 32, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "S%.1f", p->fps);
-  UiDrawText(s, 2, 42, 1, COL_DIM, buf);
+// The overlay's box: 2 px around the text, as wide as its longest line (6 px a character,
+// the last one 5), five lines 10 px apart. `box` is its colour: opaque black on the CPU
+// path (it sits in the black margin), see-through black on the GPU path (it may sit over
+// the game with WIDE).
+enum { kOverlayMaxW = 60, kOverlayH = 51 };
+
+static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
+  char line[5][12];
+  snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
+  snprintf(line[1], sizeof(line[1]), "L%.1f", p->logic_ms);
+  snprintf(line[2], sizeof(line[2]), "D%.1f", p->draw_ms);
+  snprintf(line[3], sizeof(line[3]), "A%.1f", p->audio_ms);
+  snprintf(line[4], sizeof(line[4]), "S%.1f", p->fps);
+  int chars = 0;
+  for (int i = 0; i < 5; i++) {
+    const int n = (int)strlen(line[i]);
+    if (n > chars) chars = n;
+  }
+  int w = chars * 6 + 3;
+  if (w > kOverlayMaxW) w = kOverlayMaxW;
+  UiFillRect(s, 0, 0, w, kOverlayH, box);
+  const uint32_t col[5] = { FpsColor(p->game_fps), COL_TEXT, COL_TEXT, COL_TEXT, COL_DIM };
+  for (int i = 0; i < 5; i++) UiDrawText(s, 2, 2 + i * 10, 1, col[i], line[i]);
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
-  // The game is centred (274 px wide on a 400 px screen); use the left margin,
+  // The game is centred (274 or 256 px wide on a 400 px screen); use the left margin,
   // which the game never redraws. The top screen is double buffered, so clear
   // it for two frames after the overlay is switched off.
   static int clear_frames;
@@ -975,19 +1052,21 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
   if (!g_ui.fps_overlay) {
     if (clear_frames > 0) {
       clear_frames--;
-      UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
+      UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
     }
     return;
   }
   clear_frames = 2;
-  DrawOverlay(s, p);
+  // The box shrinks with the numbers: clear what a wider one left in this buffer.
+  UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
+  DrawOverlay(s, p, RGB(0, 0, 0));
 }
 
 bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   if (!g_ui.fps_overlay) return false;
   Surface s = { px, w, h };
   UiFillRect(s, 0, 0, w, h, 0);   // transparent around the box
-  DrawOverlay(s, p);
+  DrawOverlay(s, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
   return true;
 }
 

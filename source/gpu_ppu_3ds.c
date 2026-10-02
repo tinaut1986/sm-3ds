@@ -9,8 +9,10 @@
 #include "debug_tools.h"
 #include "gpu_ppu_shbin.h"
 
-// Two 256x256 RGBA8 targets with depth+stencil: the main screen and the subscreen
-// (the SNES colour-math source). Each band is drawn like the CPU renderer composes a
+// Two 512x256 RGBA8 targets with depth+stencil: the main screen and the subscreen
+// (the SNES colour-math source). Screen pixel (x, y) is target pixel (x + g_off_x,
+// y + kTexOffY), so the WIDE margins and extra rows (GpuFrame.x0, y0) fit; g_off_x follows
+// each frame's left margin (they lean to one side next to a room edge). Each band is drawn like the CPU renderer composes a
 // line (GpuBand in gpu_ppu.h):
 //   depth   = priority level; BG quads pass where theirs is greater
 //   stencil = bit 0: a sprite already owns the pixel (first in OAM order wins)
@@ -26,7 +28,8 @@ typedef struct {
   float x, y, z, u, v;
 } Vtx;
 
-enum { kMaxVerts = (kGpuMaxQuads + 256) * 6, kTexW = 256, kTexH = 256 };
+enum { kMaxVerts = (kGpuMaxQuads + 256) * 6, kTexW = 512, kTexH = 256, kTexOffXCalib = 128,
+       kTexOffY = kGpuMaxExtraRows };
 
 static bool g_ready, g_failed;
 static DVLB_s *g_dvlb;
@@ -37,6 +40,13 @@ static C3D_BufInfo g_buf;
 static C3D_Tex g_main_tex, g_sub_tex;
 static C3D_RenderTarget *g_rt_main, *g_rt_sub, *g_rt_top;
 static C3D_Mtx g_proj_tex, g_proj_top;
+static int g_off_x = kTexOffXCalib;   // target column of screen column 0
+
+static void SetTexOffset(int off_x) {
+  g_off_x = off_x;
+  // Screen (x, y) -> target (x + g_off_x, y + kTexOffY).
+  Mtx_Ortho(&g_proj_tex, -off_x, kTexW - off_x, kTexH - kTexOffY, -kTexOffY, 1, -1, true);
+}
 static Vtx *g_vbo;
 static int g_nverts;
 static GPU_TESTFUNC g_depth_greater = GPU_GREATER;
@@ -214,8 +224,11 @@ static void SolidRect(int x0, int y0, int x1, int y1, int level) {
 // v for row `y` of a texture: row 0 is at v = 1 (see GpuTexelIndex and mzm's atlas).
 static inline float TexV(const GpuTex *t, int y) { return 1.0f - (float)y / (float)t->h; }
 
-// Row `y` of a texture the GPU rendered into.
-static inline float RtV(int y) { return g_rt_flip_v ? (float)y / kTexH : 1.0f - (float)y / kTexH; }
+// Screen row `y` of a texture the GPU rendered into.
+static inline float RtV(int y) {
+  const float t = (float)(y + kTexOffY) / kTexH;
+  return g_rt_flip_v ? t : 1.0f - t;
+}
 
 static void SetTarget(C3D_RenderTarget *rt, const C3D_Mtx *proj) {
   C3D_FrameDrawOn(rt);
@@ -288,11 +301,14 @@ static void DrawBandSub(const GpuFrame *f, const GpuBand *b) {
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
   C3D_StencilTest(true, GPU_ALWAYS, 0, 0, 0xff);
   C3D_StencilOp(GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE);
-  SolidRect(0, b->y0, 256, b->y1, 0);
+  SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
   DrawQuads(f, b->sub_first, b->sub_count, false);
 }
 
-static void MathPass(const GpuBand *b) {
+// Texture u of screen column x in a render target.
+static inline float RtU(int x) { return (float)(x + g_off_x) / kTexW; }
+
+static void MathPass(const GpuFrame *f, const GpuBand *b) {
   // Only pixels whose owner has math on; no depth.
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_StencilTest(true, GPU_EQUAL, 2, 2, 0);
@@ -308,21 +324,21 @@ static void MathPass(const GpuBand *b) {
     if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
     else C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
     BatchBegin();
-    PushQuad(0, b->y0, 256, b->y1, 0, 0, v0, 1, v1);
+    PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0), v0, RtU(f->x1), v1);
     BatchDraw();
     // Subscreen backdrop (alpha 0): the fixed colour, never halved.
     EnvConstRgbTexAlpha(ColorFrom555(b->fixed, 255));
     C3D_AlphaTest(true, GPU_EQUAL, 0);
     C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
     BatchBegin();
-    PushQuad(0, b->y0, 256, b->y1, 0, 0, v0, 1, v1);
+    PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0), v0, RtU(f->x1), v1);
     BatchDraw();
   } else {
     EnvSolid(ColorFrom555(b->fixed, 255));
     C3D_AlphaTest(false, GPU_ALWAYS, 0);
     if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
     else C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
-    SolidRect(0, b->y0, 256, b->y1, 0);
+    SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
   }
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
   BlendOff();
@@ -334,20 +350,20 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
     EnvSolid(0xff000000);
     C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
     C3D_StencilTest(true, GPU_ALWAYS, 0, 0, 0xff);
-    SolidRect(0, b->y0, 256, b->y1, 0);
+    SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
     return;
   }
   // Backdrop: level 0, math bit as the backdrop's.
   EnvSolid(ColorFrom555(b->backdrop, 255));
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
   C3D_StencilTest(true, GPU_ALWAYS, b->backdrop_math ? 2 : 0, 0, 0xff);
-  SolidRect(0, b->y0, 256, b->y1, 0);
+  SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
   DrawQuads(f, b->main_first, b->main_count, true);
   if (b->clip) {   // colours to black, stencil and depth kept
     EnvSolid(0xff000000);
     C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
-    SolidRect(0, b->y0, 256, b->y1, 0);
+    SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
   }
   // A colour window that splits lines: clip its rectangles to black (colour only, as
   // above), and clear the "math applies" stencil bit where it prevents math.
@@ -374,7 +390,7 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
       BatchDraw();
     }
   }
-  if (b->math) MathPass(b);
+  if (b->math) MathPass(f, b);
 }
 
 // ---- Frame --------------------------------------------------------------------------------
@@ -405,13 +421,14 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
   *submit_ms = (float)((double)g_submit_ticks * 1000.0 / SYSCLOCK_ARM11);
 }
 
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
   if (!g_ready) return;
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
   g_wait_ticks = t1 - t0;
   g_nverts = 0;
+  SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
   BlendOff();
   bool any_sub = false;
   for (int i = 0; i < f->band_count; i++) any_sub |= !f->bands[i].black && f->bands[i].math && f->bands[i].add_subscreen;
@@ -426,8 +443,20 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_main, &g_proj_tex);
   for (int i = 0; i < f->band_count; i++) DrawBandMain(f, &f->bands[i]);
+  if (f->mask_count) {
+    EnvSolid(0xff000000);
+    C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
+    C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+    BatchBegin();
+    for (int i = 0; i < f->mask_count; i++) {
+      const GpuMaskRect *m = &f->mask[i];
+      PushQuad(m->x, m->y, m->x + m->w, m->y + m->h, LevelZ(0), 0, 0, 0, 0);
+    }
+    BatchDraw();
+  }
 
-  // Top screen: 256x224 scaled to 274x240, centred, like the CPU path (DrawPpuFrame).
+  // Top screen: the 256x224 picture centred, scaled to 274x240 or 1:1, like the CPU path
+  // (DrawPpuFrame); WIDE margins at the same scale on each side, cut by the screen edge.
   C3D_RenderTargetClear(g_rt_top, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_top, &g_proj_top);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -435,22 +464,29 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f) {
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
   BlendOff();
   C3D_TexBind(0, &g_main_tex);
-  const float x0 = (400 - 274) / 2, x1 = x0 + 274;
+  // The frame's columns centred on the screen (uneven margins: not the 256 px view).
+  const float x_scale = pixel_perfect ? 1.0f : 274.0f / 256.0f, mid = (f->x0 + f->x1) * 0.5f;
+  const float x0 = 200 + (f->x0 - mid) * x_scale, x1 = 200 + (f->x1 - mid) * x_scale;
+  const float u0 = RtU(f->x0), u1 = RtU(f->x1);
+  const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f, y_off = pixel_perfect ? (240 - 224) / 2 : 0;
   for (int i = 0; i < f->band_count; i++) {
     const GpuBand *b = &f->bands[i];
     const int bright = b->black ? 0 : b->brightness * 255 / 15;
     EnvModulate((uint32_t)bright | (uint32_t)bright << 8 | (uint32_t)bright << 16 | 0xff000000u);
-    const float y0 = b->y0 * 240.0f / 224.0f, y1 = b->y1 * 240.0f / 224.0f;
+    const float y0 = y_off + b->y0 * y_scale, y1 = y_off + b->y1 * y_scale;
     BatchBegin();
-    PushQuad(x0, y0, x1, y1, 0, 0, RtV(b->y0), 1, RtV(b->y1));
+    PushQuad(x0, y0, x1, y1, 0, u0, RtV(b->y0), u1, RtV(b->y1));
     BatchDraw();
   }
   if (g_overlay_on) {
+    // See-through: the box is translucent black, the rest of the texture transparent.
     C3D_TexBind(0, &g_overlay_tex);
     EnvTexture();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
     BatchBegin();
     PushQuad(0, 0, kOverlaySize, kOverlaySize, 0, 0, 1, 1, 0);
     BatchDraw();
+    BlendOff();
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;
@@ -472,6 +508,17 @@ static void ReadMain(void) {
   GSPGPU_InvalidateDataCache(g_readback, kTexW * kTexH * 4);
 }
 
+const uint32_t *GpuPpu3ds_ReadTop(void) {
+  static uint32_t *top;   // 240x400 linear, like the framebuffer
+  if (!g_ready || !g_any_frame) return NULL;
+  if (!top && !(top = (uint32_t *)linearAlloc(240 * 400 * 4))) return NULL;
+  WaitGpu();
+  C3D_SyncDisplayTransfer((u32 *)g_rt_top->frameBuf.colorBuf, GX_BUFFER_DIM(240, 400), (u32 *)top,
+                          GX_BUFFER_DIM(240, 400), DISPLAY_TRANSFER_FLAGS);
+  GSPGPU_InvalidateDataCache(top, 240 * 400 * 4);
+  return top;
+}
+
 void GpuPpu3ds_WaitIdle(void) {
   if (!g_ready || !g_any_frame) return;
   WaitGpu();
@@ -485,8 +532,15 @@ static void Unpack(uint32_t p, int *r, int *g, int *b) {
   else *r = p >> 24, *g = (p >> 16) & 0xff, *b = (p >> 8) & 0xff;
 }
 
+// Screen pixel (x, y) of the last readback, read as top-down or bottom-up rows.
+static inline uint32_t RawPixel(int x, int y, bool flipped) {
+  const int row = y + kTexOffY;
+  return g_readback[(flipped ? kTexH - 1 - row : row) * kTexW + x + g_off_x];
+}
+
+// Screen pixel (x, y) of the last readback.
 static inline uint32_t ReadPixel(int x, int y) {
-  return g_readback[(g_readback_flipped ? kTexH - 1 - y : y) * kTexW + x];
+  return RawPixel(x, y, g_readback_flipped);
 }
 
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch) {
@@ -537,7 +591,7 @@ static void Calibrate(void) {
   SolidRect(0, 0, 256, 256, 0);
   EndFrame();
   ReadMain();
-  const uint32_t green = g_readback[128 * kTexW + 128];
+  const uint32_t green = RawPixel(128, 128, false);
   g_readback_abgr = ((green >> 8) & 0xff) > 0xc0 && ((green >> 16) & 0xff) < 0x40;
 
   // 2. Depth: level 5 red, then level 10 green with the "greater" test.
@@ -550,7 +604,7 @@ static void Calibrate(void) {
   SolidRect(0, 0, 256, 256, 10);
   EndFrame();
   ReadMain();
-  const uint32_t mid = g_readback[128 * kTexW + 128];
+  const uint32_t mid = RawPixel(128, 128, false);
   g_depth_greater = IsGreen(mid) ? GPU_GREATER : GPU_LESS;
 
   // 3. Orientation: red on rows 0..7 of the main target only. Where the readback has it
@@ -562,7 +616,7 @@ static void Calibrate(void) {
   SolidRect(0, 0, 256, 8, 0);
   EndFrame();
   ReadMain();
-  g_readback_flipped = !IsRed(g_readback[4 * kTexW + 128]) && IsRed(g_readback[(kTexH - 5) * kTexW + 128]);
+  g_readback_flipped = !IsRed(RawPixel(128, 4, false)) && IsRed(RawPixel(128, 4, true));
 
   CalibFrameBegin(g_rt_sub);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -577,7 +631,7 @@ static void Calibrate(void) {
   C3D_SyncDisplayTransfer((u32 *)g_sub_tex.data, GX_BUFFER_DIM(kTexW, kTexH), (u32 *)g_readback,
                           GX_BUFFER_DIM(kTexW, kTexH), DISPLAY_TRANSFER_FLAGS);
   GSPGPU_InvalidateDataCache(g_readback, kTexW * kTexH * 4);
-  g_rt_flip_v = !IsRed(g_readback[128 * kTexW + 128]);
+  g_rt_flip_v = !IsRed(RawPixel(128, 128, false));
   snprintf(g_calib_text, sizeof(g_calib_text), "%s, depth %s, rt %s, readback %s", g_readback_abgr ? "ABGR" : "RGBA",
            g_depth_greater == GPU_GREATER ? "GREATER" : "LESS", g_rt_flip_v ? "FLIPPED" : "ok",
            g_readback_flipped ? "bottom-up" : "top-down");
@@ -610,7 +664,7 @@ bool GpuPpu3ds_Init(void) {
   if (!g_rt_main || !g_rt_sub || !g_rt_top) return false;
   C3D_RenderTargetSetOutput(g_rt_top, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
-  Mtx_Ortho(&g_proj_tex, 0, kTexW, kTexH, 0, 1, -1, true);
+  SetTexOffset(kTexOffXCalib);
   Mtx_OrthoTilt(&g_proj_top, 0, 400, 240, 0, 1, -1, true);
 
   C3D_BindProgram(&g_prog);

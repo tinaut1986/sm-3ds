@@ -11,10 +11,11 @@ Stereoscopic 3D is the long-term goal; for now the game runs in 2D.
 
 ## Status
 
-Early, pre-release. Tested on a New 3DS:
+First stable release `v0.1.2`; still early. Tested on a New 3DS and a 2DS:
 
-- Runs at 60 fps in the areas measured so far (Landing Site). Old 3DS/2DS has
-  not been measured yet and is expected to be slower.
+- Graphics are drawn by the 3DS GPU. 60 fps on New 3DS; on Old 3DS/2DS about 60 fps
+  in gameplay and 50-55 on the title, the intro and Ceres.
+- Sound is the emulated SNES sound chip, unchanged, and plays cleanly on Old 3DS too.
 - Saves at save stations persist across power cycles; save states (10 slots)
   work.
 - The bottom screen has tabs for the map, status, save states and options (plus
@@ -105,6 +106,13 @@ make print-version
 
 `FULL_NATIVE=1` runs only the C game code, never the ROM on the bundled SNES
 CPU emulator; release builds use it.
+
+### Tests
+
+`make test SM_ROM=/path/to/your/rom.sfc` runs the host regression suite (about 90 s):
+the GPU renderer against the CPU one over every room and a new game, the sound chip
+against the original, the music queue under repeated teleports. See
+[`tools/test/README.md`](tools/test/README.md). Nothing of the ROM is stored.
 
 ### Versions
 

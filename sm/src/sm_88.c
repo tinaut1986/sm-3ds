@@ -961,9 +961,12 @@ void HdmaobjPreInstr_PowerBombExplode_Stage5_Afterglow(uint16 k) {  // 0x888B98
   }
 }
 
+uint8 g_rtl_pb_half_width[256];
+
 void CalculatePowerBombHdma_LeftOfScreen(uint16 k, const uint8 *j) {  // 0x888BEA
   do {
     uint8 w = *j;
+    g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
     uint8 c = power_bomb_explosion_x_pos_plus_0x100;
     if (__CFADD__uint8(w, c)) {
       power_bomb_explosion_right_hdma[k] = w + c;
@@ -982,6 +985,7 @@ void CalculatePowerBombHdma_OnScreen(uint16 k, const uint8 *j) {  // 0x888C12
     uint8 w = *j;
     if (!w)
       break;
+    g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
     uint8 c = power_bomb_explosion_x_pos_plus_0x100;
     uint8 right = __CFADD__uint8(c, w) ? 255 : c + w;
     uint8 left = (c >= w) ? c - w : 0;
@@ -995,6 +999,7 @@ void CalculatePowerBombHdma_OnScreen(uint16 k, const uint8 *j) {  // 0x888C12
 void CalculatePowerBombHdma_RightOfScreen(uint16 k, const uint8 *j) {  // 0x888C3A
   do {
     uint8 w = *j;
+    g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
     if ((uint8)power_bomb_explosion_x_pos_plus_0x100 < w) {
       power_bomb_explosion_left_hdma[k] = power_bomb_explosion_x_pos_plus_0x100 - w;
       power_bomb_explosion_right_hdma[k] = -1;
@@ -1042,6 +1047,7 @@ uint16 CalculatePowerBombHdmaScaled_LeftOfScreen(uint16 k, uint16 j, uint8 multv
       v7 = -1;
     }
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = Reg;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = v7;
       power_bomb_explosion_right_hdma[(uint8)k] = v6;
       if ((uint8)k == r20)
@@ -1074,6 +1080,7 @@ uint16 CalculatePowerBombHdmaScaled_OnScreen(uint16 k, uint16 j, uint8 multval) 
     if (v4)
       v9 = 0;
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = Reg;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = v9;
       power_bomb_explosion_right_hdma[(uint8)k] = v6;
       if ((uint8)k == r20)
@@ -1109,6 +1116,7 @@ uint16 CalculatePowerBombHdmaScaled_RightOfScreen(uint16 k, uint16 j, uint8 mult
     v8 = v6;
     v9 = v10;
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = Reg;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = v8;
       power_bomb_explosion_right_hdma[(uint8)k] = v9;
       if ((uint8)k == r20)
@@ -1367,6 +1375,7 @@ uint16 CalculateCrystalFlashHdmaDataTablesScaled_LeftOfScreen(uint16 k, uint16 j
     left = (w + c >= 256) ? 0 : 255;
     right = (w + c >= 256) ? w + c : 0;
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = left;
       power_bomb_explosion_right_hdma[(uint8)k] = right;
       if ((uint8)k == r20)
@@ -1388,6 +1397,7 @@ uint16 CalculateCrystalFlashHdmaDataTablesScaled_OnScreen(uint16 k, uint16 j) { 
     right = c + w < 256 ? c + w : 255;
     left = c - w >= 0 ? c - w : 0;
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = left;
       power_bomb_explosion_right_hdma[(uint8)k] = right;
       if ((uint8)k == r20)
@@ -1409,6 +1419,7 @@ uint16 CalculateCrystalFlashHdmaDataTablesScaled_RightOfScreen(uint16 k, uint16 
     right = (c < w) ? 255 : 0;
     left = (c < w) ? c - w : 255;
     while (1) {
+      g_rtl_pb_half_width[(uint8)k] = w;   // 3DS port
       power_bomb_explosion_left_hdma[(uint8)k] = left;
       power_bomb_explosion_right_hdma[(uint8)k] = right;
       if ((uint8)k == r20)
