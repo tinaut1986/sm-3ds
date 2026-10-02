@@ -169,6 +169,8 @@ static int WideMargin(void) {
   case kGameState_7_MainGameplayFadeIn: case kGameState_8_MainGameplay: case kGameState_9_HitDoorBlock:
   case kGameState_10_LoadingNextRoom: case kGameState_11_LoadingNextRoom: case kGameState_12_Pausing:
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
+  case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
+  case kGameState_33_BlackoutFromCeres:       // and its fade to black
     return g_ui.pixel_perfect ? 72 : 60;
   default:
     return 0;
@@ -675,6 +677,7 @@ int main(int argc, char** argv) {
 
       g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
       g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
+      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_hud : NULL;
       SmWide_SetView(margin, extra, extra);
 
       u64 t0 = svcGetSystemTick();
@@ -709,6 +712,8 @@ int main(int argc, char** argv) {
         GpuPpu_SetNarrowBg3Rows(margin_l || margin_r ? kSmWideHudRows : 0);
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
+        GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
+        GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
           SmWide_AddMasks(&g_gpu_frame);

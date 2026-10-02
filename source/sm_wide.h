@@ -30,9 +30,17 @@ enum { kSmWideHudRows = 31, kSmWideMessageBoxMap = 0x5800 };
 // false the margins hold whatever VRAM had and should be masked.
 bool SmWide_Filled(void);
 
+// Whether the last frame showed a mode 7 room (Ceres): nothing filled nor masked, and the
+// plane goes on under the HUD (GpuPpu_SetMode7UnderHud).
+bool SmWide_Mode7(void);
+
 // The room's rectangle in screen pixels for the last frame ([x0, x1) x [y0, y1)); the
 // level data does not go beyond it, so outside it should be masked.
 void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
+
+// The power bomb's (and crystal flash's) real outline per captured line, for
+// GpuPpu_SetWindow2Extent; NULL when there is no explosion.
+const int16_t (*SmWide_Window2Extent(void))[2];
 
 // Black masks for a frame built with margins or extra rows: their parts outside the room
 // or in a red scroll screen made of one block (filler), and all of them when they were

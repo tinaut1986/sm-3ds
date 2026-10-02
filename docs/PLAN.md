@@ -15,16 +15,11 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.1.3`. Last stable: `v0.1.2` (2026-10-01, built without the
-debug tools); betas `v0.1.0` and `v0.1.1` before it.
+**Release line:** `release/v0.1.4`. Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
+tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine):
-
-| Branch | What | State |
-|---|---|---|
-| `fix/firefly-and-fps-overlay` | WIDE fixes for issues #1-#6 | CIA was on the console, not confirmed |
-| `feat/debug-tools` | debug tools pass, fixes #8; stacked on the branch above, merge that first | CIA on the console, not confirmed |
+with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -408,6 +403,13 @@ Lessons from mzm that apply directly:
   room and Maridia shows no garbage columns or rows, the HUD over the room and not
   repeated, no frozen or popping enemies, no sprite on the wrong side; WIDE off
   keeps `make test` hashes; 2DS still ~60 fps in Landing Site with WIDE on.
+
+- [ ] **P4.6** FRAME SKIP off warns. It is on by default (`frameskip` in `config.ini`) and
+  keeps heavy scenes playable (the Ceres escape shaft ran at 20-30 fps without it); players
+  who do not know what it does may switch it off and blame the port. Turning it off in
+  OPTIONS shows a short toast ("FRAME SKIP OFF: heavy rooms may slow down"); turning it on
+  says nothing. The option stays (useful for debugging and for those who prefer it).
+  *Done when:* the toast shows on every switch to off, not at boot with it saved off.
 
 ## Phase 5: completion
 
@@ -874,3 +876,9 @@ Lessons from mzm that apply directly:
   issues and the specs and went stale. Replaced by a short Status (branches waiting for
   the owner, priority line). What goes where is a table in CLAUDE.md. The small GPU
   leftovers that lived only in "Next up" became P2.5.
+- 2026-10-02: `v0.1.3` released as stable (owner: "todo funcionando"). The three stacked
+  branches (`fix/firefly-and-fps-overlay`, `feat/debug-tools`, `fix/wide-door-hud-margins`)
+  were squashed by content before merging (WIDE round 1, debug tools, docs, scene recorder,
+  the snesrev escape-beam fix, WIDE round 2) and merged in that order. Issues #1-#6 and
+  #8-#14 closed with it; #7 (vertical lean) stays open as an enhancement, and P4.6
+  (FRAME SKIP off warning) was added at the owner's request.

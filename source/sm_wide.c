@@ -18,17 +18,30 @@ static bool g_in_door, g_door_scrolling;
 static int g_door_last_count;
 static int g_bg2_dx;          // BG2 shift that keeps the parallax with the leaned view
 static bool g_filled;
+static bool g_mode7;   // the last frame showed a mode 7 room (Ceres): the plane fills it all
 static int g_room[4];        // the room in screen pixels, as drawn (screen shake included)
 static int g_room_still[4];  // the same without the shake: what the lean follows
 
-// Game states whose frames show the room as it is in the level data. Not the door
-// transitions: the level data already belongs to the next room while the old one is on
-// screen.
+// Whether the frame shows the room as it is in the level data. In a door transition only
+// while the old room fades out (its level data still loaded, the camera where it was) and
+// while the new one fades in (loaded, the camera at its destination); in between the
+// level data already belongs to the next room while the old one is on screen. Masking the
+// margins during the fades made them go black and come back at once, beside a room that
+// fades.
 static bool RoomShown(void) {
   switch (game_state) {
   case kGameState_7_MainGameplayFadeIn: case kGameState_8_MainGameplay: case kGameState_12_Pausing:
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
+  case kGameState_32_MadeItToCeresElevator: case kGameState_33_BlackoutFromCeres:   // Ceres escape's end
+  case kGameState_9_HitDoorBlock: case kGameState_10_LoadingNextRoom:
     return true;
+  case kGameState_11_LoadingNextRoom:
+    switch (door_transition_function | 0x820000) {
+    case fnDoorTransitionFunction_WaitForSoundsToFinish: case fnDoorTransitionFunction_FadeOutScreen:
+    case fnDoorTransition_FadeInScreenAndFinish:
+      return true;
+    }
+    return false;
   default:
     return false;
   }
@@ -224,8 +237,35 @@ static void Bg2Shift(void) {
   g_bg2_dx = d ? Layer2X(l1 + d) - Layer2X(l1) - d : 0;
 }
 
+// The explosion's window per captured line y (screen line y - 1): table entry k is the
+// distance from the centre line, the lines below it one entry behind (the indirect HDMA
+// table, found by matching the captured WH2/WH3 against the tables), and the half-width the
+// game computed before cutting it to the screen (g_rtl_pb_half_width).
+static int16_t g_win2[kPpuCaptureLines][2];
+static bool g_win2_on;
+
+static void ExplosionExtent(void) {
+  g_win2_on = (power_bomb_explosion_status & 0x8000) != 0;
+  if (!g_win2_on) return;
+  const int cx = (int16)(power_bomb_explosion_x_pos - layer1_x_pos);
+  const int cy = (int16)(power_bomb_explosion_y_pos - layer1_y_pos);
+  for (int y = 0; y < kPpuCaptureLines; y++) {
+    const int d = y - 1 - cy, k = d <= 0 ? -d : d - 1;
+    if (y == 0 || k > 255) {
+      g_win2[y][0] = kGpuWinNone;
+      continue;
+    }
+    const int w = g_rtl_pb_half_width[k];
+    g_win2[y][0] = (int16_t)(cx - w);
+    g_win2[y][1] = (int16_t)(cx + w + 1);
+  }
+}
+
+const int16_t (*SmWide_Window2Extent(void))[2] { return g_win2_on ? (const int16_t (*)[2])g_win2 : NULL; }
+
 static void BeforePpuDraw(void) {
   g_filled = false;
+  ExplosionExtent();
   // A screen shake moves the room on the screen for a frame or two; the lean must not
   // follow it, or the whole view jitters against the sprites (Ceres escape).
   const uint16 base_h = bg1_x_offset + layer1_x_pos, base_v = bg1_y_offset + layer1_y_pos;
@@ -242,8 +282,21 @@ static void BeforePpuDraw(void) {
   Ppu *ppu = g_snes->ppu;
   const bool door = game_state == kGameState_9_HitDoorBlock || game_state == kGameState_10_LoadingNextRoom ||
                     game_state == kGameState_11_LoadingNextRoom;
-  if (door) LeanDoor();
-  if (!RoomShown() || irq_enable_mode7) {
+  const bool shown = RoomShown() && !irq_enable_mode7;
+  if (door && !shown) LeanDoor();
+  // A mode 7 room: the plane holds the whole room (outside it, transparent), so nothing is
+  // filled or masked; only the HUD's blank cells let it show under the HUD.
+  g_mode7 = RoomShown() && irq_enable_mode7;
+  if (g_mode7) {
+    g_in_door = false;
+    SetLean(-g_margin_x);
+    g_bg2_dx = 0;
+    g_rtl_wide_margin_left = (uint16)g_left;
+    g_rtl_wide_margin_right = (uint16)g_right;
+    if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
+    return;
+  }
+  if (!shown) {
     HudRestore(ppu);   // margins masked: a door transition's rooms disagree
     if (door) Bg2Shift();
     g_rtl_wide_margin_left = (uint16)g_left;
@@ -294,6 +347,8 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
 
 bool SmWide_Filled(void) { return g_filled; }
 
+bool SmWide_Mode7(void) { return g_mode7; }
+
 void SmWide_Margins(int *left, int *right, int *hud_x, int *bg2_dx) {
   *left = g_left;
   *right = g_right;
@@ -325,6 +380,7 @@ static bool ScreenShown(int sx, int sy) {
 }
 
 void SmWide_AddMasks(GpuFrame *f) {
+  if (g_mode7) return;
   // What the frame shows beyond the game's own 256x224 view: the side margins (full
   // height) and the extra rows above and below it.
   const int regions[4][4] = {
@@ -335,10 +391,17 @@ void SmWide_AddMasks(GpuFrame *f) {
     const int c0 = regions[k][0], r0 = regions[k][1], c1 = regions[k][2], r1 = regions[k][3];
     if (c0 >= c1 || r0 >= r1) continue;
     if (!g_filled) {
-      // Not the HUD's rows (0-30): there the game shows only the HUD (door transitions use
-      // their own HUD split), which may sit in a margin when the view leans.
       if (r0 < 0) GpuPpu_AddMask(f, c0, r0, c1 - c0, (r1 < 0 ? r1 : 0) - r0);
       if (r1 > 31) GpuPpu_AddMask(f, c0, r0 > 31 ? r0 : 31, c1 - c0, r1 - (r0 > 31 ? r0 : 31));
+      // The HUD's rows (0-30) too, but not the HUD's own columns: it may sit in a margin
+      // when the view leans. HudLinesTM keeps the room's layers on there, and the margins'
+      // tilemap columns hold whatever the last fill left (a door transition showed stale
+      // BG1 blocks beside the HUD).
+      const int hr0 = r0 > 0 ? r0 : 0, hr1 = r1 < 31 ? r1 : 31, hud0 = (g_right - g_left) / 2, hud1 = hud0 + 256;
+      if (hr0 < hr1) {
+        if (c0 < hud0) GpuPpu_AddMask(f, c0, hr0, (c1 < hud0 ? c1 : hud0) - c0, hr1 - hr0);
+        if (c1 > hud1) GpuPpu_AddMask(f, c0 > hud1 ? c0 : hud1, hr0, c1 - (c0 > hud1 ? c0 : hud1), hr1 - hr0);
+      }
       continue;
     }
     // The parts outside the room or in a red scroll screen made of one block (filler).
