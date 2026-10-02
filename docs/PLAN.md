@@ -29,7 +29,7 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 | `feat/retroachievements` (on top of the one above) | P4.4 | trophy tab: log in, the list loads, an unlock shows the notice and reaches the RA site; a save state keeps progress |
 | `feat/game-text` (on top of the one above) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
 | `feat/ra-options` (on top of the one above) | P4.4 | the list loads (no "Invalid JSON"); SETTINGS: notice top/bottom with the sample, sound, order |
-| `fix/wide-xray-cone` (on top of the one above; its CIA has all seven) | security eyes' beam in WIDE (issue below) | the eyes' light in the margins follows the cone; X-ray scope: no garbage in the margins |
+| `fix/wide-xray-cone` (on top of the one above; its CIA has all seven) | issue #18, and FX over the HUD's rows | the eyes' light in the margins and the rows below the 224 follows the cone; X-ray: no garbage in the margins; fog/rain/water also over the HUD's rows and the rows above |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already

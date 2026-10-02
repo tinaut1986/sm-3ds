@@ -29,9 +29,15 @@ static int g_narrow_bg3_map = -1;
 
 void GpuPpu_SetNarrowBg3Map(int tilemap_adr) { g_narrow_bg3_map = tilemap_adr; }
 
+// The HUD's rows are drawn with the first gameplay line's settings (its FX layer, colour
+// math) and the HUD itself from the captured lines into the HUD list (BuildFrame).
+static bool g_hud_synth;
+static bool g_force_narrow, g_no_window_cut;   // while the HUD is emitted from its own lines
+
 // Whether BG3 stays within the 256 px view on lines [l0, l1].
 static bool NarrowBg3(const PpuLineCapture *cap, int l0, int l1) {
-  if (l1 <= g_narrow_bg3_rows) return true;
+  if (g_force_narrow) return true;
+  if (l1 <= g_narrow_bg3_rows) return !g_hud_synth;
   const BgLayer *bg = &cap->line[l0].bgLayer[2];
   return bg->tilemapAdr == g_narrow_bg3_map && !bg->tilemapWider && !bg->tilemapHigher;
 }
@@ -88,7 +94,7 @@ static bool WinCone(const PpuLineState *st, int w, int line, int *l, int *r) {
   if (!g_cone || w != g_cone_window || line >= kPpuCaptureLines || g_cone[line][0] == kGpuWinNone) return false;
   const int gl = g_cone[line][0], gr = g_cone[line][1];
   const int wl = w == 1 ? st->window1left : st->window2left, wr = w == 1 ? st->window1right : st->window2right;
-  if (line > kGpuRows) {   // an extra row below: its registers are the last line's copy
+  if (line > kGpuRows || (g_hud_synth && line <= g_narrow_bg3_rows)) {   // registers that are not the cone's
     *l = gl, *r = gr;
   } else if (wl > wr) {
     // Empty in the view: the cone may still cross a margin.
@@ -828,7 +834,7 @@ static bool SameSpans(const WinSpans *a, const WinSpans *b) {
 static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags, int scr,
                        int layer) {
   // Bands share LineInfo, so the band's first row tells whether the layer is partial.
-  if (!(g_info[y + 1].partial[scr] & (1 << layer))) return AddQuad(t, x, y, w, h, sx, sy, level, flags);
+  if (g_no_window_cut || !(g_info[y + 1].partial[scr] & (1 << layer))) return AddQuad(t, x, y, w, h, sx, sy, level, flags);
   for (int r0 = y; r0 < y + h;) {
     const WinSpans *sp = &g_spans[r0 + 1][scr][layer];
     int r1 = r0 + 1;
@@ -1182,8 +1188,40 @@ static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineSta
   return memcmp(&ka, &kb, sizeof(ka)) == 0;
 }
 
+static bool SameBgConfig(const BgLayer *a, const BgLayer *b) {
+  return a->tilemapWider == b->tilemapWider && a->tilemapHigher == b->tilemapHigher && a->tilemapAdr == b->tilemapAdr &&
+         a->tileAdr == b->tileAdr && a->bigTiles == b->bigTiles;
+}
+
+// The HUD's rows as the first gameplay line `g` draws, keeping what HDMA changes per line
+// (BG1/BG2, the windows' bounds): the room under the HUD gets the FX layer and the colour
+// math the rows below have (fog, rain, water), as it would if the screen went on up there.
+// Not where the FX layer would read the HUD's own tilemap rows (SM keeps both in one BG3
+// map, the HUD in its first 4 rows): there the line keeps its own settings without BG3 (the
+// HUD is drawn from the HUD list), as before.
+static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLineState *g, int line) {
+  const BgLayer *fx = &g->bgLayer[2], *hb = &hud->bgLayer[2];
+  const int map_rows = fx->tilemapHigher ? 64 : 32, row = ((line + fx->vScroll) >> 3) & (map_rows - 1);
+  const bool fx_on = ((g->screenEnabled[0] | g->screenEnabled[1]) & 4) != 0;
+  if (fx_on && fx->tilemapAdr == hb->tilemapAdr && row < 4) {
+    *dst = *hud;
+    dst->screenEnabled[0] &= ~4, dst->screenEnabled[1] &= ~4;
+    return;
+  }
+  *dst = *g;
+  dst->bgLayer[0] = hud->bgLayer[0];
+  dst->bgLayer[1] = hud->bgLayer[1];
+  dst->window1left = hud->window1left, dst->window1right = hud->window1right;
+  dst->window2left = hud->window2left, dst->window2right = hud->window2right;
+  dst->forcedBlank = hud->forcedBlank;
+  dst->brightness = hud->brightness;
+}
+
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason) {
   static LineInfo info[kPpuCaptureLines];
+  // The lines drawn: the capture's, or a copy changed where the HUD and extra rows need it.
+  static PpuLineCapture work;
+  const PpuLineCapture *orig = cap;
   memset(&g_stats, 0, sizeof(g_stats));
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
   out->hud_first = out->hud_count = g_hud_quad_count = 0;
@@ -1200,9 +1238,18 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   if (cap->midframe_data_writes) { *reason = "VRAM/CGRAM/OAM written mid-frame"; return false; }
   // The extra rows below are lines of their own, copies of the last one: what depends on
   // the line (a window cone, GpuPpu_SetWindowCone) goes on there instead of standing still.
-  // (The capture's lines past the frame are scratch.)
   const int last = kGpuRows + g_extra_bottom;
-  for (int l = kGpuRows + 1; l <= last; l++) ((PpuLineCapture *)cap)->line[l] = cap->line[kGpuRows];
+  int g = g_narrow_bg3_rows + 1;
+  while (g <= kGpuRows && orig->line[g].forcedBlank) g++;
+  g_hud_synth = g_narrow_bg3_rows > 0 && !g_m7_under_hud && g <= kGpuRows && orig->line[g].mode != 7;
+  if (g_hud_synth || last > kGpuRows) {
+    memcpy(&work.line[1], &orig->line[1], kGpuRows * sizeof(PpuLineState));
+    work.last_line = orig->last_line;
+    work.midframe_data_writes = orig->midframe_data_writes;
+    for (int l = kGpuRows + 1; l <= last; l++) work.line[l] = orig->line[kGpuRows];
+    for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[g], l);
+    cap = &work;
+  }
   for (int l = 1; l <= last; l++)
     if ((*reason = AnalyzeLine(&cap->line[l], &info[l], l))) return false;
   g_info = info;
@@ -1257,7 +1304,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       b->main_first = out->quad_count;
       if ((*reason = EmitScreen(ppu, cap, inf->main, l0, l1, true, &sprites_built))) { ok = false; break; }
       b->main_count = out->quad_count - b->main_first;
-      if (g_narrow_bg3_rows && l1 <= g_narrow_bg3_rows && !TakeHudQuads(out, b)) {
+      if (g_narrow_bg3_rows && !g_hud_synth && l1 <= g_narrow_bg3_rows && !TakeHudQuads(out, b)) {
         *reason = "too many HUD quads";
         ok = false;
         break;
@@ -1271,6 +1318,27 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     }
     if (l0 == 1) b->y0 = -g_extra_top;
     l0 = l1 + 1;
+  }
+  // The HUD from its own lines: BG3 within the view at the HUD's place, no window, no math.
+  if (ok && g_hud_synth) {
+    g_force_narrow = g_no_window_cut = true;
+    for (int l0 = 1; l0 <= g_narrow_bg3_rows && ok;) {
+      const PpuLineState *st = &orig->line[l0];
+      int l1 = l0;
+      while (l1 + 1 <= g_narrow_bg3_rows && SameBgConfig(&orig->line[l1 + 1].bgLayer[2], &st->bgLayer[2]) &&
+             orig->line[l1 + 1].forcedBlank == st->forcedBlank && orig->line[l1 + 1].screenEnabled[0] == st->screenEnabled[0])
+        l1++;
+      if (!st->forcedBlank && (st->screenEnabled[0] & 4)) {
+        const int first = out->quad_count;
+        if ((*reason = EmitBg(ppu, orig, 2, l0, l1, false, 0))) ok = false;
+        GpuBand fake = { 0 };
+        fake.main_first = first;
+        fake.main_count = out->quad_count - first;
+        if (ok && !TakeHudQuads(out, &fake)) { *reason = "too many HUD quads"; ok = false; }
+      }
+      l0 = l1 + 1;
+    }
+    g_force_narrow = g_no_window_cut = false;
   }
   if (ok && g_hud_quad_count) {
     if (out->quad_count + g_hud_quad_count > kGpuMaxQuads) {

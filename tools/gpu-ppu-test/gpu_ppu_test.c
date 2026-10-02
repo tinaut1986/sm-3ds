@@ -267,9 +267,10 @@ static void TestWide(const char *label) {
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.
   // (A message box is moved like the HUD: not compared then.)
-  // Moved down, it covers rows up to 30 + hud_y.
-  const bool hud_moved = hud_x || hud_y;
-  for (int y = hud_moved ? 31 + (hud_y > 0 ? hud_y : 0) : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
+  // Moved down, it covers rows up to 30 + hud_y. The HUD's rows also show the FX layer and
+  // colour math of the rows below (gpu_ppu.c, SynthHudLine), which the SNES never drew there:
+  // compared from under the HUD.
+  for (int y = 31 + (hud_y > 0 ? hud_y : 0); y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
     n += memcmp(&g_w[(y + ey) * pitch + ml * 4], &g_n[y * kPitch], 256 * 4) != 0;
   if (n) {
     g_wide_bad++;
