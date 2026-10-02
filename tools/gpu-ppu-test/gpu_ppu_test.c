@@ -118,16 +118,21 @@ static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
   SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
   GpuPpu_SetLayerShiftX(1, bg2_dx);   // for the reference build too: it moves the middle
-  if (getenv("WIDE_LEAN")) printf("  lean %d/%d hud %d bg2 %d\n", ml, mr, hud_x, bg2_dx);
+  int et, eb, hud_y;   // the extra rows, leaning off a room's top or bottom the same way
+  SmWide_Rows(&et, &eb, &hud_y);
+  if (getenv("WIDE_LEAN")) printf("  lean %d/%d rows %d/%d hud %d,%d bg2 %d\n", ml, mr, et, eb, hud_x, hud_y, bg2_dx);
   const int w = 256 + ml + mr, pitch = w * 4;
-  const int ey = getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, rows = kGpuRows + 2 * ey;
+  const int ey = et, rows = kGpuRows + et + eb;   // ey: the image row of view row 0
   const char *why;
   // The reference for the middle: the normal frame, but with sprites placed by their full X
   // too (the WIDE game logic draws enemies whose pieces the 9-bit X would wrap into view).
   g_gpu_ppu_obj_x = g_rtl_oam_x;
   g_gpu_ppu_obj_y = g_rtl_oam_y;
   GpuPpu_SetNoSpriteWrap(true);   // as the WIDE frame (and the console with WIDE on)
-  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);   // so the mode 7 plane under the HUD is in the reference
+  // So the mode 7 plane under the HUD is in the reference. WIDE_HUD_INBAND=1: not, so the
+  // reference draws the HUD within its band, as without WIDE (the WIDE frame draws it over
+  // everything, GpuFrame.hud_first): checks that both give the same image.
+  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_HUD_INBAND") ? 0 : kSmWideHudRows);
   GpuPpu_SetMode7UnderHud(SmWide_Mode7());
   // HUD sprites (the escape timer) moved with the HUD in the reference too (the HUD's own
   // rows are not compared when it moves).
@@ -158,7 +163,8 @@ static void TestWide(const char *label) {
   }
   GpuPpu_SetMargins(ml, mr);
   GpuPpu_SetHudX(hud_x);
-  GpuPpu_SetExtraRows(ey, ey);
+  GpuPpu_SetHudY(hud_y);
+  GpuPpu_SetExtraRows(et, eb);
   GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
   GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
   GpuPpu_SetWindow2Extent(SmWide_Window2Extent());
@@ -170,6 +176,7 @@ static void TestWide(const char *label) {
   g_gpu_ppu_obj_hud = NULL;
   GpuPpu_SetMargin(0);
   GpuPpu_SetHudX(0);
+  GpuPpu_SetHudY(0);
   GpuPpu_SetLayerShiftX(1, 0);
   GpuPpu_SetExtraRows(0, 0);
   GpuPpu_SetNarrowBg3Rows(0);
@@ -233,7 +240,9 @@ static void TestWide(const char *label) {
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.
   // (A message box is moved like the HUD: not compared then.)
-  for (int y = hud_x ? 31 : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
+  // Moved down, it covers rows up to 30 + hud_y.
+  const bool hud_moved = hud_x || hud_y;
+  for (int y = hud_moved ? 31 + (hud_y > 0 ? hud_y : 0) : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
     n += memcmp(&g_w[(y + ey) * pitch + ml * 4], &g_n[y * kPitch], 256 * 4) != 0;
   if (n) {
     g_wide_bad++;
@@ -253,7 +262,7 @@ static void TestWide(const char *label) {
   if (!SmWide_Filled() && !SmWide_Mode7()) {   // (mode 7: the plane is the whole room)
     int dirty = 0;
     for (int y = 0; y < rows; y++) {
-      const bool hud_row = y - ey < 31 && y >= ey;
+      const bool hud_row = y - ey - hud_y < 31 && y - ey - hud_y >= 0;
       for (int x = 0; x < w; x++) {
         const int vx = x - ml;
         if (vx >= 0 && vx < 256 && y >= ey && y - ey < kGpuRows) continue;   // the game's view
@@ -311,8 +320,9 @@ static void TestWide(const char *label) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
     GpuPpu_SetMargins(ml, mr);
     GpuPpu_SetHudX(hud_x);
+    GpuPpu_SetHudY(hud_y);
     GpuPpu_SetLayerShiftX(1, bg2_dx);
-    GpuPpu_SetExtraRows(ey, ey);
+    GpuPpu_SetExtraRows(et, eb);
     GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
     GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
     if (GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &f2, &why2)) {
@@ -341,6 +351,7 @@ static void TestWide(const char *label) {
     }
     GpuPpu_SetMargin(0);
     GpuPpu_SetHudX(0);
+    GpuPpu_SetHudY(0);
     GpuPpu_SetLayerShiftX(1, 0);
     GpuPpu_SetExtraRows(0, 0);
     GpuPpu_SetNarrowBg3Rows(0);

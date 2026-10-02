@@ -25,6 +25,7 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 |---|---|---|
 | `feat/frameskip-warning` | P4.6 | switching FRAME SKIP off shows the toast; nothing at boot with it saved off |
 | `feat/ui-languages` (on top of the one above) | P4.7 | OPTIONS -> LANGUAGE cycles the five languages, the choice survives a reboot, accents readable |
+| `fix/wide-vertical-lean` (on top of the one above; its CIA has all three) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already

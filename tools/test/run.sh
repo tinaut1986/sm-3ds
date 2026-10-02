@@ -99,6 +99,8 @@ CERES_BOOM=1 run_gpu gpu-newgame boot "$OUT/empty.srm" 10500 &
 PBOMB=1 run_gpu gpu-pbomb rooms 200 91F8 &
 WIDE=60 run_gpu wide-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
+WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
 # The Ceres elevator shaft (DF45, mode 7) tilting in the escape, PIXEL PERFECT margins,
 # Samus shooting left then right (the beams' OAM is in the WRAM hash).
 WIDE=72 WIDE_Y=8 CERES_ESCAPE=1 AUTOFIRE=1 ROOM_SEQ=0@0,240@40,280@120 run_gpu wide-ceres rooms 200 DF45 &
@@ -138,6 +140,10 @@ wide_checks() {   # wide_checks NAME: the WIDE build of every frame
 echo "wide-rooms: every room with WIDE on (60 px margins), 10 frames each"
 gpu_checks wide-rooms
 wide_checks wide-rooms
+echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
+gpu_checks wide-rows
+wide_checks wide-rows
+expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
 echo "wide-pbomb: the power bomb in Landing Site with WIDE on"
 gpu_checks wide-pbomb
 wide_checks wide-pbomb
