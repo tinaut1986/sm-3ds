@@ -656,7 +656,10 @@ static void OptionsTouch(int x, int y) {
     switch ((OptCell)i) {
     case OPT_PAUSE: g_ui.paused = !g_ui.paused; break;
     case OPT_TURBO: g_ui.turbo = !g_ui.turbo; break;
-    case OPT_FRAMESKIP: g_ui.frameskip = !g_ui.frameskip; break;
+    case OPT_FRAMESKIP:
+      g_ui.frameskip = !g_ui.frameskip;
+      if (!g_ui.frameskip) Toast("FRAME SKIP OFF: heavy rooms may slow down");
+      break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
     case OPT_FPS: g_ui.fps_overlay = !g_ui.fps_overlay; break;
     case OPT_SPEEDUP:
