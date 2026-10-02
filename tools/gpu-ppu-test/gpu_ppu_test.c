@@ -128,8 +128,8 @@ static void TestWide(const char *label) {
   const char *why;
   // The reference for the middle: the normal frame, but with sprites placed by their full X
   // too (the WIDE game logic draws enemies whose pieces the 9-bit X would wrap into view).
-  g_gpu_ppu_obj_x = g_rtl_oam_x;
-  g_gpu_ppu_obj_y = g_rtl_oam_y;
+  g_gpu_ppu_obj_x = g_rtl_oam_shown_x;
+  g_gpu_ppu_obj_y = g_rtl_oam_shown_y;
   GpuPpu_SetNoSpriteWrap(true);   // as the WIDE frame (and the console with WIDE on)
   // So the mode 7 plane under the HUD is in the reference. WIDE_HUD_INBAND=1: not, so the
   // reference draws the HUD within its band, as without WIDE (the WIDE frame draws it over
@@ -138,7 +138,7 @@ static void TestWide(const char *label) {
   GpuPpu_SetMode7UnderHud(SmWide_Mode7());
   // HUD sprites (the escape timer) moved with the HUD in the reference too (the HUD's own
   // rows are not compared when it moves).
-  g_gpu_ppu_obj_hud = g_rtl_oam_hud;
+  g_gpu_ppu_obj_hud = g_rtl_oam_shown_hud;
   GpuPpu_SetHudX(hud_x);
   if (!GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why)) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
@@ -194,8 +194,8 @@ static void TestWide(const char *label) {
     }
     printf("%s: cone vs window %d: %d of %d lines off by more than 1 px (worst %d)\n", label, cone_window, off, lines, worst);
   }
-  g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_x;   // NO_FULLX: the 9-bit X (old bug)
-  g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_y;
+  g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_x;   // NO_FULLX: the 9-bit X (old bug)
+  g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_y;
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   GpuPpu_SetWindow2Extent(NULL);
   GpuPpu_SetWindowCone(0, NULL);
@@ -228,22 +228,22 @@ static void TestWide(const char *label) {
     // Inside the view, a recorded position must be where the SNES shows the piece; one more
     // than 64 px off means a wrong anchor (a piece 256 px away from where it belongs).
     for (int i = 0; i < 128; i++) {
-      if (g_rtl_oam_x[i] == kRtlOamUnknown || g_rtl_oam_y[i] >= kRtlOamHiddenY) continue;
+      if (g_rtl_oam_shown_x[i] == kRtlOamUnknown || g_rtl_oam_shown_y[i] >= kRtlOamHiddenY) continue;
       const uint16_t *o = &g_snes->ppu->oam[i * 2];
       int x = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8, y = o[0] >> 8;
       if (x >= 256 + 64) x -= 512;
       if (y >= 224 + 16) y -= 256;
       if (x < 32 || x > 224 || y < 48 || y > 192) continue;   // well inside: no ambiguity
-      if (abs(g_rtl_oam_x[i] - x) > 64 || abs(g_rtl_oam_y[i] - y) > 64)
-        printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_x[i], g_rtl_oam_y[i]);
+      if (abs(g_rtl_oam_shown_x[i] - x) > 64 || abs(g_rtl_oam_shown_y[i] - y) > 64)
+        printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_shown_x[i], g_rtl_oam_shown_y[i]);
     }
   }
-  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, first 24 entries
+  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, first 24 entries (h: HUD)
     printf("  oam:");
     for (int i = 0; i < 24; i++) {
       const uint16_t *o = &g_snes->ppu->oam[i * 2];
       const int raw = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8;
-      printf(" %d:%d/%d,y%d/%d", i, raw, g_rtl_oam_x[i], o[0] >> 8, g_rtl_oam_y[i]);
+      printf(" %d:%d/%d,y%d/%d%s", i, raw, g_rtl_oam_shown_x[i], o[0] >> 8, g_rtl_oam_shown_y[i], g_rtl_oam_shown_hud[i] ? "h" : "");
     }
     printf("\n");
   }
@@ -283,7 +283,8 @@ static void TestWide(const char *label) {
     }
   }
   // Without the room filled in (door transitions, fades) the margins must be black, apart
-  // from the HUD's own columns on its rows (it may sit in a margin when the view leans):
+  // from the HUD's own columns on its rows and its sprites (it may sit in a margin when the
+  // view leans):
   // their tilemap columns hold stale blocks (issue: garbage beside the HUD in a door).
   g_wide_filled += SmWide_Filled();
   for (int i = 0; i < rows * pitch; i++) g_wide_hash = (g_wide_hash ^ g_w[i]) * 1099511628211ull;
@@ -295,6 +296,13 @@ static void TestWide(const char *label) {
         const int vx = x - ml;
         if (vx >= 0 && vx < 256 && y >= ey && y - ey < kGpuRows) continue;   // the game's view
         if (hud_row && vx >= hud_x && vx < hud_x + 256) continue;
+        bool hud_obj = false;   // a HUD sprite (the escape timer) keeps its place, in a margin too
+        for (int q = g_frame.hud_first; q < g_frame.hud_first + g_frame.hud_count && !hud_obj; q++) {
+          const GpuQuad *qd = &g_frame.quads[q];
+          hud_obj = (qd->flags & kGpuQuadObj) && vx >= qd->x && vx < qd->x + qd->w && y - ey >= qd->y &&
+                    y - ey < qd->y + qd->h;
+        }
+        if (hud_obj) continue;
         const uint8_t *p = &g_w[y * pitch + x * 4];
         if (p[0] | p[1] | p[2]) { dirty++; break; }
       }

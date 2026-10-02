@@ -166,6 +166,16 @@ extern uint16 g_rtl_message_box_vram;
 // moves these with the HUD. Set while g_rtl_oam_hud_drawing is (DrawTimer).
 extern uint8 g_rtl_oam_hud[128];
 extern bool g_rtl_oam_hud_drawing;
+// What the renderer reads: g_rtl_oam_x/y/hud of the OAM the NMI last uploaded
+// (RtlOamShown). While a door transition scrolls, the game frame that started it waits
+// mid-way: its start reset the tags, but OAM in RAM (and so in the PPU) still holds the last
+// finished frame's entries. The Ceres timer then lost its HUD tag and scrolled with the
+// door (issue #15). So the copy is taken only once a frame has rebuilt OAM
+// (ClearUnusedOam sets g_rtl_oam_built).
+extern int16 g_rtl_oam_shown_x[128], g_rtl_oam_shown_y[128];
+extern uint8 g_rtl_oam_shown_hud[128];
+extern bool g_rtl_oam_built;
+void RtlOamShown(void);
 // The entry at OAM byte offset `idx` was written with X `x` and Y `y` (the 8 bits stored);
 // `hidden`: the drawer parked it off-screen on purpose.
 static inline void RtlOamTag(int idx, int x, int y, bool hidden) {

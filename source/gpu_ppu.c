@@ -684,6 +684,7 @@ typedef struct {
   int ax, ay;             // in the atlas
   uint8_t level;
   bool hflip, vflip, math;
+  bool hud;               // g_gpu_ppu_obj_hud: drawn with the HUD's BG3, over the masks
 } Sprite;
 
 typedef struct {
@@ -785,6 +786,7 @@ static const char *BuildSprites(const Ppu *ppu, const PpuLineState *st) {
     sp->vflip = attr & 0x8000;
     sp->no_wrap = no_wrap;
     sp->math = (attr & 0x800) && st->mathEnabled[4];
+    sp->hud = hud;
     g_sprite_count++;
   }
   g_stats.sprites = g_sprite_count;
@@ -859,9 +861,37 @@ static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, in
   return true;
 }
 
+// The HUD's quads (its BG3, and its sprites: EmitSprites), taken out of their bands (GpuFrame.hud_first).
+enum { kMaxHudQuads = 256 };
+static GpuQuad g_hud_quads[kMaxHudQuads];
+static int g_hud_quad_count;
+
+// A HUD sprite's rows [y0, y1) of the main screen, onto the HUD list instead of the band:
+// the HUD keeps its place while the view leans, also over the masked margins (the Ceres
+// timer in a door transition, issue #15). No window, no math, like the HUD's BG3.
+static bool EmitHudSprite(const Sprite *sp, int y0, int y1) {
+  const int flags = kGpuQuadObj | (sp->hflip ? kGpuQuadFlipX : 0) | (sp->vflip ? kGpuQuadFlipY : 0);
+  for (int top = sp->y; top >= (sp->no_wrap ? sp->y : sp->y - 256); top -= 256) {
+    const int r0 = top > y0 ? top : y0, r1 = top + sp->size < y1 ? top + sp->size : y1;
+    if (r0 >= r1) continue;
+    const int h = r1 - r0, skip = r0 - top;
+    const int sy = sp->vflip ? sp->ay + sp->size - h - skip : sp->ay + skip;
+    const int q = g_out->quad_count;
+    if (!AddQuad(&g_atlas, sp->x, r0, sp->size, h, sp->ax, sy, sp->level, flags)) return false;
+    if (g_out->quad_count == q) continue;
+    if (g_hud_quad_count >= kMaxHudQuads) return false;
+    g_hud_quads[g_hud_quad_count++] = g_out->quads[--g_out->quad_count];
+  }
+  return true;
+}
+
 static bool EmitSprites(int y0, int y1, bool main) {
+  // The HUD list is drawn in order, the last quad on top; among sprites the first wins.
+  for (int i = g_sprite_count - 1; i >= 0; i--)
+    if (main && g_sprites[i].hud && !EmitHudSprite(&g_sprites[i], y0, y1)) return false;
   for (int i = 0; i < g_sprite_count; i++) {
     const Sprite *sp = &g_sprites[i];
+    if (sp->hud) continue;
     const int flags = kGpuQuadObj | (sp->hflip ? kGpuQuadFlipX : 0) | (sp->vflip ? kGpuQuadFlipY : 0) |
                       (main && sp->math ? kGpuQuadMath : 0);
     for (int top = sp->y; top >= (sp->no_wrap ? sp->y : sp->y - 256); top -= 256) {
@@ -1155,10 +1185,6 @@ static void ExtendBand(GpuFrame *out, const GpuBand *b, bool up, int n, bool kee
   }
 }
 
-// The HUD's BG3 quads, taken out of their bands (GpuFrame.hud_first).
-enum { kMaxHudQuads = 256 };
-static GpuQuad g_hud_quads[kMaxHudQuads];
-static int g_hud_quad_count;
 
 // Moves the BG3 quads of band `b`'s main screen, the last quads emitted, to the HUD list.
 static bool TakeHudQuads(GpuFrame *out, GpuBand *b) {

@@ -694,9 +694,9 @@ int main(int argc, char** argv) {
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
       const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
 
-      g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
-      g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
-      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_hud : NULL;
+      g_gpu_ppu_obj_x = margin ? g_rtl_oam_shown_x : NULL;
+      g_gpu_ppu_obj_y = margin ? g_rtl_oam_shown_y : NULL;
+      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_shown_hud : NULL;
       SmWide_SetView(margin, extra, extra);
 
       u64 t0 = svcGetSystemTick();
