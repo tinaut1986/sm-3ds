@@ -190,7 +190,8 @@ typedef struct PpuLineState {
   bool mathEnabled[6];
 } PpuLineState;
 
-enum { kPpuCaptureLines = 240 };
+// 256: room for the GPU renderer's extra rows below the 224 (3DS port, gpu_ppu.c).
+enum { kPpuCaptureLines = 256 };
 typedef struct PpuLineCapture {
   PpuLineState line[kPpuCaptureLines];   // [1..last_line] are valid
   int last_line;

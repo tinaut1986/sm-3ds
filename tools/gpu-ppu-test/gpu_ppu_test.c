@@ -770,6 +770,11 @@ int main(int argc, char **argv) {
       int sx, sy;
       if (getenv("SAMUS_AT") && k == 1 && sscanf(getenv("SAMUS_AT"), "%d,%d", &sx, &sy) == 2)
         samus_x_pos = samus_prev_x_pos = (uint16)sx, samus_y_pos = samus_prev_y_pos = (uint16)sy;
+      // ITEMS=hex: these items collected and equipped from frame 1 (4 = morph ball: the eyes).
+      if (getenv("ITEMS") && k == 1) {
+        const int it = (int)strtol(getenv("ITEMS"), 0, 16);
+        collected_items |= it, equipped_items |= it;
+      }
       // XRAY=1: X-ray scope collected, equipped and selected from frame 1 (hold Y, 0x02, to use it).
       if (getenv("XRAY") && k == 1) {
         collected_items |= 0x8000, equipped_items |= 0x8000;

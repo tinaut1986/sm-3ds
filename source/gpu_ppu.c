@@ -88,7 +88,9 @@ static bool WinCone(const PpuLineState *st, int w, int line, int *l, int *r) {
   if (!g_cone || w != g_cone_window || line >= kPpuCaptureLines || g_cone[line][0] == kGpuWinNone) return false;
   const int gl = g_cone[line][0], gr = g_cone[line][1];
   const int wl = w == 1 ? st->window1left : st->window2left, wr = w == 1 ? st->window1right : st->window2right;
-  if (wl > wr) {
+  if (line > kGpuRows) {   // an extra row below: its registers are the last line's copy
+    *l = gl, *r = gr;
+  } else if (wl > wr) {
     // Empty in the view: the cone may still cross a margin.
     if (gl < 0) *l = gl, *r = gr < 0 ? gr : 0;
     else if (gr > 256) *l = gl > 256 ? gl : 256, *r = gr;
@@ -877,7 +879,7 @@ enum { kQuadReserve = 1024 };   // left for sprites and the other layers
 
 static const uint8_t kBgLevel[3][2] = { { 8, 12 }, { 7, 11 }, { 1, 15 } };
 
-static uint32_t g_composed[3][kGpuRows];   // frame number each screen-texture row was composed in
+static uint32_t g_composed[3][kPpuCaptureLines];   // frame number each screen-texture row was composed in
 
 // One BG layer over the band's lines [l0, l1] (output rows l0-1 .. l1-1).
 static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, int l0, int l1, bool math, int scr) {
@@ -1196,7 +1198,12 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   uint64_t t0 = Clock();
   if (cap->last_line < kGpuRows) { *reason = "frame shorter than 224 lines"; return false; }
   if (cap->midframe_data_writes) { *reason = "VRAM/CGRAM/OAM written mid-frame"; return false; }
-  for (int l = 1; l <= kGpuRows; l++)
+  // The extra rows below are lines of their own, copies of the last one: what depends on
+  // the line (a window cone, GpuPpu_SetWindowCone) goes on there instead of standing still.
+  // (The capture's lines past the frame are scratch.)
+  const int last = kGpuRows + g_extra_bottom;
+  for (int l = kGpuRows + 1; l <= last; l++) ((PpuLineCapture *)cap)->line[l] = cap->line[kGpuRows];
+  for (int l = 1; l <= last; l++)
     if ((*reason = AnalyzeLine(&cap->line[l], &info[l], l))) return false;
   g_info = info;
   if (!g_atlas.px && !GpuBackend_TexCreate(&g_atlas, kAtlasW, kAtlasH)) { *reason = "out of texture memory"; return false; }
@@ -1220,9 +1227,9 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   t0 = Clock();
   g_atlas_entry_count = g_shelf_x = g_shelf_y = g_shelf_h = 0;
   bool ok = true;
-  for (int l0 = 1; l0 <= kGpuRows && ok;) {
+  for (int l0 = 1; l0 <= last && ok;) {
     int l1 = l0;
-    while (l1 + 1 <= kGpuRows && SameBand(&cap->line[l0], &info[l0], &cap->line[l1 + 1], &info[l1 + 1])) l1++;
+    while (l1 + 1 <= last && SameBand(&cap->line[l0], &info[l0], &cap->line[l1 + 1], &info[l1 + 1])) l1++;
     if (out->band_count >= kGpuMaxBands) { *reason = "too many bands"; ok = false; break; }
     const PpuLineState *st = &cap->line[l0];
     const LineInfo *inf = &info[l0];
@@ -1261,10 +1268,8 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       b->sub_count = out->quad_count - b->sub_first;
       const bool hud = NarrowBg3(cap, l0, l1);
       if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud);
-      if (l1 == kGpuRows && g_extra_bottom) ExtendBand(out, b, false, g_extra_bottom, hud);
     }
     if (l0 == 1) b->y0 = -g_extra_top;
-    if (l1 == kGpuRows) b->y1 = kGpuRows + g_extra_bottom;
     l0 = l1 + 1;
   }
   if (ok && g_hud_quad_count) {
