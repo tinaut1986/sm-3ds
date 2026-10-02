@@ -47,6 +47,10 @@ void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
 // GpuPpu_SetWindow2Extent; NULL when there is no explosion.
 const int16_t (*SmWide_Window2Extent(void))[2];
 
+// The X-ray scope's (or a security eye's) cone per captured line for GpuPpu_SetWindowCone,
+// when one was drawn this frame (and the window it uses); NULL otherwise.
+const int16_t (*SmWide_WindowCone(int *window))[2];
+
 // Black masks for a frame built with margins or extra rows: their parts outside the room
 // or in a red scroll screen made of one block (filler), and all of them when they were
 // not filled. (The HUD's BG3 stays out of the margins through GpuPpu_SetNarrowBg3Rows.)

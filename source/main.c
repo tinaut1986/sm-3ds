@@ -736,6 +736,9 @@ int main(int argc, char** argv) {
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
+        int cone_window;
+        const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
+        GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
         GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {

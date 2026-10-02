@@ -99,6 +99,8 @@ CERES_BOOM=1 run_gpu gpu-newgame boot "$OUT/empty.srm" 10500 &
 PBOMB=1 run_gpu gpu-pbomb rooms 200 91F8 &
 WIDE=60 run_gpu wide-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
+WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
 # The Ceres elevator shaft (DF45, mode 7) tilting in the escape, PIXEL PERFECT margins,
@@ -147,6 +149,10 @@ echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 fr
 gpu_checks wide-rows
 wide_checks wide-rows
 expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray: the X-ray scope's cone with WIDE (it stays in the view, no BG2 garbage in the margins)"
+gpu_checks wide-xray
+wide_checks wide-xray
+expect wide-xray.image "$(field "$OUT/wide-xray.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
 echo "wide-pbomb: the power bomb in Landing Site with WIDE on"
 gpu_checks wide-pbomb
 wide_checks wide-pbomb

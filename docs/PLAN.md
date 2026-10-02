@@ -19,16 +19,11 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine):
-
-| Branch | What | Check on the console |
-|---|---|---|
-| `feat/frameskip-warning` | P4.6 | switching FRAME SKIP off shows the toast; nothing at boot with it saved off |
-| `feat/ui-languages` (on top of the one above) | P4.7 | OPTIONS -> LANGUAGE cycles the five languages, the choice survives a reboot, accents readable |
-| `fix/wide-vertical-lean` (on top of the one above) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
-| `feat/retroachievements` (on top of the one above) | P4.4 | trophy tab: log in, the list loads, an unlock shows the notice and reaches the RA site; a save state keeps progress |
-| `feat/game-text` (on top of the one above) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
-| `feat/ra-options` (on top of the one above; its CIA has all six) | P4.4 | the list loads (no "Invalid JSON"); SETTINGS: notice top/bottom with the sample, sound, order |
+with `--no-ff` only after they confirm, closing the issues that turned out fine): none. The
+stack frameskip-warning, ui-languages, wide-vertical-lean, retroachievements, game-text,
+ra-options, wide-xray-cone was merged into `release/v0.1.4` on 2026-10-03 at the owner's
+request (#16 confirmed); what each still needs from the console is in its task (P4.4, P4.6,
+P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -925,3 +920,7 @@ Lessons from mzm that apply directly:
   the snesrev escape-beam fix, WIDE round 2) and merged in that order. Issues #1-#6 and
   #8-#14 closed with it; #7 (vertical lean) stays open as an enhancement, and P4.6
   (FRAME SKIP off warning) was added at the owner's request.
+- 2026-10-03: The owner asked to merge the whole stack of topic branches (one CIA carried
+  them all for testing) into `release/v0.1.4` once #16 (FX over the HUD's rows) was seen
+  fixed. Merged branch by branch with `--no-ff`, oldest first. The tasks stay unticked until
+  each is checked on its own (Done when), as do #7 and #18.

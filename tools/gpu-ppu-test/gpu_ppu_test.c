@@ -170,10 +170,35 @@ static void TestWide(const char *label) {
   GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
   GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
   GpuPpu_SetWindow2Extent(SmWide_Window2Extent());
+  int cone_window;
+  const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
+  GpuPpu_SetWindowCone(cone_window, getenv("WIDE_NO_CONE") ? NULL : cone);
+  if (getenv("WIDE_CONE_CHECK") && cone) {   // the cone's columns against its window's registers
+    const int16_t (*c)[2] = cone;
+    int lines = 0, off = 0, worst = 0;
+    for (int l = 1; l <= kGpuRows; l++) {
+      const PpuLineState *st = &g_cap.line[l];
+      const int wl = cone_window == 1 ? st->window1left : st->window2left;
+      const int wr = cone_window == 1 ? st->window1right : st->window2right;
+      const bool reg = wl <= wr, geo = c[l][0] != kGpuWinNone && c[l][1] > 0 && c[l][0] < 256;
+      int d = 0;
+      if (reg != geo) d = 99;
+      else if (reg) {
+        if (wl > 0) d = abs(c[l][0] - wl);
+        if (wr < 255) d = d > abs(c[l][1] - 1 - wr) ? d : abs(c[l][1] - 1 - wr);
+      }
+      lines++, off += d > 1, worst = d > worst ? d : worst;
+      if (d > 1 && getenv("WIDE_CONE_CHECK")[0] == '2')
+        printf("  line %d: regs %d..%d (w2 %d..%d) cone %d..%d\n", l, st->window1left, st->window1right, st->window2left,
+               st->window2right, c[l][0], c[l][1] - 1);
+    }
+    printf("%s: cone vs window %d: %d of %d lines off by more than 1 px (worst %d)\n", label, cone_window, off, lines, worst);
+  }
   g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_x;   // NO_FULLX: the 9-bit X (old bug)
   g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_y;
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   GpuPpu_SetWindow2Extent(NULL);
+  GpuPpu_SetWindowCone(0, NULL);
   GpuPpu_SetMode7UnderHud(false);
   g_gpu_ppu_obj_hud = NULL;
   GpuPpu_SetMargin(0);
@@ -242,9 +267,10 @@ static void TestWide(const char *label) {
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.
   // (A message box is moved like the HUD: not compared then.)
-  // Moved down, it covers rows up to 30 + hud_y.
-  const bool hud_moved = hud_x || hud_y;
-  for (int y = hud_moved ? 31 + (hud_y > 0 ? hud_y : 0) : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
+  // Moved down, it covers rows up to 30 + hud_y. The HUD's rows also show the FX layer and
+  // colour math of the rows below (gpu_ppu.c, SynthHudLine), which the SNES never drew there:
+  // compared from under the HUD.
+  for (int y = 31 + (hud_y > 0 ? hud_y : 0); y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
     n += memcmp(&g_w[(y + ey) * pitch + ml * 4], &g_n[y * kPitch], 256 * 4) != 0;
   if (n) {
     g_wide_bad++;
@@ -741,6 +767,23 @@ int main(int argc, char **argv) {
       }
       // MSGBOX=n: queue message box n (as an item pickup does) on frame 5.
       if (getenv("MSGBOX") && k == 5) queued_message_box_index = (uint16)atoi(getenv("MSGBOX"));
+      // SAMUS_AT=x,y: put Samus there on frame 1 (a console dump's place; the camera follows).
+      int sx, sy;
+      if (getenv("SAMUS_AT") && k == 1 && sscanf(getenv("SAMUS_AT"), "%d,%d", &sx, &sy) == 2)
+        samus_x_pos = samus_prev_x_pos = (uint16)sx, samus_y_pos = samus_prev_y_pos = (uint16)sy;
+      // ITEMS=hex: these items collected and equipped from frame 1 (4 = morph ball: the eyes).
+      if (getenv("ITEMS") && k == 1) {
+        const int it = (int)strtol(getenv("ITEMS"), 0, 16);
+        collected_items |= it, equipped_items |= it;
+      }
+      // XRAY=1: X-ray scope collected, equipped and selected from frame 1 (hold Y, 0x02, to use it).
+      if (getenv("XRAY") && k == 1) {
+        collected_items |= 0x8000, equipped_items |= 0x8000;
+        hud_item_index = 5;
+      }
+      // SCROLLS_OPEN=1: every scroll screen blue on frame 1, so the camera can follow her there.
+      if (getenv("SCROLLS_OPEN") && k == 1)
+        for (int i = 0; i < room_width_in_scrolls * room_height_in_scrolls && i < 50; i++) scrolls[i] = 1;
       if (getenv("FIREFLEA_DARK")) fireflea_darkness_level = (uint16)atoi(getenv("FIREFLEA_DARK"));
       // ROOM_INPUT2=hex@frame: other buttons from that frame on (e.g. come back through a door).
       if (getenv("ROOM_INPUT2")) {
@@ -758,8 +801,8 @@ int main(int argc, char **argv) {
         }
       }
       if (getenv("TRACE_SAMUS") && k % 10 == 0)
-        printf("  k%d in %03x: samus %d,%d camera %d,%d state %02x room %04x\n", k, g_input, samus_x_pos, samus_y_pos,
-               layer1_x_pos, layer1_y_pos, (unsigned)game_state, (unsigned)room_ptr);
+        printf("  k%d in %03x: samus %d,%d pose %02x camera %d,%d state %02x room %04x\n", k, g_input, samus_x_pos,
+             samus_y_pos, (unsigned)samus_pose, layer1_x_pos, layer1_y_pos, (unsigned)game_state, (unsigned)room_ptr);
       // AUTOFIRE: the shot button (0x200) released every other 8 frames, so held fire keeps
       // shooting (a door that closed behind Samus needs a new shot).
       if (getenv("AUTOFIRE") && (k & 8)) g_input &= ~0x200;

@@ -12,7 +12,8 @@
 # bands, WIDE_INFO=1 the room's scroll colours, WIDE_DUMP_ROOM=hex dumps only that room's frames.
 # WIDE_Y=N: N extra rows above and below (PIXEL PERFECT), leaning off a room's top or bottom;
 # WIDE_LEAN=1 prints each frame's lean; WIDE_HUD_INBAND=1 draws the reference's HUD in its band.
-# SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (MSGBOX=n queues
+# SAMUS_AT=x,y puts Samus there on frame 1 (SCROLLS_OPEN=1: all scroll screens blue;
+# ITEMS=hex: items given; XRAY=1: the X-ray scope selected, hold Y with ROOM_SEQ=2@n). SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (MSGBOX=n queues
 # message box n first; GAME_LANG=n in UI language n, ui_lang.h). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode.
 # Built 32-bit with -malign-double so console save states load (docs/debug-tools.md).

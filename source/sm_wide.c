@@ -1,6 +1,8 @@
 #include "sm_wide.h"
 
+#include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "src/types.h"
 #include "src/variables.h"
@@ -291,9 +293,79 @@ static void ExplosionExtent(void) {
 
 const int16_t (*SmWide_Window2Extent(void))[2] { return g_win2_on ? (const int16_t (*)[2])g_win2 : NULL; }
 
+// The X-ray scope's or a security eye's cone (g_rtl_xray_cone) per captured line, in view
+// columns, for the window it is drawn with (X-ray: 2, eyes: 1): the game cuts it to 0..255,
+// the margins need where it really is.
+// Each edge is a ray from the apex; on a line, the cone is the columns whose direction from
+// the apex lies within its angles. kGpuWinFar stands for "beyond any margin".
+static int16_t g_win1[kPpuCaptureLines][2];
+static bool g_win1_on;
+static int g_cone_window;
+
+// x on the line `dy` rows from the apex (dy != 0) along SM angle `a` (in the half that line
+// can be reached in).
+static double ConeX(double ax, double dy, double a) { return ax - dy * tan(a * (M_PI / 128)); }
+
+static void ConeSpan(int ax, int dy, int center, int half, int16_t out[2]) {
+  out[0] = kGpuWinNone;
+  const double a1 = center - half, a2 = center + half;
+  if (dy == 0) {   // the apex line: only straight sideways
+    const bool right = a1 <= 64 && a2 >= 64, left = a1 <= 192 && a2 >= 192;
+    if (right || left) out[0] = (int16_t)(left ? -kGpuWinFar : ax), out[1] = (int16_t)(right ? kGpuWinFar : ax + 1);
+    return;
+  }
+  // The angles a line above (below) the apex reaches: (-64, 64) ((64, 192)).
+  const double h0 = dy < 0 ? -64 : 64, h1 = dy < 0 ? 64 : 192;
+  for (int k = -1; k <= 1; k++) {
+    const double b1 = fmax(a1 + 256 * k, h0), b2 = fmin(a2 + 256 * k, h1);
+    if (b1 >= b2) continue;
+    // Above, x grows with the angle; below, it shrinks. An end at the half's edge is a ray
+    // along the line: unbounded.
+    double lo, hi;
+    if (dy < 0) {
+      lo = b1 <= h0 ? -kGpuWinFar : ConeX(ax, dy, b1);
+      hi = b2 >= h1 ? kGpuWinFar : ConeX(ax, dy, b2);
+    } else {
+      lo = b2 >= h1 ? -kGpuWinFar : ConeX(ax, dy, b2);
+      hi = b1 <= h0 ? kGpuWinFar : ConeX(ax, dy, b1);
+    }
+    lo = fmax(lo, -kGpuWinFar), hi = fmin(hi, kGpuWinFar);
+    out[0] = (int16_t)floor(lo + 0.5), out[1] = (int16_t)floor(hi + 0.5) + 1;
+    if (out[0] >= out[1]) out[0] = kGpuWinNone;
+    return;
+  }
+}
+
+static void ConeExtent(void) {
+  g_win1_on = g_rtl_xray_cone.fresh;
+  g_rtl_xray_cone.fresh = false;
+  if (!g_win1_on) return;
+  const RtlXrayCone *c = &g_rtl_xray_cone;
+  g_win1[0][0] = kGpuWinNone;
+  for (int l = 1; l < kPpuCaptureLines; l++)
+    // Measured against the game's own tables: its apex is column x - 1 of captured line y.
+    ConeSpan(c->x - 1, l - c->y, c->center & 0xff, c->half_width, g_win1[l]);
+  g_cone_window = c->table == 0x9800 ? 2 : 1;
+  // The X-ray scope reveals blocks through BG2, which the game rebuilds for the 256 px view
+  // only (Xray_SetupStage4): in the margins its tilemap is something else, so its cone
+  // stays within the view there.
+  if (g_cone_window == 2)
+    for (int l = 1; l < kPpuCaptureLines; l++) {
+      if (g_win1[l][0] == kGpuWinNone) continue;
+      g_win1[l][0] = g_win1[l][0] < 0 ? 0 : g_win1[l][0] > 256 ? 256 : g_win1[l][0];
+      g_win1[l][1] = g_win1[l][1] < g_win1[l][0] ? g_win1[l][0] : g_win1[l][1] > 256 ? 256 : g_win1[l][1];
+    }
+}
+
+const int16_t (*SmWide_WindowCone(int *window))[2] {
+  *window = g_cone_window;
+  return g_win1_on ? (const int16_t (*)[2])g_win1 : NULL;
+}
+
 static void BeforePpuDraw(void) {
   g_filled = false;
   ExplosionExtent();
+  ConeExtent();
   // A screen shake moves the room on the screen for a frame or two; the lean must not
   // follow it, or the whole view jitters against the sprites (Ceres escape).
   const uint16 base_h = bg1_x_offset + layer1_x_pos, base_v = bg1_y_offset + layer1_y_pos;

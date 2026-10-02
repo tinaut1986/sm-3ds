@@ -128,6 +128,13 @@ extern uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
 // distance from the explosion's centre line), as computed before the window is cut to the
 // screen's 0..255, so the margins can show the explosion's real outline.
 extern uint8 g_rtl_pb_half_width[256];
+// 3DS port, WIDE view: the last cone CalculateXrayHdmaTableInner (sm_91.c) drew into a
+// window table (the X-ray scope, the security eyes' beam): its apex on the screen and its
+// angles (SM's: 256 a turn, 0 up, 64 right), so the margins can show the cone the game cut
+// to 0..255. `table` is the WRAM offset of the window table it filled (0x9800: the X-ray's,
+// window 2; the eyes' window 1 otherwise). `fresh` is set there and cleared by the reader.
+typedef struct { int16 x, y; uint16 center, half_width, table; bool fresh; } RtlXrayCone;
+extern RtlXrayCone g_rtl_xray_cone;
 // 3DS port, WIDE view: the room (room_ptr) in which an enemy last wrote its own tilemap to
 // BG2 (Spore Spawn, Kraid, Mother Brain...): BG2 is not level background data there.
 extern uint16 g_rtl_enemy_bg2_room;
