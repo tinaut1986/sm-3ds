@@ -192,6 +192,7 @@ void DrawPlayerExplosions2(void) {  // 0x938254
       Point16U pt = CalcExplosion_Mode7(v0);
       v3 = pt.y;
       r20 = pt.x;
+      r18 = pt.y;   // fix: was left unset, beams were drawn at a garbage Y in the Ceres escape
     }
     if ((v3 & 0xFF00) == 0 && (projectile_spritemap_pointers[v1] & 0x8000) != 0) {
       DrawProjectileSpritemap(v0, r20, r18);
@@ -247,7 +248,11 @@ LABEL_9:;
     }
     if ((projectile_type[v1] & 0xF00) == 1280 || (ceres_status & 0x8000) == 0)
       goto LABEL_9;
-    CalcExplosion_Mode7(v0);
+    {   // fix: the position was dropped, explosions used the previous projectile's
+      Point16U pt = CalcExplosion_Mode7(v0);
+      r20 = pt.x;
+      r18 = pt.y;
+    }
     v2 = r18;
 LABEL_12:
     if ((v2 & 0xFF00) != 0)
