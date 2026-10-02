@@ -62,9 +62,9 @@ static void Tap(int x, int y) {
 
 // Tab x positions: 4 + slot * 34, slots in drawing order.
 #if DEBUG_TOOLS
-enum { kMap = 0, kStatus = 1, kDebug = 2, kStates = 3, kOptions = 4 };
+enum { kMap = 0, kStatus = 1, kDebug = 2, kStates = 3, kAchievements = 4, kOptions = 5 };
 #else
-enum { kMap = 0, kStatus = 1, kStates = 2, kOptions = 3 };
+enum { kMap = 0, kStatus = 1, kStates = 2, kAchievements = 3, kOptions = 4 };
 #endif
 static void TapTab(int slot) { Tap(4 + slot * 34 + 15, 12); }
 
@@ -118,6 +118,13 @@ int main(int argc, char **argv) {
   TapTab(kStates);
   Tap(260, 38 + 2 * 19 + 5);         // arm save on slot 2
   Shot("states, slot 2 save armed");
+  extern bool g_preview_ra_toast;
+  TapTab(kAchievements);
+  Tap(100, 96 + 2 * 11 + 5);         // the third achievement: its description
+  Shot("achievements, one selected");
+  g_preview_ra_toast = true;
+  Shot("achievements, unlock notice");
+  g_preview_ra_toast = false;
   TapTab(kOptions);
   Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
@@ -148,6 +155,11 @@ int main(int argc, char **argv) {
     TapTab(kMap);
     snprintf(what, sizeof(what), "map, %s", UiLang_Name(g_ui_lang));
     Shot(what);
+    TapTab(kAchievements);
+    g_preview_ra_toast = true;
+    snprintf(what, sizeof(what), "achievements, unlock notice, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    g_preview_ra_toast = false;
   }
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;

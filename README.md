@@ -54,8 +54,9 @@ Everything else the game writes lives in the same folder:
 | Path | What |
 |---|---|
 | `saves/sm.srm` | in-game save files (the three save slots) |
-| `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description |
+| `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description (and a `.rap` with the achievements' progress) |
 | `config.ini` | options from the bottom screen (language included) |
+| `retroachievements.ini` | RetroAchievements on/off, user name and login token (keep it private: the token logs in as you) |
 | `debug/` | logs, perf CSVs and dumps from the Debug tab |
 
 ## Controls
@@ -65,6 +66,16 @@ L, R, Start, Select). The game's own controller settings still apply. The
 bottom screen is operated by touch: save states on the States tab (tap a button
 twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
 (New 3DS) and reset on the Options tab.
+
+### RetroAchievements
+
+The trophy tab runs the existing Super Metroid achievement set from
+[RetroAchievements](https://retroachievements.org) (softcore only: unofficial ports
+cannot earn hardcore). Tap LOG IN, type your user name and password with the
+system keyboard; the password is sent once and only the token the server returns is
+kept. Unlocks made while offline are sent when the connection comes back. In
+builds with debug tools, using a cheat or the teleport pauses achievements until the
+app is restarted.
 
 ## Building
 
@@ -130,6 +141,8 @@ the tag is on `main`).
   license).
 - [Charles Averill](https://github.com/CharlesAverill/sm-3ds): the original
   3DS port this one started from.
+- [rcheevos](https://github.com/RetroAchievements/rcheevos): the RetroAchievements
+  library (`third_party/rcheevos`, MIT).
 - The 5x7 UI font and much of the tooling come from the author's
   [Metroid: Zero Mission 3DS port](https://github.com/tinaut1986/mzm).
 

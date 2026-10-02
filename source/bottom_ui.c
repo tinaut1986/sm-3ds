@@ -18,6 +18,7 @@
 #include "sm_warp.h"
 #include "ui_draw.h"
 #include "ui_lang.h"
+#include "retro_ach.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -37,7 +38,8 @@ UiOptions g_ui = {
 };
 
 // Tab order as drawn, like mzm. DEBUG exists only in DEBUG_TOOLS builds.
-typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_COUNT } Tab;
+// The values are what config.ini stores (`tab`): append only.
+typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
 typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS } Modal;
 
@@ -83,6 +85,7 @@ static int VisibleTabs(Tab out[TAB_COUNT]) {
   out[n++] = TAB_DEBUG;
 #endif
   out[n++] = TAB_STATES;
+  out[n++] = TAB_ACHIEVEMENTS;
   out[n++] = TAB_OPTIONS;
   return n;
 }
@@ -110,6 +113,10 @@ static void DrawTabIcon(Surface s, Tab tab, int x, int y, uint32_t c) {
   case TAB_STATES:   // floppy disk
     R(-6, -6, 12, 1); R(-6, 5, 12, 1); R(-6, -6, 1, 12); R(5, -5, 1, 11);
     R(3, -6, 3, 3); R(-3, -6, 5, 4); R(-4, 1, 8, 4);
+    break;
+  case TAB_ACHIEVEMENTS:   // trophy: cup, handles, stem, base
+    R(-4, -6, 9, 6); R(-3, 0, 7, 1); R(-6, -6, 2, 1); R(-7, -5, 1, 3); R(-6, -2, 2, 1);
+    R(5, -6, 2, 1); R(7, -5, 1, 3); R(5, -2, 2, 1); R(-1, 1, 3, 3); R(-4, 4, 9, 2);
     break;
   default:   // sliders
     R(-6, -4, 12, 1); R(-6, 0, 12, 1); R(-6, 4, 12, 1);
@@ -220,6 +227,7 @@ static void MapTouch(int x, int y) {
 #if DEBUG_TOOLS
   const SmRoom *room = SelectedRoom(area);
   if (room && UiIn(WarpRect(), x, y)) {
+    RetroAch_NoteCheat();
     Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
   } else if (room && UiIn(DoorRect(), x, y)) {
     const int n = SmWarp_DoorCount(room);
@@ -408,6 +416,12 @@ static void DrawStatus(Surface s) {
 
 static void StatusTouch(int x, int y) {
 #if DEBUG_TOOLS
+  // Everything here edits the game: achievements stop counting (RetroAch_NoteCheat).
+  bool cheat = UiIn(GodRect(), x, y) || UiIn(MaxRect(), x, y) || UiIn(AllRect(), x, y);
+  for (int i = 0; i < kSmItemCount; i++) cheat |= UiIn(ItemRect(i), x, y);
+  for (int i = 0; i < kSmBeamCount; i++) cheat |= UiIn(BeamRect(i), x, y);
+  for (int i = 0; i < 6; i++) cheat |= UiIn(StationRect(i), x, y);
+  if (cheat) RetroAch_NoteCheat();
   if (UiIn(GodRect(), x, y)) {
     g_cheats.invincible = !g_cheats.invincible;
     return;
@@ -868,6 +882,160 @@ static void DebugTouch(int x, int y) {
 }
 #endif
 
+// ---- Achievements tab -------------------------------------------------------------
+// RetroAchievements (retro_ach.h): on/off, log in, the set's list with each one's
+// description, and the unlock notice drawn over whatever tab is shown.
+
+enum { kRaListY = 96, kRaRowH = 11, kRaRows = 10 };
+static int g_ra_scroll, g_ra_sel = -1;
+
+static Rect RaOnRect(void) { return (Rect){ 8, 60, 150, 18 }; }
+static Rect RaLoginRect(void) { return (Rect){ 162, 60, 150, 18 }; }
+static Rect RaUpRect(void) { return (Rect){ 294, kRaListY, 22, kRaRows * kRaRowH / 2 - 1 }; }
+static Rect RaDownRect(void) { return (Rect){ 294, kRaListY + kRaRows * kRaRowH / 2 + 1, 22, kRaRows * kRaRowH / 2 - 1 }; }
+static Rect RaRowRect(int row) { return (Rect){ 8, kRaListY + row * kRaRowH, 284, kRaRowH - 1 }; }
+
+// Copies at most `chars` characters (UTF-8) of `src`.
+static void ClipText(char *dst, size_t size, const char *src, int chars) {
+  size_t n = 0;
+  for (int c = 0; src[n] && c < chars; c++) {
+    size_t len = 1;
+    while (src[n + len] && (src[n + len] & 0xC0) == 0x80) len++;
+    if (n + len >= size) break;
+    n += len;
+  }
+  memcpy(dst, src, n);
+  dst[n] = 0;
+}
+
+static bool RaLoggedIn(void) {
+  const RaStatus st = RetroAch_Status();
+  return st == kRaOnline || st == kRaOffline || st == kRaConnecting;
+}
+
+static void DrawAchievements(Surface s) {
+  UiDrawText(s, 8, 28, 1, COL_TITLE, "RETROACHIEVEMENTS");
+  UiDrawText(s, SCREEN_W - 8 - UiTextWidth("SOFTCORE", 1), 28, 1, COL_DIM, "SOFTCORE");
+  char buf[96];
+  uint32_t col = COL_DIM;
+  switch (RetroAch_Status()) {
+  case kRaOff: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaDisabled)); break;
+  case kRaNoAccount: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaNoAccount)); break;
+  case kRaConnecting: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaConnecting)); col = COL_WARN; break;
+  case kRaOnline: snprintf(buf, sizeof(buf), Tr(kStrRaOnline), RetroAch_User()); col = COL_GOOD; break;
+  case kRaOffline: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaOffline)); col = COL_WARN; break;
+  case kRaLoginError: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaLoginError)); col = COL_BAD; break;
+  }
+  UiDrawText(s, 8, 40, 1, col, buf);
+  if (RetroAch_CheatsUsed()) {
+    UiDrawText(s, 8, 50, 1, COL_BAD, Tr(kStrRaCheats));
+  } else if (RetroAch_Message()[0]) {
+    ClipText(buf, sizeof(buf), RetroAch_Message(), 50);
+    UiDrawText(s, 8, 50, 1, COL_WARN, buf);
+  }
+  const bool on = RetroAch_Enabled();
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaAchievements), Tr(on ? kStrOn : kStrOff));
+  UiDrawBoxLabel(s, RaOnRect(), on ? RGB(20, 70, 40) : COL_BOX, on ? COL_ON : COL_BOX_EDGE, COL_TEXT, Pressed(RaOnRect()),
+                 buf);
+  UiDrawBoxLabel(s, RaLoginRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaLoginRect()),
+                 Tr(RaLoggedIn() ? kStrRaLogout : kStrRaLogin));
+
+  const int n = RetroAch_Count();
+  if (!n) {
+    const bool loading = on && RetroAch_Status() == kRaOnline && !RetroAch_Message()[0];
+    UiDrawTextCentered(s, SCREEN_W / 2, 140, COL_DIM, Tr(loading ? kStrRaLoading : kStrRaNoList));
+    return;
+  }
+  snprintf(buf, sizeof(buf), Tr(kStrRaSummary), RetroAch_UnlockedCount(), n, (unsigned)RetroAch_Points(true),
+           (unsigned)RetroAch_Points(false));
+  UiDrawText(s, 8, 84, 1, COL_TEXT, buf);
+  if (g_ra_scroll > n - kRaRows) g_ra_scroll = n - kRaRows > 0 ? n - kRaRows : 0;
+  for (int row = 0; row < kRaRows && g_ra_scroll + row < n; row++) {
+    const int i = g_ra_scroll + row;
+    const RaAchievement *a = RetroAch_Get(i);
+    const Rect r = RaRowRect(row);
+    if (i == g_ra_sel) UiFillRect(s, r.x, r.y, r.w, r.h, RGB(30, 44, 76));
+    if (a->unlocked) UiFillRect(s, r.x + 2, r.y + 2, 6, 6, COL_GOOD);
+    else UiFrameRect(s, r.x + 2, r.y + 2, 6, 6, COL_FAINT);
+    char title[96], pts[12];
+    snprintf(pts, sizeof(pts), "%u", (unsigned)a->points);
+    ClipText(title, sizeof(title), a->title, 40);
+    UiDrawText(s, r.x + 12, r.y + 2, 1, a->unlocked ? COL_TEXT : COL_DIM, title);
+    UiDrawText(s, r.x + r.w - 2 - UiTextWidth(pts, 1), r.y + 2, 1, a->unlocked ? COL_ENERGY : COL_FAINT, pts);
+  }
+  const bool up = g_ra_scroll > 0, down = g_ra_scroll + kRaRows < n;
+  // Page up / page down: a triangle each.
+  for (int k = 0; k < 2; k++) {
+    const Rect r = k ? RaDownRect() : RaUpRect();
+    const bool can = k ? down : up;
+    UiDrawBox(s, r, can ? COL_BTN : COL_PANEL, COL_BORDER, Pressed(r));
+    const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    for (int i = 0; i < 5; i++)
+      UiFillRect(s, cx - i, k ? cy + 2 - i : cy - 2 + i, 2 * i + 1, 1, can ? COL_TEXT : COL_FAINT);
+  }
+  // The selected one's description, on up to two lines broken at spaces.
+  const RaAchievement *sel = RetroAch_Get(g_ra_sel);
+  if (!sel) {
+    UiDrawTextCentered(s, SCREEN_W / 2, 212, COL_FAINT, Tr(kStrRaTapHint));
+    return;
+  }
+  const char *d = sel->description;
+  for (int line = 0; line < 2 && *d; line++) {
+    int chars = 0, cut = 0;
+    size_t at = 0, cut_at = 0;
+    while (d[at] && chars < 52) {
+      size_t len = 1;
+      while (d[at + len] && (d[at + len] & 0xC0) == 0x80) len++;
+      at += len, chars++;
+      if (d[at] == ' ' || !d[at]) cut = chars, cut_at = at;
+    }
+    if (!d[at] || !cut) cut_at = at;
+    char text[160];
+    snprintf(text, sizeof(text), "%.*s", (int)cut_at, d);
+    UiDrawText(s, 8, 208 + line * 10, 1, COL_ACCENT, text);
+    d += cut_at;
+    while (*d == ' ') d++;
+  }
+}
+
+static void AchievementsTouch(int x, int y) {
+  if (UiIn(RaOnRect(), x, y)) {
+    RetroAch_SetEnabled(!RetroAch_Enabled());
+    return;
+  }
+  if (UiIn(RaLoginRect(), x, y)) {
+    if (RaLoggedIn()) RetroAch_Logout();
+    else RetroAch_PromptLogin();
+    return;
+  }
+  const int n = RetroAch_Count();
+  if (UiIn(RaUpRect(), x, y)) {
+    g_ra_scroll = g_ra_scroll > kRaRows ? g_ra_scroll - kRaRows : 0;
+    return;
+  }
+  if (UiIn(RaDownRect(), x, y)) {
+    if (g_ra_scroll + kRaRows < n) g_ra_scroll += kRaRows;
+    return;
+  }
+  for (int row = 0; row < kRaRows; row++)
+    if (UiIn(RaRowRect(row), x, y) && g_ra_scroll + row < n) g_ra_sel = g_ra_scroll + row;
+}
+
+// The unlock notice, over the tab bar on any tab, for as long as RetroAch_Toast says.
+static void DrawUnlockNotice(Surface s) {
+  const RaAchievement *a = RetroAch_Toast();
+  if (!a) return;
+  const Rect r = { 10, 2, 300, 36 };
+  UiFillRect(s, r.x, r.y, r.w, r.h, COL_GOOD);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, RGB(14, 20, 32));
+  UiFillRect(s, r.x + 3, r.y + 3, 2, r.h - 6, RGB(40, 150, 90));
+  UiDrawText(s, r.x + 10, r.y + 8, 1, COL_GOOD, Tr(kStrRaUnlocked));
+  char title[96], line[128];
+  ClipText(title, sizeof(title), a->title, 38);
+  snprintf(line, sizeof(line), "%s (+%u)", title, (unsigned)a->points);
+  UiDrawText(s, r.x + 10, r.y + 21, 1, COL_TEXT, line);
+}
+
 // ---- Persistent options -----------------------------------------------------
 // Saved to config.ini in the data folder whenever one changes. Not persisted on
 // purpose: pause, turbo, cheats and the log/perf recorders,
@@ -951,6 +1119,7 @@ static void TouchDownImpl(int x, int y) {
   case TAB_STATUS:  StatusTouch(x, y); break;
   case TAB_STATES:  StatesTouch(x, y); break;
   case TAB_OPTIONS: OptionsTouch(x, y); break;
+  case TAB_ACHIEVEMENTS: AchievementsTouch(x, y); break;
 #if DEBUG_TOOLS
   case TAB_DEBUG:   DebugTouch(x, y); break;
 #endif
@@ -982,6 +1151,7 @@ static void DrawBottom(const UiPerf *p) {
   case TAB_STATUS:  DrawStatus(s); break;
   case TAB_STATES:  DrawStates(s); break;
   case TAB_OPTIONS: DrawOptions(s); break;
+  case TAB_ACHIEVEMENTS: DrawAchievements(s); break;
 #if DEBUG_TOOLS
   case TAB_DEBUG:   DrawDebug(s, p); break;
 #endif
@@ -1001,12 +1171,18 @@ static void DrawBottom(const UiPerf *p) {
     UiFillRect(s, 0, y - 2, w, 12, COL_BG);
     UiDrawText(s, g_tab == TAB_MAP ? 4 : 8, y, 1, COL_WARN, g_toast);
   }
+  DrawUnlockNotice(s);
 }
 
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
+    g_dirty = 2;
+  }
+  static uint32_t ra_seen;
+  if (RetroAch_Version() != ra_seen) {
+    ra_seen = RetroAch_Version();
     g_dirty = 2;
   }
   if (g_tap_flash_pending && now - g_tap_ms >= TAP_FLASH_MS) {

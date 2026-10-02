@@ -115,7 +115,7 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mfpu=vfp
 
 COMMON_FLAGS := -Wall -Wno-strict-aliasing -Wno-unused-value -Wno-unused-const-variable -Wno-unused-but-set-variable \
 	-O3 -Ofast -mword-relocations -fomit-frame-pointer \
-	-ffast-math $(ARCH) $(INCLUDE) -D__3DS__ -mno-unaligned-access $(BUILD_FLAGS)
+	-ffast-math $(ARCH) $(INCLUDE) -D__3DS__ -D_3DS -mno-unaligned-access $(BUILD_FLAGS)
 # 	-flto -fwhole-program \
 #     -funroll-loops \
 #     -finline-functions \
@@ -152,6 +152,13 @@ SM_SRCS := $(wildcard $(SM_DIR)/src/*.c) $(wildcard $(SM_DIR)/src/snes/*.c) $(SM
 SM_SRCS := $(filter-out $(SM_DIR)/src/main.c, $(SM_SRCS))
 SM_CFILES := $(notdir $(SM_SRCS))
 
+# rcheevos, the RetroAchievements library (third_party/rcheevos/VERSION.txt). Its
+# rc_compat.h picks the libctru mutex with -D_3DS.
+RC_DIR := third_party/rcheevos
+RC_SRCS := $(wildcard $(RC_DIR)/src/*.c) $(wildcard $(RC_DIR)/src/rapi/*.c) \
+	$(wildcard $(RC_DIR)/src/rcheevos/*.c) $(RC_DIR)/src/rhash/md5.c
+RC_CFILES := $(notdir $(RC_SRCS))
+
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
@@ -183,7 +190,7 @@ $(shell printf '$(BUILD_CONFIG_H_TEXT)' > $(BUILD_CONFIG_H).tmp && \
 #---------------------------------------------------------------------------------
 recurse = $(shell find $2 -type $1 -name '$3' 2> /dev/null)
 
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.c))) $(SM_CFILES)
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.c))) $(SM_CFILES) $(RC_CFILES)
 ALL_CPP := $(foreach dir,$(SOURCES),$(call recurse,f,$(dir),*.cpp))
 CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.cpp)))
 
@@ -202,7 +209,8 @@ export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 	$(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD) \
 	-I$(CURDIR)/$(SDL)/build/include -I$(CURDIR)/$(SDL)/include \
-	-I$(CURDIR)/$(SM_DIR) -I$(CURDIR)/$(SM_DIR)/src
+	-I$(CURDIR)/$(SM_DIR) -I$(CURDIR)/$(SM_DIR)/src \
+	-I$(CURDIR)/$(RC_DIR)/include -I$(CURDIR)/$(RC_DIR)/src -I$(CURDIR)/$(RC_DIR)/src/rhash
 
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
 				   -L$(SDL)/build
@@ -216,7 +224,9 @@ endif
 export DEPSDIR := $(CURDIR)/$(BUILD)
 export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir) $(call recurse,d,$(CURDIR)/$(dir),*)) \
                 $(foreach dir,$(DATA),$(CURDIR)/$(dir) $(call recurse,d,$(CURDIR)/$(dir),*)) \
-                $(CURDIR)/$(SM_DIR)/src $(CURDIR)/$(SM_DIR)/src/snes $(CURDIR)/$(SM_DIR)/third_party/gl_core
+                $(CURDIR)/$(SM_DIR)/src $(CURDIR)/$(SM_DIR)/src/snes $(CURDIR)/$(SM_DIR)/third_party/gl_core \
+                $(CURDIR)/$(RC_DIR)/src $(CURDIR)/$(RC_DIR)/src/rapi $(CURDIR)/$(RC_DIR)/src/rcheevos \
+                $(CURDIR)/$(RC_DIR)/src/rhash
 
 export TOPDIR := $(CURDIR)
 OUTPUT_DIR := $(TOPDIR)/$(OUTPUT)
