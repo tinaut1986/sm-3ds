@@ -25,6 +25,7 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 |---|---|---|
 | `fix/firefly-and-fps-overlay` | WIDE fixes for issues #1-#6 | CIA was on the console, not confirmed |
 | `feat/debug-tools` | debug tools pass, fixes #8; stacked on the branch above, merge that first | CIA on the console, not confirmed |
+| `fix/wide-door-hud-margins` | #9, #2, #10, #11, #12 committed and confirmed; uncommitted: #13 (escape timer under WIDE), #14 (WIDE off on the Ceres elevator); `wide-*` host tests; stacked on `feat/debug-tools` | CIA on the console, #13/#14 not confirmed |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -408,6 +409,13 @@ Lessons from mzm that apply directly:
   room and Maridia shows no garbage columns or rows, the HUD over the room and not
   repeated, no frozen or popping enemies, no sprite on the wrong side; WIDE off
   keeps `make test` hashes; 2DS still ~60 fps in Landing Site with WIDE on.
+
+- [ ] **P4.6** FRAME SKIP off warns. It is on by default (`frameskip` in `config.ini`) and
+  keeps heavy scenes playable (the Ceres escape shaft ran at 20-30 fps without it); players
+  who do not know what it does may switch it off and blame the port. Turning it off in
+  OPTIONS shows a short toast ("FRAME SKIP OFF: heavy rooms may slow down"); turning it on
+  says nothing. The option stays (useful for debugging and for those who prefer it).
+  *Done when:* the toast shows on every switch to off, not at boot with it saved off.
 
 ## Phase 5: completion
 

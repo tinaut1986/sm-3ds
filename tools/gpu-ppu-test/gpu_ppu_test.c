@@ -111,7 +111,8 @@ static void DumpTriptych(const char *name, const uint8_t *b, const uint8_t *c) {
 // 256 columns must equal the normal build's (g_c); WIDE_DUMP=N writes the first N wide
 // frames as wide-NNN.ppm for a look.
 static uint8_t g_w[(256 + 2 * kGpuMaxMargin) * 4 * (kGpuRows + 2 * kGpuMaxExtraRows)], g_n[kPitch * 240];
-static int g_wide_bad, g_wide_frames, g_wide_dumped, g_wide_tagdiff;
+static int g_wide_bad, g_wide_frames, g_wide_dumped, g_wide_tagdiff, g_wide_filled;
+static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, margins included
 
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
@@ -126,14 +127,25 @@ static void TestWide(const char *label) {
   g_gpu_ppu_obj_x = g_rtl_oam_x;
   g_gpu_ppu_obj_y = g_rtl_oam_y;
   GpuPpu_SetNoSpriteWrap(true);   // as the WIDE frame (and the console with WIDE on)
+  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);   // so the mode 7 plane under the HUD is in the reference
+  GpuPpu_SetMode7UnderHud(SmWide_Mode7());
+  // HUD sprites (the escape timer) moved with the HUD in the reference too (the HUD's own
+  // rows are not compared when it moves).
+  g_gpu_ppu_obj_hud = g_rtl_oam_hud;
+  GpuPpu_SetHudX(hud_x);
   if (!GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why)) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
     GpuPpu_SetLayerShiftX(1, 0);
     GpuPpu_SetNoSpriteWrap(false);
+    GpuPpu_SetNarrowBg3Rows(0);
+    GpuPpu_SetMode7UnderHud(false);
+    g_gpu_ppu_obj_hud = NULL;
+    GpuPpu_SetHudX(0);
     g_wide_bad++;
     printf("%s: normal build with full X refused (%s)\n", label, why);
     return;
   }
+  GpuPpu_SetHudX(0);
   memset(g_n, 0, sizeof(g_n));
   GpuRef_DrawFrame(&g_frame, g_n, kPitch);
   // Alarm: rows below the HUD where the recorded positions changed what the SNES shows.
@@ -149,9 +161,13 @@ static void TestWide(const char *label) {
   GpuPpu_SetExtraRows(ey, ey);
   GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
   GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
+  GpuPpu_SetWindow2Extent(SmWide_Window2Extent());
   g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_x;   // NO_FULLX: the 9-bit X (old bug)
   g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_y;
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
+  GpuPpu_SetWindow2Extent(NULL);
+  GpuPpu_SetMode7UnderHud(false);
+  g_gpu_ppu_obj_hud = NULL;
   GpuPpu_SetMargin(0);
   GpuPpu_SetHudX(0);
   GpuPpu_SetLayerShiftX(1, 0);
@@ -229,8 +245,48 @@ static void TestWide(const char *label) {
       if (c0 >= 0) printf("  row %d columns %d..%d\n", y, c0, c1);
     }
   }
+  // Without the room filled in (door transitions, fades) the margins must be black, apart
+  // from the HUD's own columns on its rows (it may sit in a margin when the view leans):
+  // their tilemap columns hold stale blocks (issue: garbage beside the HUD in a door).
+  g_wide_filled += SmWide_Filled();
+  for (int i = 0; i < rows * pitch; i++) g_wide_hash = (g_wide_hash ^ g_w[i]) * 1099511628211ull;
+  if (!SmWide_Filled() && !SmWide_Mode7()) {   // (mode 7: the plane is the whole room)
+    int dirty = 0;
+    for (int y = 0; y < rows; y++) {
+      const bool hud_row = y - ey < 31 && y >= ey;
+      for (int x = 0; x < w; x++) {
+        const int vx = x - ml;
+        if (vx >= 0 && vx < 256 && y >= ey && y - ey < kGpuRows) continue;   // the game's view
+        if (hud_row && vx >= hud_x && vx < hud_x + 256) continue;
+        const uint8_t *p = &g_w[y * pitch + x * 4];
+        if (p[0] | p[1] | p[2]) { dirty++; break; }
+      }
+    }
+    if (dirty) {
+      g_wide_bad++;
+      printf("%s: WIDE margins not black on %d rows while the room is not filled in\n", label, dirty);
+    }
+  }
+  if (getenv("WIDE_M7ROOMS") && SmWide_Mode7()) {   // which rooms drew the plane under WIDE
+    static uint16_t seen[16];
+    int i;
+    for (i = 0; i < 16 && seen[i] && seen[i] != room_ptr; i++) {}
+    if (i < 16 && !seen[i]) {
+      seen[i] = room_ptr;
+      char name[32];
+      snprintf(name, sizeof(name), "m7-%04X.ppm", room_ptr);
+      FILE *f = fopen(name, "wb");
+      if (f) {
+        fprintf(f, "P6\n%d %d\n255\n", w, rows);
+        for (int k = 0; k < w * rows; k++) { const uint8_t rgb[3] = { g_w[k * 4 + 2], g_w[k * 4 + 1], g_w[k * 4] }; fwrite(rgb, 1, 3, f); }
+        fclose(f);
+      }
+      printf("%s: mode 7 room under WIDE -> %s\n", label, name);
+    }
+  }
   const int dump = getenv("WIDE_DUMP") ? atoi(getenv("WIDE_DUMP")) : 0;
-  if (g_wide_dumped < dump) {
+  // WIDE_DUMP_ROOM=hex: only frames in that room count.
+  if (g_wide_dumped < dump && (!getenv("WIDE_DUMP_ROOM") || room_ptr == strtol(getenv("WIDE_DUMP_ROOM"), 0, 16))) {
     char name[64];
     snprintf(name, sizeof(name), "wide-%03d.ppm", g_wide_dumped++);
     FILE *f = fopen(name, "wb");
@@ -422,8 +478,9 @@ static void Report(void) {
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);
   if (getenv("WIDE"))
-    printf("WIDE frames %d, bad %d, frames where full positions change the view below the HUD %d\n", g_wide_frames,
-           g_wide_bad, g_wide_tagdiff);
+    printf("WIDE frames %d, bad %d, frames where full positions change the view below the HUD %d, room filled in %d\n",
+           g_wide_frames, g_wide_bad, g_wide_tagdiff, g_wide_filled);
+  if (getenv("WIDE")) printf("WIDE image hash %016llx\n", (unsigned long long)g_wide_hash);
   // Game state at the end, for tools/test: any change to the game logic changes it.
   uint64_t h = 1469598103934665603ull;
   for (int i = 0; i < 0x20000; i++) h = (h ^ g_ram[i]) * 1099511628211ull;
@@ -462,9 +519,21 @@ int main(int argc, char **argv) {
     GpuPpu_Invalidate();
     const int frames = argc > 4 ? atoi(argv[4]) : 60;
     for (int i = 0; i < frames; i++) {
+      // ROOM_SEQ=hex@frame,...: buttons from each frame on, as in the rooms mode.
+      for (const char *q = getenv("ROOM_SEQ"); q && *q;) {
+        int bits, at, used;
+        if (sscanf(q, "%x@%d%n", &bits, &at, &used) != 2) break;
+        if (i >= at) g_input = bits;
+        q += used;
+        if (*q == ',') q++;
+      }
+      if (getenv("AUTOFIRE") && (i & 8)) g_input &= ~0x200;
       char label[32];
       snprintf(label, sizeof(label), "frame %d", i);
       if (i % 50 == 0) printf("%s\n", label);
+      if (getenv("TRACE_SAMUS") && i % 10 == 0)
+        printf("  f%d in %03x: samus %d,%d camera %d,%d state %02x room %04x\n", i, g_input, samus_x_pos, samus_y_pos,
+               layer1_x_pos, layer1_y_pos, (unsigned)game_state, (unsigned)room_ptr);
       TestFrame(label, i % 10 == 0);
     }
     Report();
@@ -623,6 +692,12 @@ int main(int argc, char **argv) {
       samus_health = 99;
       // EARTHQUAKE=type: the room shakes (HandleRoomShaking) for every tested frame.
       if (getenv("EARTHQUAKE")) earthquake_type = (uint16)atoi(getenv("EARTHQUAKE")), earthquake_timer = 30;
+      // CERES_ESCAPE: the escape is on (ceres_status bit 15): the elevator shaft (DF45) tilts,
+      // and the escape timer starts (ProcessTimer_CeresStart).
+      if (getenv("CERES_ESCAPE")) {
+        ceres_status |= 0x8000;
+        if (!timer_status) timer_status = 0x8001, frame_handler_gamma = (uint16)fnSamus_Func3;
+      }
       // MSGBOX=n: queue message box n (as an item pickup does) on frame 5.
       if (getenv("MSGBOX") && k == 5) queued_message_box_index = (uint16)atoi(getenv("MSGBOX"));
       if (getenv("FIREFLEA_DARK")) fireflea_darkness_level = (uint16)atoi(getenv("FIREFLEA_DARK"));

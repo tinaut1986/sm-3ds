@@ -161,6 +161,9 @@ void GpuPpu_SetLayerShiftX(int layer, int dx);
 // the screen as one at the top. Set them only then (SM's WIDE view: g_rtl_oam_x/y); without
 // margins they would hide what the SNES shows (a piece at x 500 appears at -12). NULL = none.
 extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
+// Per OAM entry, non-zero: the sprite is part of the HUD and is drawn moved by the HUD's
+// offset (GpuPpu_SetHudX), as the HUD keeps its place when the view leans. NULL = none.
+extern const uint8_t *g_gpu_ppu_obj_hud;
 
 // Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show
 // sprites, which on the SNES never showed there).
@@ -178,6 +181,18 @@ void GpuPpu_SetNarrowBg3Rows(int rows);
 // Also narrow (and drawn at the HUD's place): any band whose BG3 uses this 32x32 tilemap
 // (VRAM word address; -1 = none). SM's message boxes: BG3SC 0x58.
 void GpuPpu_SetNarrowBg3Map(int tilemap_adr);
+
+// Bands entirely within the narrow BG3 rows (the HUD, GpuPpu_SetNarrowBg3Rows) that are
+// not mode 7 get the mode 7 plane on the main screen under them, from their own lines'
+// matrix registers: SM switches to mode 7 below the HUD, so with WIDE the plane goes on
+// under it (the HUD lines keep only BG3 and sprites there).
+void GpuPpu_SetMode7UnderHud(bool on);
+
+// Window 2's real extent per captured line, [x0, x1) in view columns, for shapes the game
+// cuts to 0..255 (the power bomb): used instead of the registers on lines where cutting it
+// as SM does gives exactly the captured WH2/WH3. x0 = kGpuWinNone: none. NULL = off.
+enum { kGpuWinNone = -32768 };
+void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]);
 
 // Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
 bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);

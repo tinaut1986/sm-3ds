@@ -1574,10 +1574,12 @@ uint8 ProcessTimer_Decrement(void) {  // 0x809EA9
 }
 
 void DrawTimer(void) {  // 0x809F6C
+  g_rtl_oam_hud_drawing = true;   // 3DS port: part of the HUD, see g_rtl_oam_hud
   DrawTimerSpritemap(0, addr_word_80A060);
   DrawTwoTimerDigits(*(uint16 *)&timer_minutes, 0xFFE4);
   DrawTwoTimerDigits(*(uint16 *)&timer_seconds, 0xFFFC);
   DrawTwoTimerDigits(*(uint16 *)&timer_centiseconds, 0x14);
+  g_rtl_oam_hud_drawing = false;
 }
 
 
@@ -2635,8 +2637,11 @@ uint16 g_rtl_enemy_bg2_room;
 int16 g_rtl_oam_x[128], g_rtl_oam_y[128];
 int16 g_rtl_oam_anchor_x = kRtlOamUnknown, g_rtl_oam_anchor_y = kRtlOamUnknown;
 
+uint8 g_rtl_oam_hud[128];
+bool g_rtl_oam_hud_drawing;
+
 void RtlOamXReset(void) {
-  for (int i = 0; i < 128; i++) g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown;
+  for (int i = 0; i < 128; i++) g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown, g_rtl_oam_hud[i] = 0;
   RtlOamClearAnchor();
 }
 
@@ -2645,27 +2650,46 @@ void RtlOamXReset(void) {
 // the lines below (main screen, the sub screen it keeps, the math), plus BG3 on top kept
 // out of the math. Moving the room's sub-screen layers onto the main screen instead (the
 // first try) let a high-priority BG2 cover BG1 there (Spore Spawn cut off at the HUD).
+// In a mode 7 room (Ceres) these lines are still mode 1, whose BG1 and BG2 would read the
+// mode 7 VRAM: only the sprites join the HUD, and the renderer draws the plane under it.
 static uint8 HudLinesTM(void) {
-  return g_rtl_wide_hud_over_room ? (4 | (gameplay_TM & 0x13)) : 4;
+  if (!g_rtl_wide_hud_over_room) return 4;
+  return 4 | (gameplay_TM & (irq_enable_mode7 ? 0x10 : 0x13));
 }
 
-// Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer. Not when
-// the math is shaped by the colour window (power bomb, WOBJSEL 0x20/0x80): its per-line
-// window is not set up for these lines, so the tint covered the whole strip.
+// Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer.
 static bool HudLinesKeepMath(void) {
-  return g_rtl_wide_hud_over_room && !(reg_WOBJSEL & 0xa0);
+  return g_rtl_wide_hud_over_room;
+}
+
+// Whether a window shapes BG3 on the sub screen: the power bomb and crystal flash add the
+// fixed colour where window 2 hides BG3 there, which draws the explosion. On the HUD lines
+// BG3 is the HUD, so the colour window takes BG3's window instead and math happens only
+// inside it; without that the fixed colour covered the whole strip (or, with the math off,
+// the explosion stopped at line 31).
+static bool HudLinesBg3Windowed(void) {
+  return HudLinesKeepMath() && (reg_TS & 4) && (reg_TSW & 4) && (reg_W34SEL & 0x0a);
 }
 
 static void HudLinesColorMath(void) {
   const bool keep = HudLinesKeepMath();
-  WriteReg(CGWSEL, keep ? gameplay_CGWSEL : 0);
+  uint8 cgwsel = keep ? gameplay_CGWSEL : 0;
+  if (HudLinesBg3Windowed()) {
+    WriteReg(WOBJSEL, (reg_WOBJSEL & 0x0f) | (reg_W34SEL & 0x0f) << 4);
+    WriteReg(WOBJLOG, (reg_WOBJLOG & ~0x0c) | (reg_WBGLOG >> 2 & 0x0c));
+    cgwsel = (cgwsel & ~0x30) | 0x10;   // math only inside the colour window
+  }
+  WriteReg(CGWSEL, cgwsel);
   WriteReg(CGADSUB, keep ? gameplay_CGADSUB & ~4 : 0);
   if (keep) WriteReg(TS, reg_TS & ~4);
 }
 
-// After the HUD lines: the sub screen back (HudLinesColorMath may have taken BG3 off it).
+// After the HUD lines: the sub screen and the colour window back.
 static void HudLinesEnd(void) {
-  if (g_rtl_wide_hud_over_room) WriteReg(TS, reg_TS);
+  if (!g_rtl_wide_hud_over_room) return;
+  WriteReg(TS, reg_TS);
+  WriteReg(WOBJSEL, reg_WOBJSEL);
+  WriteReg(WOBJLOG, reg_WOBJLOG);
 }
 
 void LoadFromLoadStation(void) {  // 0x80C437
