@@ -819,3 +819,39 @@ Lessons from mzm that apply directly:
   the old lean (or used the old end). The reset is now detected as the counter going down.
   Host check: ROOM_SEQ route out of Landing Site and back, both doors cross the screen
   edge to edge with no jump.
+- 2026-10-02: Fireflea rooms (fx type 0x24) darken by subtracting COLDATA with colour math;
+  the HUD lines had math off, so with the room shown under the HUD that strip stayed lit.
+  With WIDE the HUD IRQ now keeps the room's math on its layers (not BG3) when it is
+  fixed-colour math (sub-screen math would add the room to itself there). Host:
+  FIREFLEA_DARK=n in tools/gpu-ppu-test. FPS overlay: box fitted to the text, translucent
+  black on the GPU path (the 64x64 overlay texture was drawn without blending, a black
+  square over the picture in WIDE).
+- Open (small): vertical lean. In PIXEL PERFECT the 8 extra rows show black at a room's top
+  or bottom edge instead of the edge sitting on the screen border, as the sides do.
+- 2026-10-02: Fourth WIDE round (owner; the screenshots did not reach the SD card, so worked
+  from the description). (1) Item message box repeated into a margin: message boxes are
+  BG3 with their own 32x32 tilemap (BG3SC 0x58); bands using it keep BG3 narrow, at the
+  HUD's place (GpuPpu_SetNarrowBg3Map). Gating on gameplay_BG3SC instead narrowed the lava
+  layer for the 3 frames before BG3 switched. Host: MSGBOX=n. (2) Ceres escape: the screen
+  shake (HandleRoomShaking, room shakes) adds to the BG scroll registers after the game
+  placed its columns; the fill mapped level blocks by the shaken scroll, one column off
+  whenever the shake crossed a block edge, and those columns showed once the camera came.
+  Now mapped by the unshaken scroll (bgN offset + layer position). Host: EARTHQUAKE=type
+  and FRAME_HASH (play area with WIDE on vs off): 300/300 frames differed before, 0 after.
+  (3) A boss losing tiles when moving up: not reproduced. Two likely causes fixed: extended
+  spritemap parts are anchored at their own position (a part far from the enemy's centre
+  put pieces 256 px off), and the BG2 fill stays off in rooms where an enemy writes BG2
+  (QueueEnemyBG2TilemapTransfers: Spore Spawn, Kraid, Mother Brain...). Waiting for a
+  FRAME DUMP if it persists.
+- 2026-10-02: Fifth WIDE round (owner, dump 00 + description). (1) Spore Spawn cut at the
+  HUD rows: the HUD lines put the room's sub-screen layers on the main screen with math
+  off, so a high-priority BG2 covered BG1. Now the HUD lines keep the room's own TM, TS
+  (minus BG3) and colour math, BG3 added on top outside the math; math is kept off only
+  when the colour window shapes it (power bomb: its window is not set up on those lines).
+  HUD rows are 0-30 (31 rows; 32 narrowed the first gameplay row's BG3). (2) Power bomb not
+  in the margins: a window touching the view's edge (left 0 / right 255) now continues to
+  the frame's edge (WinCalc). (3) Stray sprites on top in Ceres: with WIDE, sprites no
+  longer wrap from the bottom to the top (GpuPpu_SetNoSpriteWrap): the SNES hid those rows'
+  sprites under the HUD. (4) The margins jittered while the room shook: the lean followed
+  the shaken scroll; it now uses the unshaken one (masks still the shaken). Dumps always
+  overwrite slot 00 (found when the owner's captures were lost): open.

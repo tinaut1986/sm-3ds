@@ -8,6 +8,9 @@
 static int g_margin_l, g_margin_r, g_x0 = 0, g_x1 = 256, g_hud_x;
 
 static int g_narrow_bg3_rows;
+static bool g_no_sprite_wrap;
+
+void GpuPpu_SetNoSpriteWrap(bool no_wrap) { g_no_sprite_wrap = no_wrap; }
 const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
 static int g_extra_top, g_extra_bottom;
 
@@ -17,6 +20,17 @@ void GpuPpu_SetExtraRows(int top, int bottom) {
 }
 
 void GpuPpu_SetNarrowBg3Rows(int rows) { g_narrow_bg3_rows = rows; }
+
+static int g_narrow_bg3_map = -1;
+
+void GpuPpu_SetNarrowBg3Map(int tilemap_adr) { g_narrow_bg3_map = tilemap_adr; }
+
+// Whether BG3 stays within the 256 px view on lines [l0, l1].
+static bool NarrowBg3(const PpuLineCapture *cap, int l0, int l1) {
+  if (l1 <= g_narrow_bg3_rows) return true;
+  const BgLayer *bg = &cap->line[l0].bgLayer[2];
+  return bg->tilemapAdr == g_narrow_bg3_map && !bg->tilemapWider && !bg->tilemapHigher;
+}
 
 void GpuPpu_SetMargins(int left, int right) {
   g_margin_l = left < 0 ? 0 : left > kGpuMaxMargin ? kGpuMaxMargin : left;
@@ -51,36 +65,44 @@ typedef struct {
 
 enum { kWin1Inversed = 1, kWin1Enabled = 2, kWin2Inversed = 4, kWin2Enabled = 8 };
 
+// A window reaching the 256 px view's edge (left 0, right 255) goes on to the frame's edge:
+// SM's shapes (power bomb, X-ray beam) are cut to the screen per line, so touching its
+// edge means they would continue past it.
 static void WinCalc(Win *win, const PpuLineState *st, int layer) {
   const uint32_t winflags = st->windowsel >> (layer * 4);
   unsigned nr = 1, i, j;
   int t;
+  // Each window as [l, r) on the frame's columns.
+  const int l1 = st->window1left == 0 ? g_x0 : st->window1left;
+  const int r1 = st->window1right == 255 ? g_x1 : st->window1right + 1;
+  const int l2 = st->window2left == 0 ? g_x0 : st->window2left;
+  const int r2 = st->window2right == 255 ? g_x1 : st->window2right + 1;
   win->edges[0] = (int16_t)g_x0;
   win->edges[1] = (int16_t)g_x1;
   const bool w1 = (winflags & kWin1Enabled) && st->window1left <= st->window1right;
   if (w1) {
-    if (st->window1left > win->edges[0]) {
-      win->edges[nr] = st->window1left;
+    if (l1 > win->edges[0]) {
+      win->edges[nr] = (int16_t)l1;
       win->edges[++nr] = (int16_t)g_x1;
     }
-    if (st->window1right + 1 < g_x1) {
-      win->edges[nr] = st->window1right + 1;
+    if (r1 < g_x1) {
+      win->edges[nr] = (int16_t)r1;
       win->edges[++nr] = (int16_t)g_x1;
     }
   }
   const bool w2 = (winflags & kWin2Enabled) && st->window2left <= st->window2right;
   if (w2) {
-    for (i = 0; i <= nr && (t = st->window2left) != win->edges[i]; i++) {
+    for (i = 0; i <= nr && (t = l2) != win->edges[i]; i++) {
       if (t < win->edges[i]) {
         for (j = nr++; j >= i; j--) win->edges[j + 1] = win->edges[j];
-        win->edges[i] = t;
+        win->edges[i] = (int16_t)t;
         break;
       }
     }
-    for (; i <= nr && (t = st->window2right + 1) != win->edges[i]; i++) {
+    for (; i <= nr && (t = r2) != win->edges[i]; i++) {
       if (t < win->edges[i]) {
         for (j = nr++; j >= i; j--) win->edges[j + 1] = win->edges[j];
-        win->edges[i] = t;
+        win->edges[i] = (int16_t)t;
         break;
       }
     }
@@ -88,14 +110,14 @@ static void WinCalc(Win *win, const PpuLineState *st, int layer) {
   win->nr = nr;
   uint8_t w1_bits = 0, w2_bits = 0;
   if (w1) {
-    for (i = 0; win->edges[i] != st->window1left; i++) {}
-    for (j = i; win->edges[j] != st->window1right + 1; j++) {}
+    for (i = 0; win->edges[i] != l1; i++) {}
+    for (j = i; win->edges[j] != r1; j++) {}
     w1_bits = ((1 << (j - i)) - 1) << i;
   }
   if ((winflags & (kWin1Enabled | kWin1Inversed)) == (kWin1Enabled | kWin1Inversed)) w1_bits = ~w1_bits;
   if (w2) {
-    for (i = 0; win->edges[i] != st->window2left; i++) {}
-    for (j = i; win->edges[j] != st->window2right + 1; j++) {}
+    for (i = 0; win->edges[i] != l2; i++) {}
+    for (j = i; win->edges[j] != r2; j++) {}
     w2_bits = ((1 << (j - i)) - 1) << i;
   }
   if ((winflags & (kWin2Enabled | kWin2Inversed)) == (kWin2Enabled | kWin2Inversed)) w2_bits = ~w2_bits;
@@ -668,6 +690,10 @@ static const char *BuildSprites(const Ppu *ppu, const PpuLineState *st) {
       if (fy >= 0x4000) continue;   // parked off-screen on purpose
       if ((fy & 0xff) == y) y = fy, no_wrap = true;
     }
+    // SM's WIDE view shows sprites on the HUD rows, where the SNES had them off: a piece
+    // below the screen or parked at y 0xF0 wrapped to the top (Ceres: stray pieces there).
+    // The price: a piece above the top edge shows only once it is fully on screen.
+    if (g_no_sprite_wrap) no_wrap = true;
     // Visible on rows y .. y+size-1, wrapping at 256 (unless no_wrap); rows 224+ (plus the
     // extra rows) are not shown.
     if (no_wrap ? (y + size <= -g_extra_top || y >= kGpuRows + g_extra_bottom)
@@ -792,7 +818,7 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   if (!s) return "out of texture memory";
   SyncSurface(s, ppu);
   // Columns this layer covers (the band's last output row is l1-1).
-  const bool narrow = layer == 2 && l1 <= g_narrow_bg3_rows;
+  const bool narrow = layer == 2 && NarrowBg3(cap, l0, l1);
   const int vx0 = narrow ? g_hud_x : g_x0, vx1 = narrow ? g_hud_x + 256 : g_x1;
   // Texel column of screen column vx0 (the narrow layer is moved, not scrolled), with the
   // layer's extra shift.
@@ -1114,7 +1140,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       if (b->math && b->add_subscreen && inf->sub &&
           (*reason = EmitScreen(ppu, cap, inf->sub, l0, l1, false, &sprites_built))) { ok = false; break; }
       b->sub_count = out->quad_count - b->sub_first;
-      const bool hud = l1 <= g_narrow_bg3_rows;
+      const bool hud = NarrowBg3(cap, l0, l1);
       if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud);
       if (l1 == kGpuRows && g_extra_bottom) ExtendBand(out, b, false, g_extra_bottom, hud);
     }

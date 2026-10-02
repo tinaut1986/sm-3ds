@@ -162,6 +162,10 @@ void GpuPpu_SetLayerShiftX(int layer, int dx);
 // margins they would hide what the SNES shows (a piece at x 500 appears at -12). NULL = none.
 extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
 
+// Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show
+// sprites, which on the SNES never showed there).
+void GpuPpu_SetNoSpriteWrap(bool no_wrap);
+
 // Rows to add above and below the 224 of the next frames built (0..kGpuMaxExtraRows):
 // the first band grows up and the last one down, BG layers keep their scroll, sprites
 // show there (an SM sprite parked off-screen at x 0x180, y 0xE0 is left out).
@@ -170,6 +174,10 @@ void GpuPpu_SetExtraRows(int top, int bottom);
 // Bands entirely within output rows [0, rows) keep BG3 within 0..255 when margins are
 // on: SM's HUD is a 256 px BG3 tilemap that would repeat into them.
 void GpuPpu_SetNarrowBg3Rows(int rows);
+
+// Also narrow (and drawn at the HUD's place): any band whose BG3 uses this 32x32 tilemap
+// (VRAM word address; -1 = none). SM's message boxes: BG3SC 0x58.
+void GpuPpu_SetNarrowBg3Map(int tilemap_adr);
 
 // Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
 bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);

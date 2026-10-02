@@ -124,6 +124,9 @@ extern bool g_rtl_wide_hud_over_room;
 // 3DS port, WIDE view: rows shown above and below the 224 (PIXEL PERFECT). Widens the
 // sprite pieces' bottom cut (DrawSpritemap) and the enemies' top on-screen check.
 extern uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+// 3DS port, WIDE view: the room (room_ptr) in which an enemy last wrote its own tilemap to
+// BG2 (Spore Spawn, Kraid, Mother Brain...): BG2 is not level background data there.
+extern uint16 g_rtl_enemy_bg2_room;
 // 3DS port, WIDE view: the full position of OAM entries drawn this frame by an object that
 // said where it is. OAM X has 9 bits and Y 8, so with margins (and the HUD lines showing
 // sprites) a piece far off one side reads as one on the other side, and a piece below the

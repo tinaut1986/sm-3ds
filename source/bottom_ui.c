@@ -958,19 +958,29 @@ bool BottomUi_Frame(const UiPerf *p) {
   return false;
 }
 
-static void DrawOverlay(Surface s, const UiPerf *p) {
-  char buf[16];
-  UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
-  snprintf(buf, sizeof(buf), "%.1f", p->game_fps);
-  UiDrawText(s, 2, 2, 1, FpsColor(p->game_fps), buf);
-  snprintf(buf, sizeof(buf), "L%.1f", p->logic_ms);
-  UiDrawText(s, 2, 12, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "D%.1f", p->draw_ms);
-  UiDrawText(s, 2, 22, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "A%.1f", p->audio_ms);
-  UiDrawText(s, 2, 32, 1, COL_TEXT, buf);
-  snprintf(buf, sizeof(buf), "S%.1f", p->fps);
-  UiDrawText(s, 2, 42, 1, COL_DIM, buf);
+// The overlay's box: 2 px around the text, as wide as its longest line (6 px a character,
+// the last one 5), five lines 10 px apart. `box` is its colour: opaque black on the CPU
+// path (it sits in the black margin), see-through black on the GPU path (it may sit over
+// the game with WIDE).
+enum { kOverlayMaxW = 60, kOverlayH = 51 };
+
+static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
+  char line[5][12];
+  snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
+  snprintf(line[1], sizeof(line[1]), "L%.1f", p->logic_ms);
+  snprintf(line[2], sizeof(line[2]), "D%.1f", p->draw_ms);
+  snprintf(line[3], sizeof(line[3]), "A%.1f", p->audio_ms);
+  snprintf(line[4], sizeof(line[4]), "S%.1f", p->fps);
+  int chars = 0;
+  for (int i = 0; i < 5; i++) {
+    const int n = (int)strlen(line[i]);
+    if (n > chars) chars = n;
+  }
+  int w = chars * 6 + 3;
+  if (w > kOverlayMaxW) w = kOverlayMaxW;
+  UiFillRect(s, 0, 0, w, kOverlayH, box);
+  const uint32_t col[5] = { FpsColor(p->game_fps), COL_TEXT, COL_TEXT, COL_TEXT, COL_DIM };
+  for (int i = 0; i < 5; i++) UiDrawText(s, 2, 2 + i * 10, 1, col[i], line[i]);
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
@@ -982,19 +992,21 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
   if (!g_ui.fps_overlay) {
     if (clear_frames > 0) {
       clear_frames--;
-      UiFillRect(s, 0, 0, 60, 52, RGB(0, 0, 0));
+      UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
     }
     return;
   }
   clear_frames = 2;
-  DrawOverlay(s, p);
+  // The box shrinks with the numbers: clear what a wider one left in this buffer.
+  UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
+  DrawOverlay(s, p, RGB(0, 0, 0));
 }
 
 bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   if (!g_ui.fps_overlay) return false;
   Surface s = { px, w, h };
   UiFillRect(s, 0, 0, w, h, 0);   // transparent around the box
-  DrawOverlay(s, p);
+  DrawOverlay(s, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
   return true;
 }
 

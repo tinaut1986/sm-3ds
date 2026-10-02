@@ -660,7 +660,7 @@ int main(int argc, char** argv) {
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
       const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
       GpuPpu_SetExtraRows(extra, extra);
-      GpuPpu_SetNarrowBg3Rows(margin ? 32 : 0);
+
       g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
       g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
       SmWide_SetView(margin, extra, extra);
@@ -694,6 +694,9 @@ int main(int argc, char** argv) {
         GpuPpu_SetMargins(margin_l, margin_r);
         GpuPpu_SetHudX(hud_x);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
+        GpuPpu_SetNarrowBg3Rows(margin_l || margin_r ? kSmWideHudRows : 0);
+        GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
+        GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
           SmWide_AddMasks(&g_gpu_frame);

@@ -479,11 +479,14 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
     BatchDraw();
   }
   if (g_overlay_on) {
+    // See-through: the box is translucent black, the rest of the texture transparent.
     C3D_TexBind(0, &g_overlay_tex);
     EnvTexture();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
     BatchBegin();
     PushQuad(0, 0, kOverlaySize, kOverlaySize, 0, 0, 1, 1, 0);
     BatchDraw();
+    BlendOff();
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;
