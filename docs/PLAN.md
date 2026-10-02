@@ -25,7 +25,9 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 |---|---|---|
 | `feat/frameskip-warning` | P4.6 | switching FRAME SKIP off shows the toast; nothing at boot with it saved off |
 | `feat/ui-languages` (on top of the one above) | P4.7 | OPTIONS -> LANGUAGE cycles the five languages, the choice survives a reboot, accents readable |
-| `fix/wide-vertical-lean` (on top of the one above; its CIA has all three) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
+| `fix/wide-vertical-lean` (on top of the one above) | issue #7 | PIXEL PERFECT + WIDE: no black rows at a room's top or bottom, the HUD does not move, vertical doors glide |
+| `feat/retroachievements` (on top of the one above) | P4.4 | trophy tab: log in, the list loads, an unlock shows the notice and reaches the RA site; a save state keeps progress |
+| `feat/game-text` (on top of the one above; its CIA has all five) | P4.8 | message boxes in each language: item pickups, stations, save prompt (toggle YES/NO) |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -434,6 +436,19 @@ Lessons from mzm that apply directly:
   the font draws accents as marks above the plain capital. `tools/ui-preview` renders the
   tabs in every language and fails if a translation changes a format string's conversions.
   *Done when:* checked on the console in each language, nothing cut or overlapping.
+
+- [ ] **P4.8** The game's own texts in the UI language (owner's request, 2026-10-02), with the
+  ROM file untouched and RetroAchievements valid: only VRAM changes, never the game's RAM
+  (`source/game_text.c`, hook `g_rtl_message_box_hook` in `sm_85.c`; host test `msgbox-es`
+  checks the WRAM hash equals English).
+  Done: the message boxes (item names and their instruction lines, map/energy/missile
+  stations, the save prompt and its YES/NO). Titles use the box's capitals, accents are marks
+  in the blank cell above (cedilla below), the box widens for a longer text; the instruction
+  line is drawn with a lowercase font of ours into the characters of the English words, put
+  back when the box closes. Open: the title and file-select menus, the pause screen, the
+  intro and Ceres texts, the ending (other fonts and tilemaps; same method).
+  *Done when:* every message box checked on the console in the four languages, and the open
+  screens either done or split into their own tasks.
 
 ## Phase 5: completion
 

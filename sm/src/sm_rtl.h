@@ -148,6 +148,12 @@ static inline void RtlOamSetAnchor(int x, int y) {
   g_rtl_oam_anchor_y = (int16)y;
 }
 static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anchor_y = kRtlOamUnknown; }
+// 3DS port, translated message boxes (source/game_text.c): called with 1 once a message
+// box's tilemap is in VRAM (drawn, or rewritten by the save prompt's YES/NO toggle) and with
+// 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.
+// The game's RAM is left alone: only VRAM changes.
+extern void (*g_rtl_message_box_hook)(int shown);
+extern uint16 g_rtl_message_box_vram;
 // 3DS port, WIDE view: OAM entries that belong to the HUD (the Ceres escape timer). The
 // view leans off a room edge while the HUD keeps its place on the screen, so the renderer
 // moves these with the HUD. Set while g_rtl_oam_hud_drawing is (DrawTimer).

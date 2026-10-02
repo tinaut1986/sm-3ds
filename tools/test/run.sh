@@ -107,6 +107,9 @@ WIDE=72 WIDE_Y=8 CERES_ESCAPE=1 AUTOFIRE=1 ROOM_SEQ=0@0,240@40,280@120 run_gpu w
 # Room 93D5 (Crateria) out through its right door into 92FD and back. and back.
 WIDE=60 ROOM_SEQ=0@0,80@10,280@20,240@200 AUTOFIRE=1 WARP_AT=0,0,150,139 run_gpu wide-door rooms 400 93D5 &
 MASH_B=400 MASH_B_STATE=4 run_gpu soft-reset boot "$OUT/empty.srm" 1200 &
+# The save prompt in Landing Site, YES/NO toggled, in English and in Spanish (game_text.c).
+MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-en rooms 200 91F8 &
+GAME_LANG=1 MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-es rooms 200 91F8 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
 run_audio audio-rooms rooms 120 &
 if [ $FULL = 1 ]; then
@@ -158,6 +161,10 @@ wide_checks wide-door
 check wide-door "back in room 93D5" "$(grep -q 'game_state 08 room 93d5' "$OUT/wide-door.log"; echo $?)"
 # Frames whose margins show the room: drops if the door fades go back to black margins.
 expect wide-door.filled "$(field "$OUT/wide-door.log" 'room filled in [0-9]*' | cut -d' ' -f4)"
+echo "msgbox-es: a message box in Spanish changes only VRAM (same game state as in English)"
+gpu_checks msgbox-es
+check msgbox-es "WRAM identical to the English run" \
+  "$( [ "$(field "$OUT/msgbox-es.log" 'WRAM hash [0-9a-f]*')" = "$(field "$OUT/msgbox-en.log" 'WRAM hash [0-9a-f]*')" ]; echo $?)"
 echo "soft-reset: B on the file-select screens, soft resets back to the title"
 gpu_checks soft-reset
 check soft-reset "soft resets happened" \

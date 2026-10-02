@@ -1,5 +1,5 @@
-// Languages of the bottom-screen UI (OPTIONS -> LANGUAGE, `language` in config.ini).
-// Only what a player sees is translated: the DEBUG tab, the debug tools and the
+// Languages of the bottom-screen UI (OPTIONS -> LANGUAGE, `language` in config.ini); the
+// game's own message boxes follow it too (game_text.c). Only what a player sees is translated: the DEBUG tab, the debug tools and the
 // DEBUG_TOOLS-only parts of the other tabs stay in English, as do the game's own names
 // (areas, items, beams, ammo).
 //

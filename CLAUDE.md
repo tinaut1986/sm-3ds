@@ -36,6 +36,7 @@ issues or specs.
 |---|---|---|
 | `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (still SDL2 for input/audio, see PLAN P1.3), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
 | `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
+| `third_party/rcheevos/` (vendored) | RetroAchievements/rcheevos, mzm's copy (`VERSION.txt`) | RetroAchievements library, MIT. No local changes: updates are a straight re-copy. |
 | `SDL/` (submodule) | libsdl-org/SDL, SDL2 branch | Planned to be dropped in favour of libctru + citro3d directly (see PLAN). |
 | `romfs/` | | Only a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
 
