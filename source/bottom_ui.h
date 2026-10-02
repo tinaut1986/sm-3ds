@@ -87,3 +87,8 @@ void BottomUi_DrawTopOverlay(const UiPerf *perf);
 // when the GPU renderer presents the top screen. Returns false (buffer untouched) if
 // the overlay is off.
 bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *perf);
+
+// The achievement notice for the top screen (when set to show there) into a 512x64
+// column-major RGBA8 buffer, box in its top-left corner; false when there is none
+// (GpuPpu3ds_SetToast).
+bool BottomUi_DrawTopToastInto(uint32_t *px);

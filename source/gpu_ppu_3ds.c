@@ -418,6 +418,23 @@ void GpuPpu3ds_SetOverlay(const uint32_t *px) {
   GSPGPU_FlushDataCache(dst, kOverlaySize * kOverlaySize * 4);
 }
 
+// The achievement notice on the top screen: kToastW x kToastH like the overlay, its box in
+// the top-left kToastBoxW x kToastBoxH, drawn centred at the top of the screen.
+enum { kToastW = 512, kToastH = 64, kToastBoxW = 300, kToastBoxH = 36 };
+static C3D_Tex g_toast_tex;
+static bool g_toast_on;
+
+void GpuPpu3ds_SetToast(const uint32_t *px) {
+  g_toast_on = px && g_ready;
+  if (!g_toast_on) return;
+  uint32_t *dst = (uint32_t *)g_toast_tex.data;
+  for (int x = 0; x < kToastW; x++) {
+    const uint32_t *col = px + x * kToastH + (kToastH - 1);
+    for (int y = 0; y < kToastH; y++) dst[GpuTexelIndex(x, y, kToastW)] = col[-y];
+  }
+  GSPGPU_FlushDataCache(dst, kToastW * kToastH * 4);
+}
+
 static u64 g_wait_ticks, g_submit_ticks;
 
 void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
@@ -494,6 +511,16 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
     PushQuad(0, 0, kOverlaySize, kOverlaySize, 0, 0, 1, 1, 0);
     BatchDraw();
     BlendOff();
+  }
+  if (g_toast_on) {
+    C3D_TexBind(0, &g_toast_tex);
+    EnvTexture();
+    BlendOff();
+    const float x0 = (400 - kToastBoxW) / 2, y0 = 4;
+    BatchBegin();
+    PushQuad(x0, y0, x0 + kToastBoxW, y0 + kToastBoxH, 0, 0, 1, (float)kToastBoxW / kToastW,
+             1.0f - (float)kToastBoxH / kToastH);
+    BatchDraw();
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;
@@ -665,6 +692,8 @@ bool GpuPpu3ds_Init(void) {
   C3D_TexSetFilter(&g_sub_tex, GPU_NEAREST, GPU_NEAREST);
   if (!C3D_TexInit(&g_overlay_tex, kOverlaySize, kOverlaySize, GPU_RGBA8)) return false;
   C3D_TexSetFilter(&g_overlay_tex, GPU_NEAREST, GPU_NEAREST);
+  if (!C3D_TexInit(&g_toast_tex, kToastW, kToastH, GPU_RGBA8)) return false;
+  C3D_TexSetFilter(&g_toast_tex, GPU_NEAREST, GPU_NEAREST);
   g_rt_main = C3D_RenderTargetCreateFromTex(&g_main_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_sub = C3D_RenderTargetCreateFromTex(&g_sub_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);

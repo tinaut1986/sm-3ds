@@ -125,6 +125,10 @@ int main(int argc, char **argv) {
   g_preview_ra_toast = true;
   Shot("achievements, unlock notice");
   g_preview_ra_toast = false;
+  Tap(260, 66);                      // SETTINGS
+  Tap(100, 66 + 2 * 28 + 5);         // ORDER: next
+  Shot("achievements, settings window");
+  Tap(160, 190);                     // close
   TapTab(kOptions);
   Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
@@ -160,6 +164,10 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "achievements, unlock notice, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     g_preview_ra_toast = false;
+    Tap(260, 66);
+    snprintf(what, sizeof(what), "achievements, settings window, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(160, 190);
   }
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;

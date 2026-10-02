@@ -31,7 +31,12 @@ typedef struct {
   char description[128];
   uint32_t points;
   bool unlocked;
+  uint32_t unlock_time;   // seconds since 1970, 0 when locked
 } RaAchievement;
+
+// How the list is ordered (mzm's choices): as rcheevos groups it (locked first), by title,
+// by points, or by unlock time (still locked ones last).
+typedef enum { kRaSortDefault, kRaSortTitle, kRaSortPoints, kRaSortRecent, kRaSortCount } RaSort;
 
 // Init reads retroachievements.ini and logs in if it is on and has a token.
 void RetroAch_Init(void);
@@ -62,7 +67,7 @@ const char *RetroAch_Message(void);
 bool RetroAch_GameLoaded(void);
 
 int RetroAch_Count(void);
-const RaAchievement *RetroAch_Get(int i);   // locked ones first, as rcheevos groups them
+const RaAchievement *RetroAch_Get(int i);   // in the list's order (RetroAch_SetSort)
 int RetroAch_UnlockedCount(void);
 uint32_t RetroAch_Points(bool unlocked_only);
 
@@ -71,3 +76,18 @@ uint32_t RetroAch_Version(void);
 
 // The last unlock, while its notice should show (3 s); NULL otherwise.
 const RaAchievement *RetroAch_Toast(void);
+
+// Settings, kept in retroachievements.ini like mzm's: the notice on the top screen
+// (otherwise the bottom one), the unlock sound, the list's order.
+bool RetroAch_NotifyTop(void);
+void RetroAch_SetNotifyTop(bool top);
+bool RetroAch_Sound(void);
+void RetroAch_SetSound(bool on);
+RaSort RetroAch_Sort(void);
+bool RetroAch_Descending(void);
+void RetroAch_SetSort(RaSort sort, bool descending);
+// A sample notice (and the sound), to see where it shows.
+void RetroAch_ShowPreview(void);
+// Adds the unlock sound, when one is playing, to `frames` frames of 16-bit stereo audio at
+// 44100 Hz. Called from the audio thread.
+void RetroAch_MixAudio(int16_t *out, int frames);
