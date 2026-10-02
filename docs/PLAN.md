@@ -5,9 +5,29 @@ Living document. Read it at the start of every session; update it at the end.
 **Active release branch:** `release/v0.1.3` (renamed from `release/v0.1.2` after the
 first stable release `v0.1.2` on 2026-10-01: merged into `main`, GitHub "Release
 v0.1.2", built without the debug tools). Betas `v0.1.0` and `v0.1.1` came before it.
-All topic branches are merged and deleted.
+Open topic branch: `fix/firefly-and-fps-overlay` (WIDE fixes after `feat/display-options`
+was merged; not pushed, not merged; see "Where we are" below).
 
-## Next up (updated 2026-10-01)
+## Where we are (2026-10-02)
+
+- P4.5 (PIXEL PERFECT/SCALED + WIDE) is merged into `release/v0.1.3` (merge ce8c95b) and
+  has been played on the owner's New 3DS over several rounds.
+- On top of it, branch `fix/firefly-and-fps-overlay` (commits 278add1, 9490a36, 3c41078)
+  fixes the last hardware reports. Its CIA (`v0.1.3-dev.12.3+3c41078`) is on the console,
+  **not yet confirmed by the owner**. Next step: the owner tests it; then close the issues
+  that are fine, squash by content if asked, merge into `release/v0.1.3` with `--no-ff`.
+- Bugs and pending work are GitHub issues #1-#8 on `tinaut1986/sm-3ds` (each says what was
+  fixed, in which commit, and what to check): #1 boss cut at the top / losing tiles,
+  #2 power bomb in the margins, #3 stray sprites on top (Ceres), #4 margins jitter while
+  the room shakes, #5 message box duplicated, #6 Ceres escape garbage, #7 vertical lean
+  (enhancement), #8 debug dumps always overwrite slot 00 (open, likely why captures get
+  lost: ask the owner for FRAME DUMPs only after fixing it, or one at a time).
+- How the WIDE view works and why: P4.5 below and the decisions log (2026-10-01/02
+  entries). Host tools for it: the env vars listed in `tools/gpu-ppu-test/run.sh` and
+  gpu_ppu_test.c (WIDE, WIDE_Y, WIDE_DUMP, ROOM_SEQ, WARP_AT, EARTHQUAKE, FRAME_HASH...).
+- Console FTP: FBI on port 5000, recently at 192.168.1.144 (the IP changes; ask).
+
+## Next up (updated 2026-10-02)
 
 Everything below "Phase 0" marked [x] has been checked on a New 3DS by the owner:
 the CIA without the ROM boots with the ROM on the SD card, saves survive a power
@@ -22,9 +42,9 @@ gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
 
 1. **P0.3** finish the baseline table: Norfair heat and Maridia water with numbers from
    the debug log on the 2DS, Brinstar, and the New 3DS columns after the GPU work.
-2. **P4.5** display options: PIXEL PERFECT / SCALED, then WIDE with the HUD over the
-   room. Before Phase 3 (owner's decision, 2026-10-01): stereo is then designed with
-   the margins already there.
+2. **P4.5** display options: done and merged; finish the open WIDE issues (#1-#8, see
+   "Where we are"). Before Phase 3 (owner's decision, 2026-10-01): stereo is then
+   designed with the margins already there.
 3. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
    quad set, so per-eye offsets go in the vertex positions.
 4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
@@ -303,8 +323,11 @@ Lessons from mzm that apply directly:
   *Today:* there is only one mode. Both paths scale 256x224 to 274x240 with nearest
   sampling (x1.071, uneven rows and columns), centred, black sides
   (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
+  Status 2026-10-02: parts A and B merged into `release/v0.1.3` and played on hardware;
+  follow-up fixes and open bugs: see "Where we are" at the top and issues #1-#8. The
+  history below is kept for the reasoning.
   Status 2026-10-01: part A implemented on `feat/display-options` (OPTIONS -> DISPLAY,
-  `pixel_perfect` in `config.ini`, both renderers); not yet seen on hardware.
+  `pixel_perfect` in `config.ini`, both renderers).
   Part B, renderer side (horizontal): `GpuPpu_SetMargin` widens the frame build (margins
   outside both windows), 512-wide citro3d targets, black mask rectangles (HUD rows),
   OPTIONS -> WIDE VIEW (`wide` in `config.ini`), margins only in gameplay states.

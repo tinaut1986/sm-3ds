@@ -36,6 +36,5 @@ void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
 
 // Black masks for a frame built with margins or extra rows: their parts outside the room
 // or in a red scroll screen made of one block (filler), and all of them when they were
-// not filled. (The HUD's BG3
-// stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
+// not filled. (The HUD's BG3 stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
 void SmWide_AddMasks(GpuFrame *f);
