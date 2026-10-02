@@ -10,7 +10,7 @@ change (what goes where: the table in CLAUDE.md).
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
-## Status (2026-10-02)
+## Status (2026-10-03)
 
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
@@ -19,7 +19,8 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none. The
+with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+`fix/ceres-ridley-wide-margins` (#15, #17, confirmed) was merged on 2026-10-03. The
 stack frameskip-warning, ui-languages, wide-vertical-lean, retroachievements, game-text,
 ra-options, wide-xray-cone was merged into `release/v0.1.4` on 2026-10-03 at the owner's
 request (#16 confirmed); what each still needs from the console is in its task (P4.4, P4.6,
