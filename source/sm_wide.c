@@ -50,6 +50,16 @@ static bool RoomShown(void) {
   }
 }
 
+// A mode 7 room on screen (Ceres). Not irq_enable_mode7 alone: Ceres Ridley's getaway sets
+// it for its mode 7 flight and nothing clears it until the room is left, while the room is
+// back in mode 1 (issue #17: margins neither filled nor masked after the fight).
+static bool Mode7Room(void) { return irq_enable_mode7 && (reg_BGMODE_fake & 7) == 7; }
+
+// Ceres Ridley's room: its mode 7 is the boss flying at Samus, not the room (as it is in the
+// elevator shaft), so the view keeps the fight's framing and side masks instead of
+// showing the plane's backdrop in the margins for a second.
+enum { kRoom_CeresRidley = 0xE0B5 };
+
 static inline int FloorDiv16(int v) { return v >> 4; }   // arithmetic shift: floor
 
 static inline void VramPut(Ppu *ppu, uint16_t adr, uint16_t v) {
@@ -382,15 +392,20 @@ static void BeforePpuDraw(void) {
   Ppu *ppu = g_snes->ppu;
   const bool door = game_state == kGameState_9_HitDoorBlock || game_state == kGameState_10_LoadingNextRoom ||
                     game_state == kGameState_11_LoadingNextRoom;
-  const bool shown = RoomShown() && !irq_enable_mode7;
+  const bool shown = RoomShown() && !Mode7Room();
   if (door && !shown) LeanDoor();
   // A mode 7 room: the plane holds the whole room (outside it, transparent), so nothing is
   // filled or masked; only the HUD's blank cells let it show under the HUD.
-  g_mode7 = RoomShown() && irq_enable_mode7;
+  g_mode7 = RoomShown() && Mode7Room();
   if (g_mode7) {
     g_in_door = false;
-    SetLean(-g_margin_x);
-    SetLeanY(-g_extra_top);
+    if (room_ptr == kRoom_CeresRidley) {   // framed as in the rest of the fight
+      SetLean(LeanX(g_room_still[0], g_room_still[2]));
+      SetLeanY(LeanY(g_room_still[1], g_room_still[3]));
+    } else {
+      SetLean(-g_margin_x);
+      SetLeanY(-g_extra_top);
+    }
     g_bg2_dx = 0;
     PublishView();
     if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
@@ -489,8 +504,32 @@ static bool ScreenShown(int sx, int sy) {
   return scrolls[sy * room_width_in_scrolls + sx] != 0 || !ScreenUniform(sx, sy);
 }
 
-void SmWide_AddMasks(GpuFrame *f) {
-  if (g_mode7) return;
+// A mode 7 room's lines below the HUD that are mode 1 (Ceres Ridley's getaway: the floor
+// rows, by HDMA) read tilemaps nobody fills for the margins, so those show garbage.
+static void MaskMode1Lines(GpuFrame *f, const PpuLineCapture *cap) {
+  for (int r = kSmWideHudRows; r < f->y1;) {
+    const int line = r < kGpuRows ? r + 1 : kGpuRows;   // the extra rows below repeat the last line
+    if (cap->line[line].mode == 7) { r++; continue; }
+    int r1 = r + 1;
+    while (r1 < f->y1 && cap->line[r1 < kGpuRows ? r1 + 1 : kGpuRows].mode != 7) r1++;
+    if (f->x0 < 0) GpuPpu_AddMask(f, f->x0, r, -f->x0, r1 - r);
+    if (f->x1 > 256) GpuPpu_AddMask(f, 256, r, f->x1 - 256, r1 - r);
+    r = r1;
+  }
+}
+
+void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap) {
+  if (g_mode7 && room_ptr == kRoom_CeresRidley) {
+    // The side margins (outside the room, black all fight); the extra rows above and below
+    // keep the room's rows BG1 still holds from the last fill.
+    if (f->x0 < 0) GpuPpu_AddMask(f, f->x0, f->y0, -f->x0, f->y1 - f->y0);
+    if (f->x1 > 256) GpuPpu_AddMask(f, 256, f->y0, f->x1 - 256, f->y1 - f->y0);
+    return;
+  }
+  if (g_mode7) {
+    MaskMode1Lines(f, cap);
+    return;
+  }
   // What the frame shows beyond the game's own 256x224 view: the side margins (full
   // height) and the extra rows above and below it.
   const int regions[4][4] = {

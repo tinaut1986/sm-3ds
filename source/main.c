@@ -694,9 +694,9 @@ int main(int argc, char** argv) {
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
       const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
 
-      g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
-      g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
-      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_hud : NULL;
+      g_gpu_ppu_obj_x = margin ? g_rtl_oam_shown_x : NULL;
+      g_gpu_ppu_obj_y = margin ? g_rtl_oam_shown_y : NULL;
+      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_shown_hud : NULL;
       SmWide_SetView(margin, extra, extra);
 
       u64 t0 = svcGetSystemTick();
@@ -742,7 +742,7 @@ int main(int argc, char** argv) {
         GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
-          SmWide_AddMasks(&g_gpu_frame);
+          SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
