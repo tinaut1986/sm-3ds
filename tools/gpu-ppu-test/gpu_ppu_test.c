@@ -21,6 +21,8 @@
 #include "src/spc_player.h"
 #include "src/variables.h"
 #include "src/funcs.h"
+#include "src/ida_types.h"
+#include "src/enemy_types.h"
 #include "gpu_ppu.h"
 #include "gpu_ppu_ref.h"
 #include "sm_map.h"
@@ -115,6 +117,7 @@ static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
   SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
   GpuPpu_SetLayerShiftX(1, bg2_dx);   // for the reference build too: it moves the middle
+  if (getenv("WIDE_LEAN")) printf("  lean %d/%d hud %d bg2 %d\n", ml, mr, hud_x, bg2_dx);
   const int w = 256 + ml + mr, pitch = w * 4;
   const int ey = getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, rows = kGpuRows + 2 * ey;
   const char *why;
@@ -122,9 +125,11 @@ static void TestWide(const char *label) {
   // too (the WIDE game logic draws enemies whose pieces the 9-bit X would wrap into view).
   g_gpu_ppu_obj_x = g_rtl_oam_x;
   g_gpu_ppu_obj_y = g_rtl_oam_y;
+  GpuPpu_SetNoSpriteWrap(true);   // as the WIDE frame (and the console with WIDE on)
   if (!GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why)) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
     GpuPpu_SetLayerShiftX(1, 0);
+    GpuPpu_SetNoSpriteWrap(false);
     g_wide_bad++;
     printf("%s: normal build with full X refused (%s)\n", label, why);
     return;
@@ -142,7 +147,8 @@ static void TestWide(const char *label) {
   GpuPpu_SetMargins(ml, mr);
   GpuPpu_SetHudX(hud_x);
   GpuPpu_SetExtraRows(ey, ey);
-  GpuPpu_SetNarrowBg3Rows(32);
+  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+  GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
   g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_x;   // NO_FULLX: the 9-bit X (old bug)
   g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_y;
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
@@ -151,7 +157,9 @@ static void TestWide(const char *label) {
   GpuPpu_SetLayerShiftX(1, 0);
   GpuPpu_SetExtraRows(0, 0);
   GpuPpu_SetNarrowBg3Rows(0);
+  GpuPpu_SetNarrowBg3Map(-1);
   g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
+  GpuPpu_SetNoSpriteWrap(false);
   if (built) SmWide_AddMasks(&g_frame);
   if (!built) {
     g_wide_bad++;
@@ -165,6 +173,20 @@ static void TestWide(const char *label) {
     printf(" | BG3 h:");
     for (int l = 40; l <= 220; l += 60) printf(" %d", g_cap.line[l].bgLayer[2].hScroll);
     printf(" | TM %02x TS %02x\n", g_cap.line[100].screenEnabled[0], g_cap.line[100].screenEnabled[1]);
+  }
+  if (getenv("WIDE_ANCHOR_CHECK")) {   // recorded positions far from the 9-bit/8-bit reading
+    // Inside the view, a recorded position must be where the SNES shows the piece; one more
+    // than 64 px off means a wrong anchor (a piece 256 px away from where it belongs).
+    for (int i = 0; i < 128; i++) {
+      if (g_rtl_oam_x[i] == kRtlOamUnknown || g_rtl_oam_y[i] >= kRtlOamHiddenY) continue;
+      const uint16_t *o = &g_snes->ppu->oam[i * 2];
+      int x = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8, y = o[0] >> 8;
+      if (x >= 256 + 64) x -= 512;
+      if (y >= 224 + 16) y -= 256;
+      if (x < 32 || x > 224 || y < 48 || y > 192) continue;   // well inside: no ambiguity
+      if (abs(g_rtl_oam_x[i] - x) > 64 || abs(g_rtl_oam_y[i] - y) > 64)
+        printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_x[i], g_rtl_oam_y[i]);
+    }
   }
   if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, first 24 entries
     printf("  oam:");
@@ -194,11 +216,18 @@ static void TestWide(const char *label) {
   int n = 0;
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.
-  for (int y = hud_x ? 31 : 0; y < kGpuRows; y++)
+  // (A message box is moved like the HUD: not compared then.)
+  for (int y = hud_x ? 31 : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
     n += memcmp(&g_w[(y + ey) * pitch + ml * 4], &g_n[y * kPitch], 256 * 4) != 0;
   if (n) {
     g_wide_bad++;
     printf("%s: WIDE middle differs from the normal frame on %d rows\n", label, n);
+    for (int y = 0; y < kGpuRows && getenv("WIDE_DIFFROWS"); y++) {
+      int c0 = -1, c1 = -1;
+      for (int x = 0; x < 256; x++)
+        if (memcmp(&g_w[(y + ey) * pitch + (ml + x) * 4], &g_n[y * kPitch + x * 4], 4)) { if (c0 < 0) c0 = x; c1 = x; }
+      if (c0 >= 0) printf("  row %d columns %d..%d\n", y, c0, c1);
+    }
   }
   const int dump = getenv("WIDE_DUMP") ? atoi(getenv("WIDE_DUMP")) : 0;
   if (g_wide_dumped < dump) {
@@ -228,7 +257,8 @@ static void TestWide(const char *label) {
     GpuPpu_SetHudX(hud_x);
     GpuPpu_SetLayerShiftX(1, bg2_dx);
     GpuPpu_SetExtraRows(ey, ey);
-    GpuPpu_SetNarrowBg3Rows(32);
+    GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+    GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
     if (GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &f2, &why2)) {
       SmWide_AddMasks(&f2);
       memset(old, 0, sizeof(old));
@@ -258,6 +288,7 @@ static void TestWide(const char *label) {
     GpuPpu_SetLayerShiftX(1, 0);
     GpuPpu_SetExtraRows(0, 0);
     GpuPpu_SetNarrowBg3Rows(0);
+    GpuPpu_SetNarrowBg3Map(-1);
   }
 }
 
@@ -373,6 +404,11 @@ static void TestFrame(const char *label, bool check_capture) {
       DumpTriptych(name, g_b, g_c);
       printf("  -> %s\n", name);
     }
+  }
+  if (getenv("FRAME_HASH")) {   // the normal 256 px frame, to compare runs (e.g. WIDE on/off)
+    uint64_t h = 1469598103934665603ull;
+    for (int i = 32 * kPitch; i < kGpuRows * kPitch; i++) h = (h ^ g_c[i]) * 1099511628211ull;   // below the HUD
+    printf("FRAMEHASH %s %016llx\n", label, (unsigned long long)h);
   }
   if (getenv("WIDE")) TestWide(label);
 }
@@ -577,11 +613,19 @@ int main(int argc, char **argv) {
       }
       continue;
     }
+    // FIREFLEA_DARK=n: only fireflea rooms (fx type 0x24), darkness forced to level n.
+    if (getenv("FIREFLEA_DARK") && fx_type != 0x24) continue;
+    if (getenv("FIREFLEA_DARK")) printf("fireflea room %04X\n", rooms[r].header);
     // ROOM_INPUT=hex: buttons held in the tested frames (frontend bits: right 0x80, left
     // 0x40, B jump 0x01, Y run 0x02), e.g. to scroll while WIDE is checked.
     g_input = getenv("ROOM_INPUT") ? (int)strtol(getenv("ROOM_INPUT"), 0, 16) : 0;
     for (int k = 0; k < frames; k++) {
       samus_health = 99;
+      // EARTHQUAKE=type: the room shakes (HandleRoomShaking) for every tested frame.
+      if (getenv("EARTHQUAKE")) earthquake_type = (uint16)atoi(getenv("EARTHQUAKE")), earthquake_timer = 30;
+      // MSGBOX=n: queue message box n (as an item pickup does) on frame 5.
+      if (getenv("MSGBOX") && k == 5) queued_message_box_index = (uint16)atoi(getenv("MSGBOX"));
+      if (getenv("FIREFLEA_DARK")) fireflea_darkness_level = (uint16)atoi(getenv("FIREFLEA_DARK"));
       // ROOM_INPUT2=hex@frame: other buttons from that frame on (e.g. come back through a door).
       if (getenv("ROOM_INPUT2")) {
         int bits = 0, at = 0;
@@ -623,6 +667,18 @@ int main(int argc, char **argv) {
             printf(" %x/%02x", level_data[y * room_width_in_blocks + x] >> 12, BTS[y * room_width_in_blocks + x]);
           printf("\n");
         }
+    }
+    if (getenv("LAYER2_INFO"))
+      printf("room %04X layer2 scroll x %02x y %02x BG2SC %02x\n", rooms[r].header, layer2_scroll_x, layer2_scroll_y,
+             reg_BG2SC);
+    if (getenv("EXT_ENEMIES")) {   // enemies drawn with extended spritemaps (bosses), by room
+      for (int i = 0; i < 32; i++) {
+        EnemyData *E = gEnemyData(i * 64);
+        if (E->enemy_ptr && (E->extra_properties & 4)) {
+          printf("room %04X has extended-spritemap enemies\n", rooms[r].header);
+          break;
+        }
+      }
     }
     if (getenv("WIDE_INFO")) {   // room size, camera and scroll colours (0 red, 1 blue, 2 green)
       printf("room %04X: %dx%d screens, camera %d,%d, scrolls:", rooms[r].header, room_width_in_scrolls,

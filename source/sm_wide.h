@@ -22,6 +22,10 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom);
 // view rather than the game's camera (GpuPpu_SetLayerShiftX).
 void SmWide_Margins(int *left, int *right, int *hud_x, int *bg2_dx);
 
+// BG3 that must stay within the 256 px view, as it would repeat into the margins: the
+// HUD's rows (0-30) and the message boxes' tilemap (item, save, map; BG3SC 0x58).
+enum { kSmWideHudRows = 31, kSmWideMessageBoxMap = 0x5800 };
+
 // Whether the last frame had its margins filled (gameplay, not a door transition). When
 // false the margins hold whatever VRAM had and should be masked.
 bool SmWide_Filled(void);
@@ -32,6 +36,5 @@ void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
 
 // Black masks for a frame built with margins or extra rows: their parts outside the room
 // or in a red scroll screen made of one block (filler), and all of them when they were
-// not filled. (The HUD's BG3
-// stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
+// not filled. (The HUD's BG3 stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
 void SmWide_AddMasks(GpuFrame *f);

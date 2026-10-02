@@ -1952,6 +1952,9 @@ void WriteEnemyOams(void) {  // 0xA0944A
       } else {
         x = x2 + ext->xpos;
         y = y2 + ext->ypos;
+        // 3DS port: each part anchors its own pieces (a part may be far from the enemy's
+        // position, more than the 128 px RtlOamTag can tell apart).
+        RtlOamSetAnchor((int16)(E->x_pos - layer1_x_pos + ext->xpos), (int16)(E->y_pos - layer1_y_pos + ext->ypos));
         if (((x + 128) & 0xFE00) == 0 && ((y + 128) & 0xFE00) == 0) {
           if (HIBYTE(y))
             DrawSpritemapWithBaseTileOffscreen(E->bank, ext->spritemap, x, y, r3, r0);
@@ -2002,6 +2005,7 @@ void QueueEnemyBG2TilemapTransfers(void) {  // 0xA09726
     v0->src.bank = 126;
     v0->vram_dst = addr_unk_604800;
     vram_write_queue_tail += 7;
+    g_rtl_enemy_bg2_room = room_ptr;   // 3DS port, see g_rtl_enemy_bg2_room
   }
   nmi_flag_bg2_enemy_vram_transfer = 0;
 }

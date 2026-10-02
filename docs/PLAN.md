@@ -5,9 +5,29 @@ Living document. Read it at the start of every session; update it at the end.
 **Active release branch:** `release/v0.1.3` (renamed from `release/v0.1.2` after the
 first stable release `v0.1.2` on 2026-10-01: merged into `main`, GitHub "Release
 v0.1.2", built without the debug tools). Betas `v0.1.0` and `v0.1.1` came before it.
-All topic branches are merged and deleted.
+Open topic branch: `fix/firefly-and-fps-overlay` (WIDE fixes after `feat/display-options`
+was merged; not pushed, not merged; see "Where we are" below).
 
-## Next up (updated 2026-10-01)
+## Where we are (2026-10-02)
+
+- P4.5 (PIXEL PERFECT/SCALED + WIDE) is merged into `release/v0.1.3` (merge ce8c95b) and
+  has been played on the owner's New 3DS over several rounds.
+- On top of it, branch `fix/firefly-and-fps-overlay` (commits 278add1, 9490a36, 3c41078)
+  fixes the last hardware reports. Its CIA (`v0.1.3-dev.12.3+3c41078`) is on the console,
+  **not yet confirmed by the owner**. Next step: the owner tests it; then close the issues
+  that are fine, squash by content if asked, merge into `release/v0.1.3` with `--no-ff`.
+- Bugs and pending work are GitHub issues #1-#8 on `tinaut1986/sm-3ds` (each says what was
+  fixed, in which commit, and what to check): #1 boss cut at the top / losing tiles,
+  #2 power bomb in the margins, #3 stray sprites on top (Ceres), #4 margins jitter while
+  the room shakes, #5 message box duplicated, #6 Ceres escape garbage, #7 vertical lean
+  (enhancement), #8 debug dumps always overwrite slot 00 (open, likely why captures get
+  lost: ask the owner for FRAME DUMPs only after fixing it, or one at a time).
+- How the WIDE view works and why: P4.5 below and the decisions log (2026-10-01/02
+  entries). Host tools for it: the env vars listed in `tools/gpu-ppu-test/run.sh` and
+  gpu_ppu_test.c (WIDE, WIDE_Y, WIDE_DUMP, ROOM_SEQ, WARP_AT, EARTHQUAKE, FRAME_HASH...).
+- Console FTP: FBI on port 5000, recently at 192.168.1.144 (the IP changes; ask).
+
+## Next up (updated 2026-10-02)
 
 Everything below "Phase 0" marked [x] has been checked on a New 3DS by the owner:
 the CIA without the ROM boots with the ROM on the SD card, saves survive a power
@@ -22,9 +42,9 @@ gameplay, 50-55 on the title/intro/Ceres, audio clean. `make test` guards it.
 
 1. **P0.3** finish the baseline table: Norfair heat and Maridia water with numbers from
    the debug log on the 2DS, Brinstar, and the New 3DS columns after the GPU work.
-2. **P4.5** display options: PIXEL PERFECT / SCALED, then WIDE with the HUD over the
-   room. Before Phase 3 (owner's decision, 2026-10-01): stereo is then designed with
-   the margins already there.
+2. **P4.5** display options: done and merged; finish the open WIDE issues (#1-#8, see
+   "Where we are"). Before Phase 3 (owner's decision, 2026-10-01): stereo is then
+   designed with the margins already there.
 3. **Phase 3** stereoscopic 3D (P3.1 depth model first): every layer is already its own
    quad set, so per-eye offsets go in the vertex positions.
 4. **P1.3** drop SDL (libctru input, NDSP audio, citro3d present).
@@ -303,8 +323,11 @@ Lessons from mzm that apply directly:
   *Today:* there is only one mode. Both paths scale 256x224 to 274x240 with nearest
   sampling (x1.071, uneven rows and columns), centred, black sides
   (`GpuPpu3ds_DrawAndPresent`, `DrawPpuFrame` in `main.c`).
+  Status 2026-10-02: parts A and B merged into `release/v0.1.3` and played on hardware;
+  follow-up fixes and open bugs: see "Where we are" at the top and issues #1-#8. The
+  history below is kept for the reasoning.
   Status 2026-10-01: part A implemented on `feat/display-options` (OPTIONS -> DISPLAY,
-  `pixel_perfect` in `config.ini`, both renderers); not yet seen on hardware.
+  `pixel_perfect` in `config.ini`, both renderers).
   Part B, renderer side (horizontal): `GpuPpu_SetMargin` widens the frame build (margins
   outside both windows), 512-wide citro3d targets, black mask rectangles (HUD rows),
   OPTIONS -> WIDE VIEW (`wide` in `config.ini`), margins only in gameplay states.
@@ -819,3 +842,39 @@ Lessons from mzm that apply directly:
   the old lean (or used the old end). The reset is now detected as the counter going down.
   Host check: ROOM_SEQ route out of Landing Site and back, both doors cross the screen
   edge to edge with no jump.
+- 2026-10-02: Fireflea rooms (fx type 0x24) darken by subtracting COLDATA with colour math;
+  the HUD lines had math off, so with the room shown under the HUD that strip stayed lit.
+  With WIDE the HUD IRQ now keeps the room's math on its layers (not BG3) when it is
+  fixed-colour math (sub-screen math would add the room to itself there). Host:
+  FIREFLEA_DARK=n in tools/gpu-ppu-test. FPS overlay: box fitted to the text, translucent
+  black on the GPU path (the 64x64 overlay texture was drawn without blending, a black
+  square over the picture in WIDE).
+- Open (small): vertical lean. In PIXEL PERFECT the 8 extra rows show black at a room's top
+  or bottom edge instead of the edge sitting on the screen border, as the sides do.
+- 2026-10-02: Fourth WIDE round (owner; the screenshots did not reach the SD card, so worked
+  from the description). (1) Item message box repeated into a margin: message boxes are
+  BG3 with their own 32x32 tilemap (BG3SC 0x58); bands using it keep BG3 narrow, at the
+  HUD's place (GpuPpu_SetNarrowBg3Map). Gating on gameplay_BG3SC instead narrowed the lava
+  layer for the 3 frames before BG3 switched. Host: MSGBOX=n. (2) Ceres escape: the screen
+  shake (HandleRoomShaking, room shakes) adds to the BG scroll registers after the game
+  placed its columns; the fill mapped level blocks by the shaken scroll, one column off
+  whenever the shake crossed a block edge, and those columns showed once the camera came.
+  Now mapped by the unshaken scroll (bgN offset + layer position). Host: EARTHQUAKE=type
+  and FRAME_HASH (play area with WIDE on vs off): 300/300 frames differed before, 0 after.
+  (3) A boss losing tiles when moving up: not reproduced. Two likely causes fixed: extended
+  spritemap parts are anchored at their own position (a part far from the enemy's centre
+  put pieces 256 px off), and the BG2 fill stays off in rooms where an enemy writes BG2
+  (QueueEnemyBG2TilemapTransfers: Spore Spawn, Kraid, Mother Brain...). Waiting for a
+  FRAME DUMP if it persists.
+- 2026-10-02: Fifth WIDE round (owner, dump 00 + description). (1) Spore Spawn cut at the
+  HUD rows: the HUD lines put the room's sub-screen layers on the main screen with math
+  off, so a high-priority BG2 covered BG1. Now the HUD lines keep the room's own TM, TS
+  (minus BG3) and colour math, BG3 added on top outside the math; math is kept off only
+  when the colour window shapes it (power bomb: its window is not set up on those lines).
+  HUD rows are 0-30 (31 rows; 32 narrowed the first gameplay row's BG3). (2) Power bomb not
+  in the margins: a window touching the view's edge (left 0 / right 255) now continues to
+  the frame's edge (WinCalc). (3) Stray sprites on top in Ceres: with WIDE, sprites no
+  longer wrap from the bottom to the top (GpuPpu_SetNoSpriteWrap): the SNES hid those rows'
+  sprites under the HUD. (4) The margins jittered while the room shook: the lean followed
+  the shaken scroll; it now uses the unshaken one (masks still the shaken). Dumps always
+  overwrite slot 00 (found when the owner's captures were lost): open.

@@ -1106,16 +1106,18 @@ void IrqHandler_2_DisableIRQ(void) {  // 0x809680
 }
 
 static uint8 HudLinesTM(void);   // 3DS port, see g_rtl_wide_hud_over_room
+static void HudLinesColorMath(void);
+static void HudLinesEnd(void);
 
 void IrqHandler_4_Main_BeginHudDraw(void) {  // 0x80968B
   WriteReg(BG3SC, 0x5A);
-  WriteReg(CGWSEL, 0);
-  WriteReg(CGADSUB, 0);
+  HudLinesColorMath();   // 3DS port: CGWSEL and CGADSUB 0 unless WIDE shows the room
   WriteReg(TM, HudLinesTM());
   IrqHandler_SetResult(6, 31, 152);
 }
 
 void IrqHandler_6_Main_EndHudDraw(void) {  // 0x8096A9
+  HudLinesEnd();   // 3DS port
   WriteReg(CGWSEL, gameplay_CGWSEL);
   WriteReg(CGADSUB, gameplay_CGADSUB);
   WriteReg(BG3SC, gameplay_BG3SC);
@@ -1148,12 +1150,12 @@ void IrqHandler_10_StartOfDoor_EndHud(void) {  // 0x8096F1
 
 void IrqHandler_12_Draygon_BeginHud(void) {  // 0x80971A
   WriteReg(TM, HudLinesTM());
-  WriteReg(CGWSEL, 0);
-  WriteReg(CGADSUB, 0);
+  HudLinesColorMath();   // 3DS port: CGWSEL and CGADSUB 0 unless WIDE shows the room
   IrqHandler_SetResult(14, 31, 152);
 }
 
 void IrqHandler_14_Draygon_EndHud(void) {  // 0x809733
+  HudLinesEnd();   // 3DS port
   WriteReg(BG3SC, gameplay_BG3SC);
   WriteReg(CGWSEL, gameplay_CGWSEL);
   WriteReg(CGADSUB, gameplay_CGADSUB);
@@ -2629,6 +2631,7 @@ RtlWarpLoad g_rtl_warp_load;
 uint16 g_rtl_wide_margin_left, g_rtl_wide_margin_right;
 bool g_rtl_wide_hud_over_room;
 uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+uint16 g_rtl_enemy_bg2_room;
 int16 g_rtl_oam_x[128], g_rtl_oam_y[128];
 int16 g_rtl_oam_anchor_x = kRtlOamUnknown, g_rtl_oam_anchor_y = kRtlOamUnknown;
 
@@ -2637,12 +2640,32 @@ void RtlOamXReset(void) {
   RtlOamClearAnchor();
 }
 
-// Main screen layers for the HUD lines: BG3 (the HUD) only, or with the 3DS port's WIDE
-// view also the room's BG1, BG2 and sprites, from the main or the sub screen (heat rooms
-// have the room on the sub screen and the FX on the main one). Colour math is off on
-// these lines, so a layer meant to be blended shows plain there.
+// The HUD lines (0-31): BG3 (the HUD) only, no colour math; or, with the 3DS port's WIDE
+// view showing the room under the HUD, the room's own layers and colour math exactly as on
+// the lines below (main screen, the sub screen it keeps, the math), plus BG3 on top kept
+// out of the math. Moving the room's sub-screen layers onto the main screen instead (the
+// first try) let a high-priority BG2 cover BG1 there (Spore Spawn cut off at the HUD).
 static uint8 HudLinesTM(void) {
-  return g_rtl_wide_hud_over_room ? (4 | ((gameplay_TM | reg_TS) & 0x13)) : 4;
+  return g_rtl_wide_hud_over_room ? (4 | (gameplay_TM & 0x13)) : 4;
+}
+
+// Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer. Not when
+// the math is shaped by the colour window (power bomb, WOBJSEL 0x20/0x80): its per-line
+// window is not set up for these lines, so the tint covered the whole strip.
+static bool HudLinesKeepMath(void) {
+  return g_rtl_wide_hud_over_room && !(reg_WOBJSEL & 0xa0);
+}
+
+static void HudLinesColorMath(void) {
+  const bool keep = HudLinesKeepMath();
+  WriteReg(CGWSEL, keep ? gameplay_CGWSEL : 0);
+  WriteReg(CGADSUB, keep ? gameplay_CGADSUB & ~4 : 0);
+  if (keep) WriteReg(TS, reg_TS & ~4);
+}
+
+// After the HUD lines: the sub screen back (HudLinesColorMath may have taken BG3 off it).
+static void HudLinesEnd(void) {
+  if (g_rtl_wide_hud_over_room) WriteReg(TS, reg_TS);
 }
 
 void LoadFromLoadStation(void) {  // 0x80C437

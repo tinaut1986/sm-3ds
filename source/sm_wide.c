@@ -18,7 +18,8 @@ static bool g_in_door, g_door_scrolling;
 static int g_door_last_count;
 static int g_bg2_dx;          // BG2 shift that keeps the parallax with the leaned view
 static bool g_filled;
-static int g_room[4];
+static int g_room[4];        // the room in screen pixels, as drawn (screen shake included)
+static int g_room_still[4];  // the same without the shake: what the lean follows
 
 // Game states whose frames show the room as it is in the level data. Not the door
 // transitions: the level data already belongs to the next room while the old one is on
@@ -77,17 +78,22 @@ static void PutBlock(Ppu *ppu, uint16_t base, int vx, int vy, uint16_t block) {
 // scrolls it by (layerN_x_pos / y_pos).
 // `all_columns`: write the game's own columns too (the view is not where the game keeps
 // them).
-static void FillLayer(Ppu *ppu, const uint16 *data, uint8 sc, uint16 hofs, uint16 vofs, uint16 lx, uint16 ly,
-                      bool all_columns) {
+// `hofs`/`vofs` are the scroll the PPU draws with; `base_h`/`base_v` the one the game maps
+// level blocks to tilemap blocks by, before any screen shake (HandleRoomShaking and the
+// room shakes add to the BG scroll registers after the game has placed its columns: mapping
+// by the shaken scroll put blocks one column off whenever the shake crossed a block edge,
+// and they showed once the camera brought those columns into view; Ceres escape).
+static void FillLayer(Ppu *ppu, const uint16 *data, uint8 sc, uint16 hofs, uint16 vofs, uint16 base_h,
+                      uint16 base_v, uint16 lx, uint16 ly, bool all_columns) {
   if (!(sc & 1)) return;   // not a 64-column tilemap: not the layout the game streams
   const uint16_t base = (uint16_t)((sc & 0xfc) << 8);
   const int w = room_width_in_blocks, h = room_height_in_blocks;
-  const int vx0 = hofs >> 4, vy0 = vofs >> 4;
+  const int vx0 = base_h >> 4, vy0 = base_v >> 4;
   const int lx0 = FloorDiv16((int16)lx), ly0 = FloorDiv16((int16)ly);
-  // Block columns k (relative to the view's first) that screen x in
-  // [-left, 256 + right) shows; rows j for output rows [-top, 224 + bottom), output
-  // row r showing BG row vofs + r + 1.
-  const int fx = hofs & 15, fy = vofs & 15;
+  // Block columns k (relative to the game's first) that screen x in [-left, 256 + right)
+  // shows; rows j for output rows [-top, 224 + bottom), output row r showing BG row
+  // vofs + r + 1.
+  const int fx = (base_h & 15) + (int16)(hofs - base_h), fy = (base_v & 15) + (int16)(vofs - base_v);
   const int k0 = FloorDiv16(fx - g_left), k1 = FloorDiv16(fx + 255 + g_right);
   const int j0 = FloorDiv16(fy + 1 - g_extra_top), j1 = FloorDiv16(fy + 224 + g_extra_bottom);
   for (int k = k0; k <= k1; k++) {
@@ -220,13 +226,19 @@ static void Bg2Shift(void) {
 
 static void BeforePpuDraw(void) {
   g_filled = false;
-  const int fx = reg_BG1HOFS & 15, fy = reg_BG1VOFS & 15;
+  // A screen shake moves the room on the screen for a frame or two; the lean must not
+  // follow it, or the whole view jitters against the sprites (Ceres escape).
+  const uint16 base_h = bg1_x_offset + layer1_x_pos, base_v = bg1_y_offset + layer1_y_pos;
+  const int shake_x = (int16)(reg_BG1HOFS - base_h), shake_y = (int16)(reg_BG1VOFS - base_v);
+  const int fx = base_h & 15, fy = base_v & 15;
   const int lx0 = FloorDiv16((int16)layer1_x_pos), ly0 = FloorDiv16((int16)layer1_y_pos);
-  // Screen column c shows level x lx0*16 + fx + c; output row r shows ly0*16 + fy + r + 1.
-  g_room[0] = -(lx0 * 16 + fx);
-  g_room[2] = g_room[0] + room_width_in_blocks * 16;
-  g_room[1] = -(ly0 * 16 + fy + 1);
-  g_room[3] = g_room[1] + room_height_in_blocks * 16;
+  // Screen column c shows level x lx0*16 + fx + shake_x + c; output row r shows
+  // ly0*16 + fy + shake_y + r + 1.
+  g_room_still[0] = -(lx0 * 16 + fx);
+  g_room_still[1] = -(ly0 * 16 + fy + 1);
+  g_room_still[2] = g_room_still[0] + room_width_in_blocks * 16;
+  g_room_still[3] = g_room_still[1] + room_height_in_blocks * 16;
+  for (int i = 0; i < 4; i++) g_room[i] = g_room_still[i] - (i & 1 ? shake_y : shake_x);
   Ppu *ppu = g_snes->ppu;
   const bool door = game_state == kGameState_9_HitDoorBlock || game_state == kGameState_10_LoadingNextRoom ||
                     game_state == kGameState_11_LoadingNextRoom;
@@ -239,17 +251,21 @@ static void BeforePpuDraw(void) {
     return;
   }
   g_in_door = false;
-  SetLean(LeanFor(g_room[0], g_room[2]));
+  SetLean(LeanFor(g_room_still[0], g_room_still[2]));
   Bg2Shift();
   // The next frame's game logic treats the margins as on screen.
   g_rtl_wide_margin_left = (uint16)g_left;
   g_rtl_wide_margin_right = (uint16)g_right;
-  FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, layer1_x_pos, layer1_y_pos, false);
+  FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, bg1_x_offset + layer1_x_pos,
+            bg1_y_offset + layer1_y_pos, layer1_x_pos, layer1_y_pos, false);
   // BG2 from the level's background data, when the game streams it like BG1 (otherwise it
   // is a fixed background already loaded whole), moved with the parallax shift: then the
   // game's columns are not where the view is, so every column is written.
-  if (!(layer2_scroll_x & 1) && !(layer2_scroll_y & 1))
-    FillLayer(ppu, custom_background, reg_BG2SC, reg_BG2HOFS + g_bg2_dx, reg_BG2VOFS, layer2_x_pos + g_bg2_dx,
+  // Not when an enemy draws its body in BG2 here (Spore Spawn): the fill wrote the room's
+  // background over the boss's tiles in the rows and columns it keeps up to date.
+  if (!(layer2_scroll_x & 1) && !(layer2_scroll_y & 1) && g_rtl_enemy_bg2_room != room_ptr)
+    FillLayer(ppu, custom_background, reg_BG2SC, reg_BG2HOFS + g_bg2_dx, reg_BG2VOFS,
+              bg2_x_scroll + layer2_x_pos + g_bg2_dx, bg2_y_scroll + layer2_y_pos, layer2_x_pos + g_bg2_dx,
               layer2_y_pos, g_bg2_dx != 0);
   if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
   g_filled = true;
