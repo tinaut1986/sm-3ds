@@ -55,7 +55,7 @@ Everything else the game writes lives in the same folder:
 |---|---|
 | `saves/sm.srm` | in-game save files (the three save slots) |
 | `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description |
-| `config.ini` | options from the bottom screen |
+| `config.ini` | options from the bottom screen (language included) |
 | `debug/` | logs, perf CSVs and dumps from the Debug tab |
 
 ## Controls

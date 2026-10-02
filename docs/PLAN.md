@@ -19,7 +19,12 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+with `--no-ff` only after they confirm, closing the issues that turned out fine):
+
+| Branch | What | Check on the console |
+|---|---|---|
+| `feat/frameskip-warning` | P4.6 | switching FRAME SKIP off shows the toast; nothing at boot with it saved off |
+| `feat/ui-languages` (on top of the one above) | P4.7 | OPTIONS -> LANGUAGE cycles the five languages, the choice survives a reboot, accents readable |
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
@@ -410,6 +415,16 @@ Lessons from mzm that apply directly:
   OPTIONS shows a short toast ("FRAME SKIP OFF: heavy rooms may slow down"); turning it on
   says nothing. The option stays (useful for debugging and for those who prefer it).
   *Done when:* the toast shows on every switch to off, not at boot with it saved off.
+
+- [ ] **P4.7** Bottom-screen languages (owner's request, 2026-10-02): English, Spanish,
+  Catalan, French, Portuguese. OPTIONS -> LANGUAGE cycles them, `language` in `config.ini`
+  (index, append-only order); with no saved choice the console's language is used when the UI
+  has it (Catalan never comes from there: the 3DS has none). Only player-facing text is
+  translated (`source/ui_lang.c`): the DEBUG tab, the debug tools and the DEBUG_TOOLS-only
+  parts stay English, as do the game's names (areas, items, beams, ammo). Strings are UTF-8;
+  the font draws accents as marks above the plain capital. `tools/ui-preview` renders the
+  tabs in every language and fails if a translation changes a format string's conversions.
+  *Done when:* checked on the console in each language, nothing cut or overlapping.
 
 ## Phase 5: completion
 
