@@ -129,6 +129,11 @@ typedef struct {
   // Cleared by GpuPpu_BuildFrame; the caller may add masks before drawing the frame.
   GpuMaskRect mask[kGpuMaxMasks];
   int mask_count;
+  // The HUD's BG3 (bands within GpuPpu_SetNarrowBg3Rows), moved by GpuPpu_SetHudX/Y and
+  // drawn over the finished image, masks included, in list order, without colour math:
+  // the HUD keeps its place on the screen while the view leans, also onto rows of other
+  // bands. Each pixel takes the brightness of the band its row belongs to.
+  int hud_first, hud_count;
 } GpuFrame;
 
 // Implemented by the backend. Texels start out as zero (transparent).
@@ -152,6 +157,11 @@ static inline void GpuPpu_SetMargin(int margin) { GpuPpu_SetMargins(margin, marg
 // the screen by moving by the difference.
 void GpuPpu_SetHudX(int x);
 
+// The same for rows: the HUD drawn at rows [y, y + its rows) instead of [0, ...), so it keeps
+// its place when the extra rows lean to one side (GpuPpu_SetExtraRows(top, bottom) with
+// top != bottom). HUD sprites move with it.
+void GpuPpu_SetHudY(int y);
+
 // Added to a BG layer's horizontal scroll on every line of the next frames (0..2 = BG1..3).
 void GpuPpu_SetLayerShiftX(int layer, int dx);
 
@@ -162,7 +172,7 @@ void GpuPpu_SetLayerShiftX(int layer, int dx);
 // margins they would hide what the SNES shows (a piece at x 500 appears at -12). NULL = none.
 extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
 // Per OAM entry, non-zero: the sprite is part of the HUD and is drawn moved by the HUD's
-// offset (GpuPpu_SetHudX), as the HUD keeps its place when the view leans. NULL = none.
+// offset (GpuPpu_SetHudX/Y), as the HUD keeps its place when the view leans. NULL = none.
 extern const uint8_t *g_gpu_ppu_obj_hud;
 
 // Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show

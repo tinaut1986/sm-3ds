@@ -10,6 +10,8 @@
 # WIDE=M: also run the WIDE view (game side on, M px margins) and check each wide frame's
 # middle equals the normal one; WIDE_DUMP=N writes wide-NNN.ppm, WIDE_BANDS=1 prints the
 # bands, WIDE_INFO=1 the room's scroll colours, WIDE_DUMP_ROOM=hex dumps only that room's frames.
+# WIDE_Y=N: N extra rows above and below (PIXEL PERFECT), leaning off a room's top or bottom;
+# WIDE_LEAN=1 prints each frame's lean; WIDE_HUD_INBAND=1 draws the reference's HUD in its band.
 # WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode.
 # Built 32-bit with -malign-double so console save states load (docs/debug-tools.md).

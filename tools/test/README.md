@@ -13,6 +13,7 @@ SRAM, scripted inputs, warps).
 | gpu-newgame | power-on, title, intro, new game, Ceres (mode 7), Ceres exploding (`CERES_BOOM`) | same |
 | gpu-pbomb | a power bomb in Landing Site (layer and colour windows) | same |
 | wide-rooms | every room with WIDE on (60 px margins), 10 frames each | GPU list == CPU renderer; the WIDE middle equals the normal frame; margins black while the room is not filled in (doors, fades), except the HUD's columns |
+| wide-rows | every room with WIDE PIXEL PERFECT (72 px margins, 8 extra rows above and below), 10 frames each | same, and a hash of the whole WIDE images: the extra rows lean off a room's top or bottom with the HUD kept in place (issue #7) |
 | wide-pbomb | the power bomb in Landing Site with WIDE on | same, and a hash of the whole WIDE images (margins and HUD rows, where the explosion was cut off once): when it changes, look at the frames (`WIDE_DUMP`) before `--update` |
 | wide-ceres | the Ceres elevator shaft (`DF45`, mode 7) tilting in the escape (`CERES_ESCAPE`), WIDE with PIXEL PERFECT's extra rows, Samus shooting left then right | same; a hash of the whole WIDE images (the plane in the margins, the extra rows and under the HUD); the WRAM hash covers where the beams and their explosions are drawn (once at a garbage Y / the previous shot's place, sm_93.c) |
 | wide-door | WIDE through Crateria `93D5`'s right door into `92FD` and back (garbage beside the HUD once; margins that skipped the fades) | same, it ends back in `93D5`, and the count of frames with the margins filled in (fades included) |

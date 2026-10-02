@@ -13,7 +13,8 @@
 
 static int g_margin_x, g_extra_top, g_extra_bottom;
 static int g_left, g_right;   // this frame's margins: 2 * g_margin_x in all, leaning off a room edge
-static int g_lean_from;       // the lean (first column, -g_left) when a door transition started
+static int g_top, g_bottom;   // this frame's extra rows, the same way: g_extra_top + g_extra_bottom in all
+static int g_lean_from, g_lean_from_y;   // the leans (-g_left, -g_top) when a door transition started
 static bool g_in_door, g_door_scrolling;
 static int g_door_last_count;
 static int g_bg2_dx;          // BG2 shift that keeps the parallax with the leaned view
@@ -108,7 +109,7 @@ static void FillLayer(Ppu *ppu, const uint16 *data, uint8 sc, uint16 hofs, uint1
   // vofs + r + 1.
   const int fx = (base_h & 15) + (int16)(hofs - base_h), fy = (base_v & 15) + (int16)(vofs - base_v);
   const int k0 = FloorDiv16(fx - g_left), k1 = FloorDiv16(fx + 255 + g_right);
-  const int j0 = FloorDiv16(fy + 1 - g_extra_top), j1 = FloorDiv16(fy + 224 + g_extra_bottom);
+  const int j0 = FloorDiv16(fy + 1 - g_top), j1 = FloorDiv16(fy + 224 + g_bottom);
   for (int k = k0; k <= k1; k++) {
     const int bx = lx0 + k;
     if (bx < 0 || bx >= w) continue;
@@ -169,21 +170,41 @@ static void HudSeeThrough(Ppu *ppu) {
 // Where the margins go: evenly, unless that shows beyond a room edge while the other side
 // has room to spare. Then the view leans away from the edge, which ends up on the screen's
 // border, as if the camera stopped there (the game's camera is left alone: door
-// transitions rely on it). Narrower rooms are centred.
-// x0 = first column shown, from -2m (all margin on the left) to 0 (all on the right), for a
-// room whose left and right edges are at screen columns `lo_edge` and `hi_edge`.
-static int LeanFor(int lo_edge, int hi_edge) {
-  const int m = g_margin_x;
-  const int lo = lo_edge, hi = hi_edge - (256 + 2 * m);
-  int x0 = lo <= hi ? (-m < lo ? lo : -m > hi ? hi : -m) : (lo + hi) / 2;
-  if (x0 > 0) x0 = 0;
-  if (x0 < -2 * m) x0 = -2 * m;
-  return x0;
+// transitions rely on it). Narrower rooms are centred. The extra rows above and below
+// (PIXEL PERFECT) lean the same way (issue #7); the HUD keeps its place on the screen.
+// Returns the first column (row) shown, from -total (all of it before the view) to 0 (all
+// after it), for a room whose edges are at screen columns (rows) `lo_edge` and `hi_edge`,
+// a view `size` wide and `before` of the `total` evenly.
+static int LeanFor(int lo_edge, int hi_edge, int before, int total, int size) {
+  const int lo = lo_edge, hi = hi_edge - (size + total);
+  int v0 = lo <= hi ? (-before < lo ? lo : -before > hi ? hi : -before) : (lo + hi) / 2;
+  if (v0 > 0) v0 = 0;
+  if (v0 < -total) v0 = -total;
+  return v0;
+}
+
+static int LeanX(int lo_edge, int hi_edge) { return LeanFor(lo_edge, hi_edge, g_margin_x, 2 * g_margin_x, 256); }
+
+static int LeanY(int lo_edge, int hi_edge) {
+  return LeanFor(lo_edge, hi_edge, g_extra_top, g_extra_top + g_extra_bottom, 224);
 }
 
 static void SetLean(int x0) {
   g_left = -x0;
   g_right = 2 * g_margin_x - g_left;
+}
+
+static void SetLeanY(int y0) {
+  g_top = -y0;
+  g_bottom = g_extra_top + g_extra_bottom - g_top;
+}
+
+// What the next frame's game logic treats as on screen: the margins and rows just chosen.
+static void PublishView(void) {
+  g_rtl_wide_margin_left = (uint16)g_left;
+  g_rtl_wide_margin_right = (uint16)g_right;
+  g_rtl_wide_extra_top = (uint16)g_top;
+  g_rtl_wide_extra_bottom = (uint16)g_bottom;
 }
 
 // During a door transition the lean moves from the old room's to the new room's along with
@@ -200,6 +221,7 @@ static void LeanDoor(void) {
     g_door_scrolling = false;
     g_door_last_count = door_transition_frame_counter;
     g_lean_from = -g_left;
+    g_lean_from_y = -g_top;
   }
   const bool across = !(door_direction & 2);
   const int frames = across ? 64 : 57, n = door_transition_frame_counter;
@@ -207,12 +229,18 @@ static void LeanDoor(void) {
   g_door_last_count = n;
   if (!g_door_scrolling || n <= 0) {
     SetLean(g_lean_from);
+    SetLeanY(g_lean_from_y);
     return;
   }
-  // Across, the camera ends at door_destination_x_pos; up or down it keeps its x.
+  // Across, the camera ends at door_destination_x_pos; up or down it keeps its x. Its y
+  // ends at door_destination_y_pos either way (output row r shows level row y + r + 1).
   const int cam = across ? (int16)door_destination_x_pos : (int16)layer1_x_pos;
-  const int to = LeanFor(-cam, room_width_in_blocks * 16 - cam);
-  SetLean(g_lean_from + (to - g_lean_from) * (n > frames ? frames : n) / frames);
+  const int cam_y = (int16)door_destination_y_pos;
+  const int to = LeanX(-cam, room_width_in_blocks * 16 - cam);
+  const int to_y = LeanY(-cam_y - 1, room_height_in_blocks * 16 - cam_y - 1);
+  const int k = n > frames ? frames : n;
+  SetLean(g_lean_from + (to - g_lean_from) * k / frames);
+  SetLeanY(g_lean_from_y + (to_y - g_lean_from_y) * k / frames);
 }
 
 // BG2's X as the game derives it from layer 1 (CalculateLayer2Xpos). The scrolling-sky
@@ -290,25 +318,23 @@ static void BeforePpuDraw(void) {
   if (g_mode7) {
     g_in_door = false;
     SetLean(-g_margin_x);
+    SetLeanY(-g_extra_top);
     g_bg2_dx = 0;
-    g_rtl_wide_margin_left = (uint16)g_left;
-    g_rtl_wide_margin_right = (uint16)g_right;
+    PublishView();
     if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
     return;
   }
   if (!shown) {
     HudRestore(ppu);   // margins masked: a door transition's rooms disagree
     if (door) Bg2Shift();
-    g_rtl_wide_margin_left = (uint16)g_left;
-    g_rtl_wide_margin_right = (uint16)g_right;
+    PublishView();
     return;
   }
   g_in_door = false;
-  SetLean(LeanFor(g_room_still[0], g_room_still[2]));
+  SetLean(LeanX(g_room_still[0], g_room_still[2]));
+  SetLeanY(LeanY(g_room_still[1], g_room_still[3]));
   Bg2Shift();
-  // The next frame's game logic treats the margins as on screen.
-  g_rtl_wide_margin_left = (uint16)g_left;
-  g_rtl_wide_margin_right = (uint16)g_right;
+  PublishView();
   FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, bg1_x_offset + layer1_x_pos,
             bg1_y_offset + layer1_y_pos, layer1_x_pos, layer1_y_pos, false);
   // BG2 from the level's background data, when the game streams it like BG1 (otherwise it
@@ -331,18 +357,30 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
     g_in_door = false;
     g_rtl_wide_margin_left = g_rtl_wide_margin_right = (uint16)margin_x;
   }
+  if (extra_top != g_extra_top || extra_bottom != g_extra_bottom) {
+    g_top = extra_top;
+    g_bottom = extra_bottom;
+    g_in_door = false;
+    g_rtl_wide_extra_top = (uint16)extra_top;
+    g_rtl_wide_extra_bottom = (uint16)extra_bottom;
+  }
   g_margin_x = margin_x;
   g_extra_top = extra_top;
   g_extra_bottom = extra_bottom;
   g_rtl_wide_hud_over_room = margin_x || extra_top || extra_bottom;
-  g_rtl_wide_extra_top = (uint16)extra_top;
-  g_rtl_wide_extra_bottom = (uint16)extra_bottom;
   const bool on = margin_x || extra_top || extra_bottom;
   g_rtl_before_ppu_draw = on ? BeforePpuDraw : NULL;
   if (!on) {
     g_filled = false;
     HudRestore(g_snes->ppu);
   }
+}
+
+void SmWide_Rows(int *top, int *bottom, int *hud_y) {
+  *top = g_top;
+  *bottom = g_bottom;
+  // The HUD keeps its place on the screen: centred in the frame's rows, like the 224.
+  *hud_y = (g_bottom - g_top) / 2;
 }
 
 bool SmWide_Filled(void) { return g_filled; }
@@ -391,17 +429,10 @@ void SmWide_AddMasks(GpuFrame *f) {
     const int c0 = regions[k][0], r0 = regions[k][1], c1 = regions[k][2], r1 = regions[k][3];
     if (c0 >= c1 || r0 >= r1) continue;
     if (!g_filled) {
-      if (r0 < 0) GpuPpu_AddMask(f, c0, r0, c1 - c0, (r1 < 0 ? r1 : 0) - r0);
-      if (r1 > 31) GpuPpu_AddMask(f, c0, r0 > 31 ? r0 : 31, c1 - c0, r1 - (r0 > 31 ? r0 : 31));
-      // The HUD's rows (0-30) too, but not the HUD's own columns: it may sit in a margin
-      // when the view leans. HudLinesTM keeps the room's layers on there, and the margins'
-      // tilemap columns hold whatever the last fill left (a door transition showed stale
-      // BG1 blocks beside the HUD).
-      const int hr0 = r0 > 0 ? r0 : 0, hr1 = r1 < 31 ? r1 : 31, hud0 = (g_right - g_left) / 2, hud1 = hud0 + 256;
-      if (hr0 < hr1) {
-        if (c0 < hud0) GpuPpu_AddMask(f, c0, hr0, (c1 < hud0 ? c1 : hud0) - c0, hr1 - hr0);
-        if (c1 > hud1) GpuPpu_AddMask(f, c0 > hud1 ? c0 : hud1, hr0, c1 - (c0 > hud1 ? c0 : hud1), hr1 - hr0);
-      }
+      // All of it: the margins' tilemap columns hold whatever the last fill left (a door
+      // transition showed stale BG1 blocks beside the HUD). The HUD is drawn over the masks
+      // (GpuFrame.hud_first), so it shows even where it sits in a margin.
+      GpuPpu_AddMask(f, c0, r0, c1 - c0, r1 - r0);
       continue;
     }
     // The parts outside the room or in a red scroll screen made of one block (filler).

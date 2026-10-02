@@ -44,6 +44,10 @@ void GpuPpu_SetMargins(int left, int right) {
 
 void GpuPpu_SetHudX(int x) { g_hud_x = x; }
 
+static int g_hud_y;
+
+void GpuPpu_SetHudY(int y) { g_hud_y = y; }
+
 static int g_layer_dx[3];
 
 void GpuPpu_SetLayerShiftX(int layer, int dx) {
@@ -718,13 +722,15 @@ static const char *BuildSprites(const Ppu *ppu, const PpuLineState *st) {
     const bool full = fx != INT16_MIN && (fx & 0x1ff) == x;
     if (full) x = fx;
     else if (x >= g_x1) x -= 512;
-    if (g_gpu_ppu_obj_hud && g_gpu_ppu_obj_hud[index >> 1]) x += g_hud_x;   // moves with the HUD
+    const bool hud = g_gpu_ppu_obj_hud && g_gpu_ppu_obj_hud[index >> 1];
+    if (hud) x += g_hud_x;   // moves with the HUD
     if (x <= g_x0 - size || x >= g_x1) continue;
     bool no_wrap = false;
     if (full && fy != INT16_MIN) {
       if (fy >= 0x4000) continue;   // parked off-screen on purpose
       if ((fy & 0xff) == y) y = fy, no_wrap = true;
     }
+    if (hud) y += g_hud_y;
     // SM's WIDE view shows sprites on the HUD rows, where the SNES had them off: a piece
     // below the screen or parked at y 0xF0 wrapped to the top (Ceres: stray pieces there).
     // The price: a piece above the top edge shows only once it is fully on screen.
@@ -1115,6 +1121,32 @@ static void ExtendBand(GpuFrame *out, const GpuBand *b, bool up, int n, bool kee
   }
 }
 
+// The HUD's BG3 quads, taken out of their bands (GpuFrame.hud_first).
+enum { kMaxHudQuads = 256 };
+static GpuQuad g_hud_quads[kMaxHudQuads];
+static int g_hud_quad_count;
+
+// Moves the BG3 quads of band `b`'s main screen, the last quads emitted, to the HUD list.
+static bool TakeHudQuads(GpuFrame *out, GpuBand *b) {
+  int keep = b->main_first;
+  for (int q = b->main_first; q < b->main_first + b->main_count; q++) {
+    GpuQuad qd = out->quads[q];
+    const bool bg3 = !(qd.flags & (kGpuQuadObj | kGpuQuadAffine)) &&
+                     (qd.level == kBgLevel[2][0] || qd.level == kBgLevel[2][1]);
+    if (!bg3) {
+      out->quads[keep++] = qd;
+      continue;
+    }
+    if (g_hud_quad_count >= kMaxHudQuads) return false;
+    qd.y += g_hud_y;
+    qd.flags &= ~kGpuQuadMath;
+    g_hud_quads[g_hud_quad_count++] = qd;
+  }
+  out->quad_count = keep;
+  b->main_count = keep - b->main_first;
+  return true;
+}
+
 static bool SameBand(const PpuLineState *a, const LineInfo *ia, const PpuLineState *b, const LineInfo *ib) {
   LineKey ka, kb;
   MakeKey(&ka, a, ia);
@@ -1126,6 +1158,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   static LineInfo info[kPpuCaptureLines];
   memset(&g_stats, 0, sizeof(g_stats));
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
+  out->hud_first = out->hud_count = g_hud_quad_count = 0;
   g_x0 = -g_margin_l;
   g_x1 = 256 + g_margin_r;
   out->x0 = g_x0;
@@ -1191,6 +1224,11 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
       b->main_first = out->quad_count;
       if ((*reason = EmitScreen(ppu, cap, inf->main, l0, l1, true, &sprites_built))) { ok = false; break; }
       b->main_count = out->quad_count - b->main_first;
+      if (g_narrow_bg3_rows && l1 <= g_narrow_bg3_rows && !TakeHudQuads(out, b)) {
+        *reason = "too many HUD quads";
+        ok = false;
+        break;
+      }
       b->sub_first = out->quad_count;
       if (b->math && b->add_subscreen && inf->sub &&
           (*reason = EmitScreen(ppu, cap, inf->sub, l0, l1, false, &sprites_built))) { ok = false; break; }
@@ -1202,6 +1240,16 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     if (l0 == 1) b->y0 = -g_extra_top;
     if (l1 == kGpuRows) b->y1 = kGpuRows + g_extra_bottom;
     l0 = l1 + 1;
+  }
+  if (ok && g_hud_quad_count) {
+    if (out->quad_count + g_hud_quad_count > kGpuMaxQuads) {
+      *reason = "too many quads";
+      ok = false;
+    } else {
+      out->hud_first = out->quad_count;
+      memcpy(&out->quads[out->quad_count], g_hud_quads, g_hud_quad_count * sizeof(GpuQuad));
+      out->quad_count += out->hud_count = g_hud_quad_count;
+    }
   }
   // band detection time = loop time minus what sprites and BGs took inside it
   g_stats.t_lines += Clock() - t0 - g_stats.t_sprites - g_stats.t_bg;

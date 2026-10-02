@@ -238,7 +238,8 @@ static void SetTarget(C3D_RenderTarget *rt, const C3D_Mtx *proj) {
 // ---- One screen of one band ---------------------------------------------------------------
 
 // Draws the band's quads [first, first+count) over what is already there.
-static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) {
+// `over`: plain painting over what is there, no depth or stencil (GpuFrame's HUD list).
+static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, bool over) {
   // Sprites: the first one on a pixel wins (stencil bit 0), they take the pixel from
   // anything below whatever their level, as the CPU renderer writes them first.
   EnvTexture();
@@ -270,7 +271,10 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math) 
       }
       if (st != state) {
         state = st;
-        if (obj) {
+        if (over) {
+          C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
+          C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+        } else if (obj) {
           C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
           C3D_StencilTest(true, GPU_NOTEQUAL, 1 | (math ? 2 : 0), 1, 3);
           C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
@@ -302,7 +306,7 @@ static void DrawBandSub(const GpuFrame *f, const GpuBand *b) {
   C3D_StencilTest(true, GPU_ALWAYS, 0, 0, 0xff);
   C3D_StencilOp(GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE);
   SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
-  DrawQuads(f, b->sub_first, b->sub_count, false);
+  DrawQuads(f, b->sub_first, b->sub_count, false, false);
 }
 
 // Texture u of screen column x in a render target.
@@ -358,7 +362,7 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
   C3D_StencilTest(true, GPU_ALWAYS, b->backdrop_math ? 2 : 0, 0, 0xff);
   SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
-  DrawQuads(f, b->main_first, b->main_count, true);
+  DrawQuads(f, b->main_first, b->main_count, true, false);
   if (b->clip) {   // colours to black, stencil and depth kept
     EnvSolid(0xff000000);
     C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -454,6 +458,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
     }
     BatchDraw();
   }
+  if (f->hud_count) DrawQuads(f, f->hud_first, f->hud_count, false, true);
 
   // Top screen: the 256x224 picture centred, scaled to 274x240 or 1:1, like the CPU path
   // (DrawPpuFrame); WIDE margins at the same scale on each side, cut by the screen edge.
@@ -468,7 +473,9 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
   const float x_scale = pixel_perfect ? 1.0f : 274.0f / 256.0f, mid = (f->x0 + f->x1) * 0.5f;
   const float x0 = 200 + (f->x0 - mid) * x_scale, x1 = 200 + (f->x1 - mid) * x_scale;
   const float u0 = RtU(f->x0), u1 = RtU(f->x1);
-  const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f, y_off = pixel_perfect ? (240 - 224) / 2 : 0;
+  // PIXEL PERFECT: the frame's rows centred (the extra rows may lean to one side).
+  const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f,
+              y_off = pixel_perfect ? (240 - (f->y1 - f->y0)) / 2 - f->y0 : 0;
   for (int i = 0; i < f->band_count; i++) {
     const GpuBand *b = &f->bands[i];
     const int bright = b->black ? 0 : b->brightness * 255 / 15;

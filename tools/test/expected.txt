@@ -21,4 +21,7 @@ wide-pbomb.refused=0
 wide-pbomb.wram=a42d0db19046fa1e
 wide-rooms.refused=0
 wide-rooms.wram=eea086f0dca547f8
+wide-rows.image=3e5b1ae66b0b1fad
+wide-rows.refused=0
+wide-rows.wram=eea086f0dca547f8
 warp.result=ok 583 fail 3 nodoor 6 of 262

@@ -673,7 +673,6 @@ int main(int argc, char** argv) {
       const int margin = g_ui.gpu_render ? WideMargin() : 0;
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
       const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
-      GpuPpu_SetExtraRows(extra, extra);
 
       g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
       g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
@@ -704,10 +703,13 @@ int main(int argc, char** argv) {
         const char *why = NULL;
         const u64 t_build = svcGetSystemTick();
         // The margins this frame ended up with (SmWide leans them off room edges).
-        int margin_l, margin_r, hud_x, bg2_dx;
+        int margin_l, margin_r, hud_x, bg2_dx, rows_top, rows_bottom, hud_y;
         SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
+        SmWide_Rows(&rows_top, &rows_bottom, &hud_y);
         GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
+        GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         GpuPpu_SetNarrowBg3Rows(margin_l || margin_r ? kSmWideHudRows : 0);
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
