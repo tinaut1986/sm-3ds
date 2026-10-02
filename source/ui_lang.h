@@ -20,6 +20,9 @@ typedef enum {
   kStrPause, kStrTurbo, kStrFrameSkip, kStrAudio, kStrFpsOverlay, kStrDisplay, kStrPixelPerfect,
   kStrScaled, kStrWideView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
   kStrResetQuestion, kStrResetLost1, kStrResetLost2, kStrReset, kStrCancel,
+  kStrRaAchievements, kStrRaLogin, kStrRaLogout, kStrRaDisabled, kStrRaNoAccount, kStrRaConnecting, kStrRaOnline,
+  kStrRaOffline, kStrRaLoginError, kStrRaSummary, kStrRaCheats, kStrRaLoading, kStrRaNoList, kStrRaUnlocked,
+  kStrRaTapHint,
   kStrCount
 } UiStr;
 

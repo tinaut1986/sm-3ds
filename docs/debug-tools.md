@@ -65,6 +65,7 @@ dump landed in slot 00 once all ten existed (issue #8).
 | `sm-perf-NN.csv` | frame-time recorder |
 | `sm-rec-NN.bin` | scene recorder (below) |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |
+| `retroachievements.log` | RetroAchievements, all builds: each server call (URL without its query, which carries the token), login, game load, unlocks, errors |
 
 Save states are `saves/saveN.sav` with `saves/saveN.txt` (where and when, for the
 STATES tab).

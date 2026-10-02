@@ -32,6 +32,7 @@
 #include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
 #include "ui_draw.h"
+#include "retro_ach.h"
 #include "version.h"
 #include "build_config.h"
 
@@ -526,6 +527,7 @@ int main(int argc, char** argv) {
 
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
+  RetroAch_Init();
 
   // Setup audio
   g_audio_mutex = SDL_CreateMutex();
@@ -600,6 +602,7 @@ int main(int argc, char** argv) {
 
   while (running) {
     SDL_Event event;
+    RetroAch_Update();
 
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
@@ -637,9 +640,18 @@ int main(int argc, char** argv) {
     if (g_ui.req_reset) {
       RtlReset(1);
       BottomUi_GameReset();
+      RetroAch_GameReset();
     }
-    if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
-    if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
+    if (g_ui.req_save_state) {
+      const bool ok = RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
+      BottomUi_StateSaved(g_ui.save_slot, ok);
+      if (ok) RetroAch_StateSaved(g_ui.save_slot);
+    }
+    if (g_ui.req_load_state) {
+      const bool ok = RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+      BottomUi_StateLoaded(g_ui.save_slot, ok);
+      if (ok) RetroAch_StateLoaded(g_ui.save_slot);
+    }
     // A reset or a loaded state replaces VRAM without going through the PPU's data port,
     // which is how the GPU renderer learns what changed.
     if (g_ui.req_reset || g_ui.req_load_state) GpuPpu_Invalidate();
@@ -683,6 +695,7 @@ int main(int argc, char** argv) {
       int inputs = g_input1_state | g_gamepad_buttons;
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
       if (capture) {
         Debug_FrameCaptureEnd(g_pixels);
@@ -861,6 +874,8 @@ int main(int argc, char** argv) {
   // Cleanup. Each step is noted in debug/sm-exit.txt first: closing from the HOME menu
   // has been seen to hang on "Closing software", and the file shows the step it hung in.
   ExitStep("loop left");
+  RetroAch_Shutdown();
+  ExitStep("achievements done");
   GpuPpu3ds_Exit();
   ExitStep("gpu done");
   BottomUi_Exit();

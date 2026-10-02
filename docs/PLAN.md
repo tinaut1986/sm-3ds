@@ -295,6 +295,14 @@ Lessons from mzm that apply directly:
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
 - [ ] **P4.4** RetroAchievements (softcore only).
+  Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
+  rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
+  The existing SNES set runs as is: rcheevos' "System RAM" is `g_ram` (same layout as the
+  SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
+  Progress goes with save states (`saves/saveN.rap`); a cheat or the teleport pauses it
+  until restart. Not done: badges (a drawn notice only), an unlock sound, the notice on the
+  top screen. *Done when:* logged in on the console, the list loads, an unlock in play
+  shows the notice and appears on the RA site.
 - [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
   the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
   style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
