@@ -27,6 +27,7 @@
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "debug_tools.h"
+#include "scene_rec.h"
 #include "gpu_ppu.h"
 #include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
@@ -214,6 +215,16 @@ static float TicksToMs(u64 ticks) {
   return (float)((double)ticks * 1000.0 / SYSCLOCK_ARM11);
 }
 
+// Scene recorder: one shown frame, with what the game was doing.
+static void RecordTop(const uint32_t *top, uint32_t frame, u64 t_logic, u64 t_draw) {
+  if (!top) return;
+  const SceneRecMeta meta = {
+    frame, game_state, room_ptr, samus_x_pos, samus_y_pos, TicksToMs(t_logic), TicksToMs(t_draw),
+    g_top_by_gpu, g_top_wide,
+  };
+  SceneRec_AddFrame(top, &meta);
+}
+
 static SDL_mutex *g_audio_mutex;
 static uint8 *g_audiobuffer, *g_audiobuffer_cur, *g_audiobuffer_end;
 static int g_frames_per_block;
@@ -395,6 +406,7 @@ static void ExitStep(const char *what) {
   fprintf(g_exit_file, "%llu ms: %s\n", (unsigned long long)osGetTime(), what);
   fflush(g_exit_file);
   Debug_Log("exit: %s", what);
+  Debug_LogFlush();
 }
 
 // Debug log, once a second: settings that changed, and every 5 s the timings and the
@@ -635,7 +647,7 @@ int main(int argc, char** argv) {
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
-      bool draw = g_ui.render_on && !turbo_skip && !(g_ui.frameskip && skip_render);
+      bool draw = !turbo_skip && !(g_ui.frameskip && skip_render);
       // Dumps and frame captures need this frame's CPU-rendered pixels, so the frame is
       // drawn, and drawn by the CPU (the GPU check draws it both ways).
       bool capture = false, dump = g_ui.req_dump, gpu_check = g_ui.req_gpu_check && g_ui.gpu_render;
@@ -749,9 +761,13 @@ int main(int argc, char** argv) {
     // swapping without drawing would show the frame before last. While the GPU
     // renderer owns the top screen, citro3d swaps it and only the bottom is ours.
     bool swapped = false;
+    // Scene recorder: the frame as shown, from the framebuffer before the swap or from
+    // the GPU's top target.
+    const bool record = presented && !g_ui.paused && SceneRec_WantFrame();
     if (presented && !g_top_by_gpu) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
+      if (record) RecordTop((const uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL), frameCtr, t_logic, t_draw);
       BottomUi_Frame(&perf);
       gfxFlushBuffers();
       gfxSwapBuffers();
@@ -762,8 +778,9 @@ int main(int argc, char** argv) {
         swapped = true;
         shown_window++;
       }
+      if (record) RecordTop(GpuPpu3ds_ReadTop(), frameCtr, t_logic, t_draw);
       if (BottomUi_Frame(&perf)) {
-        // Nothing new on the top screen from us (skipped frame, PPU render off, or the
+        // Nothing new on the top screen from us (skipped frame, or the
         // GPU presents it), but the UI changed: swap the bottom screen only.
         gfxFlushBuffers();
         gfxScreenSwapBuffers(GFX_BOTTOM, false);

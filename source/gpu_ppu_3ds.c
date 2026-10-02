@@ -508,6 +508,17 @@ static void ReadMain(void) {
   GSPGPU_InvalidateDataCache(g_readback, kTexW * kTexH * 4);
 }
 
+const uint32_t *GpuPpu3ds_ReadTop(void) {
+  static uint32_t *top;   // 240x400 linear, like the framebuffer
+  if (!g_ready || !g_any_frame) return NULL;
+  if (!top && !(top = (uint32_t *)linearAlloc(240 * 400 * 4))) return NULL;
+  WaitGpu();
+  C3D_SyncDisplayTransfer((u32 *)g_rt_top->frameBuf.colorBuf, GX_BUFFER_DIM(240, 400), (u32 *)top,
+                          GX_BUFFER_DIM(240, 400), DISPLAY_TRANSFER_FLAGS);
+  GSPGPU_InvalidateDataCache(top, 240 * 400 * 4);
+  return top;
+}
+
 void GpuPpu3ds_WaitIdle(void) {
   if (!g_ready || !g_any_frame) return;
   WaitGpu();

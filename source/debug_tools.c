@@ -30,22 +30,34 @@ static uint32_t g_frame;     // frames seen by the perf hook, used to stamp log 
 
 // ---- Slots ----------------------------------------------------------------
 
-// Picks the slot to write next: the first one that does not exist yet, else
-// the one whose marker file was written longest ago.
-static int PickSlot(const char *marker_fmt, int slots) {
+// Picks the slot to write next: the first one that does not exist yet, else the one
+// after the slot written last, which debug/sm-<kind>-last.txt remembers. Not the file
+// times: on the console they did not tell slots apart (libctru's stat() most likely
+// leaves st_mtime at 0), so "least recently written" was always slot 00 (issue #8).
+int Debug_NextSlot(const char *kind, const char *marker_fmt, int slots) {
   char path[96];
-  int oldest = 0;
-  time_t oldest_time = 0;
-  for (int i = 0; i < slots; i++) {
+  int slot = -1;
+  for (int i = 0; i < slots && slot < 0; i++) {
     snprintf(path, sizeof(path), marker_fmt, i);
     struct stat st;
-    if (stat(path, &st) != 0) return i;
-    if (i == 0 || st.st_mtime < oldest_time) {
-      oldest = i;
-      oldest_time = st.st_mtime;
-    }
+    if (stat(path, &st) != 0) slot = i;
   }
-  return oldest;
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-%s-last.txt", kind);
+  if (slot < 0) {
+    int last = -1;
+    FILE *f = fopen(path, "r");
+    if (f) {
+      if (fscanf(f, "%d", &last) != 1) last = -1;
+      fclose(f);
+    }
+    slot = last >= 0 ? (last + 1) % slots : 0;
+  }
+  FILE *f = fopen(path, "w");
+  if (f) {
+    fprintf(f, "%d\n", slot);
+    fclose(f);
+  }
+  return slot;
 }
 
 static FILE *OpenSlotFile(const char *fmt, int slot, const char *mode) {
@@ -54,8 +66,7 @@ static FILE *OpenSlotFile(const char *fmt, int slot, const char *mode) {
   return fopen(path, mode);
 }
 
-static void SetMessage(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-static void SetMessage(const char *fmt, ...) {
+void Debug_SetMessage(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   vsnprintf(g_message, sizeof(g_message), fmt, ap);
@@ -63,6 +74,7 @@ static void SetMessage(const char *fmt, ...) {
 }
 
 const char *Debug_LastMessage(void) { return g_message; }
+const char *Debug_Version(void) { return g_version; }
 
 void Debug_Init(const char *version) {
   snprintf(g_version, sizeof(g_version), "%s", version);
@@ -71,36 +83,67 @@ void Debug_Init(const char *version) {
 
 // ---- Log ------------------------------------------------------------------
 
+// Buffered (the default): lines collect in RAM and reach the card a block at a time,
+// when the buffer fills, on a mark, when buffering or the log is switched off, and at
+// each exit step. Direct: every line is written and flushed at once, so the last line
+// before a hang or crash is on disk, at the cost of an SD write per line.
+// Main thread only, like every caller so far.
+static bool g_log_buffered = true;
+static char g_log_buf[16384];
+static size_t g_log_len;
+
+void Debug_LogFlush(void) {
+  if (!g_log || !g_log_len) return;
+  fwrite(g_log_buf, 1, g_log_len, g_log);
+  fflush(g_log);
+  g_log_len = 0;
+}
+
 void Debug_Log(const char *fmt, ...) {
   if (!g_log) return;
-  fprintf(g_log, "[%7lu] ", (unsigned long)g_frame);
+  char line[512];
+  int n = snprintf(line, sizeof(line), "[%7lu] ", (unsigned long)g_frame);
   va_list ap;
   va_start(ap, fmt);
-  vfprintf(g_log, fmt, ap);
+  vsnprintf(line + n, sizeof(line) - n - 1, fmt, ap);
   va_end(ap);
-  fputc('\n', g_log);
-  fflush(g_log);
+  n = (int)strlen(line);
+  line[n++] = '\n';
+  if (g_log_len + n > sizeof(g_log_buf)) Debug_LogFlush();
+  memcpy(g_log_buf + g_log_len, line, n);
+  g_log_len += n;
+  if (!g_log_buffered) Debug_LogFlush();
 }
+
+void Debug_LogSetBuffered(bool on) {
+  if (!on) Debug_LogFlush();
+  g_log_buffered = on;
+  Debug_Log("log %s", on ? "buffered" : "direct");
+}
+
+bool Debug_LogBuffered(void) { return g_log_buffered; }
 
 void Debug_LogSetEnabled(bool on) {
   if (on == (g_log != NULL)) return;
   if (!on) {
     Debug_Log("log closed");
+    Debug_LogFlush();
     fclose(g_log);
     g_log = NULL;
-    SetMessage("Log off");
+    Debug_SetMessage("Log off");
     return;
   }
-  int slot = PickSlot(DEBUG_DIR "/sm-log-%02d.txt", LOG_SLOTS);
+  int slot = Debug_NextSlot("log", DEBUG_DIR "/sm-log-%02d.txt", LOG_SLOTS);
   snprintf(g_log_name, sizeof(g_log_name), "sm-log-%02d.txt", slot);
   g_log = OpenSlotFile(DEBUG_DIR "/sm-log-%02d.txt", slot, "w");
   if (!g_log) {
     g_log_name[0] = 0;
-    SetMessage("Log: cannot open file");
+    Debug_SetMessage("Log: cannot open file");
     return;
   }
-  Debug_Log("Super Metroid 3DS %s, log started", g_version);
-  SetMessage("Log -> %s", g_log_name);
+  g_log_len = 0;
+  Debug_Log("Super Metroid 3DS %s, log started (%s)", g_version, g_log_buffered ? "buffered" : "direct");
+  Debug_SetMessage("Log -> %s", g_log_name);
 }
 
 bool Debug_LogEnabled(void) { return g_log != NULL; }
@@ -110,7 +153,8 @@ void Debug_LogMark(void) {
   if (!g_log) return;
   Debug_Log("USER MARK state=%02X area=%u room=%u x=%u y=%u", (unsigned)game_state, (unsigned)area_index,
             (unsigned)room_index, (unsigned)samus_x_pos, (unsigned)samus_y_pos);
-  SetMessage("Mark written");
+  Debug_LogFlush();
+  Debug_SetMessage("Mark written");
 }
 
 // ---- Dump -----------------------------------------------------------------
@@ -191,9 +235,9 @@ void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra) {
 
 int Debug_DumpScreen(const uint8_t *bgra) {
   mkdir(DEBUG_DIR, 0777);
-  int slot = PickSlot(DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
+  int slot = Debug_NextSlot("dump", DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
   if (!WriteRgb(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, bgra)) {
-    SetMessage("Dump: cannot write debug/");
+    Debug_SetMessage("Dump: cannot write debug/");
     return -1;
   }
   const Ppu *p = g_snes->ppu;
@@ -215,7 +259,7 @@ int Debug_DumpScreen(const uint8_t *bgra) {
   remove(path);
 
   Debug_Log("screen dump -> set %02d", slot);
-  SetMessage("Dump set %02d saved", slot);
+  Debug_SetMessage("Dump set %02d saved", slot);
   return slot;
 }
 
@@ -274,7 +318,7 @@ bool Debug_FrameCaptureBegin(void) {
   g_fw_count = 0;
   g_fw_overflow = false;
   if (!g_fw) {
-    SetMessage("Frame dump: out of memory");
+    Debug_SetMessage("Frame dump: out of memory");
     return false;
   }
   g_ppu_write_hook = FrameWriteHook;
@@ -339,9 +383,9 @@ int Debug_FrameCaptureEnd(const uint8_t *bgra) {
       WriteFrameText(f, slot);
       fclose(f);
       Debug_Log("frame capture -> set %02d, %d writes", slot, g_fw_count);
-      SetMessage("Frame dump set %02d (%d writes)", slot, g_fw_count);
+      Debug_SetMessage("Frame dump set %02d (%d writes)", slot, g_fw_count);
     } else {
-      SetMessage("Frame dump: cannot write debug/");
+      Debug_SetMessage("Frame dump: cannot write debug/");
     }
   }
   free(g_fw);
@@ -364,7 +408,7 @@ bool Debug_PerfRecording(void) { return g_perf != NULL; }
 
 static void PerfStop(void) {
   if (!g_perf) return;
-  int slot = PickSlot(DEBUG_DIR "/sm-perf-%02d.csv", PERF_SLOTS);
+  int slot = Debug_NextSlot("perf", DEBUG_DIR "/sm-perf-%02d.csv", PERF_SLOTS);
   FILE *f = OpenSlotFile(DEBUG_DIR "/sm-perf-%02d.csv", slot, "w");
   double sum = 0, max = 0;
   int shown = 0;
@@ -381,7 +425,7 @@ static void PerfStop(void) {
     fclose(f);
   }
   int n = g_perf_count ? g_perf_count : 1;
-  SetMessage("Perf %02d: %d fr, avg %.1f max %.1f ms", slot, g_perf_count, sum / n, max);
+  Debug_SetMessage("Perf %02d: %d fr, avg %.1f max %.1f ms", slot, g_perf_count, sum / n, max);
   Debug_Log("perf recording -> sm-perf-%02d.csv: %d frames, avg work %.2f ms, max %.2f ms, shown %d", slot,
             g_perf_count, sum / n, max, shown);
   free(g_perf);
@@ -397,7 +441,7 @@ void Debug_PerfToggle(void) {
   mkdir(DEBUG_DIR, 0777);
   g_perf = (PerfSample *)malloc(sizeof(PerfSample) * PERF_MAX_FRAMES);
   g_perf_count = 0;
-  SetMessage(g_perf ? "Perf recording..." : "Perf: out of memory");
+  Debug_SetMessage(g_perf ? "Perf recording..." : "Perf: out of memory");
 }
 
 void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]) {
@@ -437,5 +481,6 @@ void __assert_func(const char *file, int line, const char *func, const char *exp
     fclose(f);
   }
   Debug_Log("ASSERT %s:%d in %s(): %s", file, line, func ? func : "?", expr);
+  Debug_LogFlush();
   abort();
 }
