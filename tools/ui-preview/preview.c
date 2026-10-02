@@ -7,6 +7,7 @@
 #include "src/sm_rtl.h"
 #include "src/variables.h"
 #include "bottom_ui.h"
+#include "ui_lang.h"
 #include "cheats.h"
 #include "debug_tools.h"
 #include "src/sm_cpu_infra.h"
@@ -122,7 +123,50 @@ int main(int argc, char **argv) {
   Shot("options");
   Tap(160, 178);
   Shot("options, reset window");
-  return 0;
+  Tap(216, 148);                     // cancel
+  // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
+  // last option cell (left column, fifth row) and cycles.
+  for (int lang = 1; lang < kLangCount; lang++) {
+    TapTab(kOptions);
+    Tap(8 + 5, 30 + 4 * 34 + 5);
+    if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
+    char what[64];
+    Tap(8 + 5, 30 + 1 * 34 + 5);     // FRAME SKIP off: its toast
+    snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(8 + 5, 30 + 1 * 34 + 5);
+    Tap(240, 171);                   // RESET GAME
+    snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(216, 148);                   // cancel
+    TapTab(kStatus);
+    snprintf(what, sizeof(what), "status, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    TapTab(kStates);
+    snprintf(what, sizeof(what), "states, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    TapTab(kMap);
+    snprintf(what, sizeof(what), "map, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+  }
+  // Translations must keep the English conversions (they go through snprintf).
+  int bad = 0;
+  for (int lang = 0; lang < kLangCount; lang++) {
+    for (int id = 0; id < kStrCount; id++) {
+      g_ui_lang = kLangEn;
+      const char *en = Tr((UiStr)id);
+      g_ui_lang = (UiLang)lang;
+      const char *t = Tr((UiStr)id), *a = en, *b = t;
+      for (;;) {
+        a = strchr(a, '%'), b = strchr(b, '%');
+        if (!a || !b) break;
+        if (a[1] != b[1]) break;
+        a += 2, b += 2;
+      }
+      if (a || b) printf("FORMAT MISMATCH: %s / %s\n", en, t), bad++;
+    }
+  }
+  return bad ? 1 : 0;
 }
 bool g_debug_flag, g_is_turbo, g_want_dump_memmap_flags, g_new_ppu = true, g_other_image;
 struct SpcPlayer *g_spc_player;

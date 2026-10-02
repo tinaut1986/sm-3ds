@@ -17,6 +17,7 @@
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "ui_draw.h"
+#include "ui_lang.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -46,7 +47,7 @@ static Modal g_modal;
 static int g_dirty = 2;             // frames left to redraw (bottom is double buffered)
 static uint32_t g_last_redraw;
 static bool g_is_new3ds;
-static char g_toast[48];
+static char g_toast[64];   // UTF-8
 static u64 g_toast_until;
 static int g_tap_x = -1000, g_tap_y;
 static u64 g_tap_ms;
@@ -261,8 +262,11 @@ static void DrawMap(Surface s, const UiPerf *p) {
 
   for (int i = 0; i < kSmAreaCount; i++)
     UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, kAreaShort[i]);
-  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d CELLS%s", kSmAreaNames[area], seen, total, station ? "  MAP" : "");
-  UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, g_map_follow ? "FOLLOW: ON" : "FOLLOW: OFF");
+  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d %s%s%s", kSmAreaNames[area], seen, total, Tr(kStrCells),
+              station ? "  " : "", station ? Tr(kStrMapMark) : "");
+  char follow[32];
+  snprintf(follow, sizeof(follow), "%s: %s", Tr(kStrFollow), Tr(g_map_follow ? kStrOn : kStrOff));
+  UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, follow);
 
 #if DEBUG_TOOLS
   if (g_sel_col >= 0)
@@ -315,7 +319,7 @@ static void DrawStatus(Surface s) {
   // Energy panel: number, tanks, current-tank bar, reserve.
   UiFillRect(s, 8, 26, 304, 44, COL_PANEL);
   UiFrameRect(s, 8, 26, 304, 44, COL_BORDER);
-  UiDrawText(s, 14, 30, 1, COL_DIM, "ENERGY");
+  UiDrawText(s, 14, 30, 1, COL_DIM, Tr(kStrEnergy));
   {
     char big[8];
     snprintf(big, sizeof(big), "%u", health);
@@ -329,9 +333,10 @@ static void DrawStatus(Surface s) {
     else UiFrameRect(s, x, 30, 10, 10, COL_FAINT);
   }
   UiDrawBar(s, 70, 44, 168, 7, (int)(health % 100), 99, COL_ENERGY);
-  UiDrawTextf(s, 244, 30, COL_DIM, "MAX %u", max_health);
-  UiDrawTextf(s, 70, 56, COL_RESERVE, "RESERVE %u/%u", (unsigned)samus_reserve_health, (unsigned)samus_max_reserve_health);
-  UiDrawTextf(s, 196, 56, COL_DIM, "%s", reserve_health_mode == 1 ? "AUTO" : reserve_health_mode == 2 ? "MANUAL" : "");
+  UiDrawTextf(s, 244, 30, COL_DIM, "%s %u", Tr(kStrMax), max_health);
+  UiDrawTextf(s, 70, 56, COL_RESERVE, "%s %u/%u", Tr(kStrReserve), (unsigned)samus_reserve_health,
+              (unsigned)samus_max_reserve_health);
+  UiDrawTextf(s, 196, 56, COL_DIM, "%s", reserve_health_mode == 1 ? Tr(kStrAuto) : reserve_health_mode == 2 ? Tr(kStrManual) : "");
 #if DEBUG_TOOLS
   DrawCheatButton(s, GodRect(), g_cheats.invincible, "GOD");
   DrawCheatButton(s, MaxRect(), g_cheats.max_mode, "MAX");
@@ -353,7 +358,7 @@ static void DrawStatus(Surface s) {
   }
 
   // Items: green = equipped, yellow = collected but switched off, dim = missing.
-  UiDrawText(s, 8, 102, 1, COL_DIM, "ITEMS");
+  UiDrawText(s, 8, 102, 1, COL_DIM, Tr(kStrItems));
   for (int i = 0; i < kSmItemCount; i++) {
     const Rect r = ItemRect(i);
     const bool have = (collected_items & kSmItems[i].mask) != 0;
@@ -369,7 +374,7 @@ static void DrawStatus(Surface s) {
     DrawCheatButton(s, AllRect(), all, "ALL");
   }
 #endif
-  UiDrawText(s, 8, 156, 1, COL_DIM, "BEAMS");
+  UiDrawText(s, 8, 156, 1, COL_DIM, Tr(kStrBeams));
   for (int i = 0; i < kSmBeamCount; i++) {
     const Rect r = BeamRect(i);
     const bool have = (collected_beams & kSmBeams[i].mask) != 0;
@@ -380,9 +385,9 @@ static void DrawStatus(Surface s) {
 
   // Map stations (Ceres has none). Debug builds: grey none, green used, purple forced,
   // orange every cell explored.
-  UiDrawText(s, 8, 182, 1, COL_DIM, "MAP STATIONS");
+  UiDrawText(s, 8, 182, 1, COL_DIM, Tr(kStrMapStations));
 #if DEBUG_TOOLS
-  UiDrawText(s, 104, 182, 1, COL_FAINT, "TAP: MAP > EXPLORED > REAL");
+  UiDrawText(s, 20 + UiTextWidth(Tr(kStrMapStations), 1), 182, 1, COL_FAINT, "TAP: MAP > EXPLORED > REAL");
 #endif
   for (int i = 0; i < 6; i++) {
     const Rect r = StationRect(i);
@@ -533,7 +538,7 @@ static void DrawSlotButton(Surface s, Rect r, bool enabled, bool armed, bool sav
 }
 
 static void DrawStates(Surface s) {
-  UiDrawTextCentered(s, SCREEN_W / 2, 28, COL_TITLE, "SAVE STATES");
+  UiDrawTextCentered(s, SCREEN_W / 2, 28, COL_TITLE, Tr(kStrSaveStates));
   for (int i = 0; i < STATE_SLOTS; i++) {
     const SlotInfo *si = &g_slots[i];
     const int y = SLOT_Y0 + i * SLOT_PITCH;
@@ -541,9 +546,9 @@ static void DrawStates(Surface s) {
     UiFillRect(s, 8, y, 240, 1, RGB(60, 80, 110));
     UiDrawTextf(s, 12, y + 5, COL_TEXT, "%d", i);
     if (!si->used) {
-      UiDrawText(s, 26, y + 5, 1, COL_FAINT, "- EMPTY -");
+      UiDrawText(s, 26, y + 5, 1, COL_FAINT, Tr(kStrEmpty));
     } else if (!si->has_info) {
-      UiDrawText(s, 26, y + 5, 1, COL_DIM, "SAVED (NO DETAILS)");
+      UiDrawText(s, 26, y + 5, 1, COL_DIM, Tr(kStrSavedNoDetails));
     } else {
       UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", kAreaShort[si->area < kSmAreaCount ? si->area : 0], si->room);
       UiDrawTextf(s, 74, y + 5, COL_ENERGY, "E%u", si->health);
@@ -555,7 +560,7 @@ static void DrawStates(Surface s) {
     DrawSlotButton(s, SlotSaveRect(i), true, Armed(i, 1), true);
     DrawSlotButton(s, SlotLoadRect(i), si->used, Armed(i, 2), false);
   }
-  UiDrawTextCentered(s, SCREEN_W / 2, 229, COL_DIM, "TAP TWICE TO CONFIRM");
+  UiDrawTextCentered(s, SCREEN_W / 2, 229, COL_DIM, Tr(kStrTapTwice));
 }
 
 static void StatesTouch(int x, int y) {
@@ -581,8 +586,8 @@ static void StatesTouch(int x, int y) {
 void BottomUi_StateSaved(int slot, bool ok) {
   if (ok) WriteSlotInfo(slot);
   RefreshSlot(slot);
-  char buf[32];
-  snprintf(buf, sizeof(buf), ok ? "Saved to slot %d" : "Could not save slot %d", slot);
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrSavedSlot : kStrSaveFailed), slot);
   Toast(buf);
 }
 
@@ -595,22 +600,23 @@ static void ForgetDebugState(void) {
 
 void BottomUi_StateLoaded(int slot, bool ok) {
   if (ok) ForgetDebugState();
-  char buf[40];
-  snprintf(buf, sizeof(buf), ok ? "Loaded slot %d" : "Slot %d: cannot load", slot);
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrLoadedSlot : kStrLoadFailed), slot);
   Toast(buf);
 }
 
 void BottomUi_GameReset(void) {
   ForgetDebugState();
-  Toast("Game reset");
+  Toast(Tr(kStrGameReset));
 }
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_COUNT } OptCell;
+typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_COUNT } OptCell;
 
+// Two columns; RESET GAME takes the last row's free cell.
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
-static Rect ResetRect(void) { return (Rect){ 8, 168, 304, 22 }; }
+static Rect ResetRect(void) { return OptRect(OPT_COUNT); }
 
 static void DrawOptCell(Surface s, int i, const char *label, const char *value, uint32_t value_col) {
   const Rect r = OptRect(i);
@@ -620,27 +626,29 @@ static void DrawOptCell(Surface s, int i, const char *label, const char *value, 
 }
 
 static void DrawOnOffCell(Surface s, int i, const char *label, bool on) {
-  DrawOptCell(s, i, label, on ? "ON" : "OFF", on ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, i, label, Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
 }
 
 static void DrawOptions(Surface s) {
-  DrawOnOffCell(s, OPT_PAUSE, "PAUSE", g_ui.paused);
-  DrawOnOffCell(s, OPT_TURBO, "TURBO", g_ui.turbo);
-  DrawOnOffCell(s, OPT_FRAMESKIP, "FRAME SKIP", g_ui.frameskip);
-  DrawOnOffCell(s, OPT_AUDIO, "AUDIO", g_ui.audio_on);
-  DrawOnOffCell(s, OPT_FPS, "FPS OVERLAY", g_ui.fps_overlay);
+  DrawOnOffCell(s, OPT_PAUSE, Tr(kStrPause), g_ui.paused);
+  DrawOnOffCell(s, OPT_TURBO, Tr(kStrTurbo), g_ui.turbo);
+  DrawOnOffCell(s, OPT_FRAMESKIP, Tr(kStrFrameSkip), g_ui.frameskip);
+  DrawOnOffCell(s, OPT_AUDIO, Tr(kStrAudio), g_ui.audio_on);
+  DrawOnOffCell(s, OPT_FPS, Tr(kStrFpsOverlay), g_ui.fps_overlay);
   if (g_is_new3ds) DrawOptCell(s, OPT_SPEEDUP, "CPU (NEW 3DS)", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
-  DrawOptCell(s, OPT_DISPLAY, "DISPLAY", g_ui.pixel_perfect ? "PIXEL PERFECT" : "SCALED", COL_GOOD);
-  DrawOnOffCell(s, OPT_WIDE, "WIDE VIEW", g_ui.wide);
-  UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()), "RESET GAME");
+  DrawOptCell(s, OPT_DISPLAY, Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelPerfect : kStrScaled), COL_GOOD);
+  DrawOnOffCell(s, OPT_WIDE, Tr(kStrWideView), g_ui.wide);
+  DrawOptCell(s, OPT_LANGUAGE, Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
+                 Tr(kStrResetGame));
 
-  UiDrawTextCentered(s, SCREEN_W / 2, 196, RGB(90, 115, 145), "SUPER METROID 3DS");
-  UiDrawTextCentered(s, SCREEN_W / 2, 207, RGB(90, 115, 145), g_rom_info.version);
+  UiDrawTextCentered(s, SCREEN_W / 2, 200, RGB(90, 115, 145), "SUPER METROID 3DS");
+  UiDrawTextCentered(s, SCREEN_W / 2, 209, RGB(90, 115, 145), g_rom_info.version);
   char buf[48];
   snprintf(buf, sizeof(buf), "ROM %.8s%s", g_rom_info.rom_sha1, g_rom_info.rom_had_header ? " (HEADER)" : "");
-  UiDrawTextCentered(s, SCREEN_W / 2, 218, RGB(70, 90, 115), buf);
+  UiDrawTextCentered(s, SCREEN_W / 2, 219, RGB(70, 90, 115), buf);
 #if DEBUG_TOOLS
   UiDrawTextCentered(s, SCREEN_W / 2, 229, RGB(150, 110, 60), "DEBUG TOOLS BUILD");
 #endif
@@ -658,7 +666,7 @@ static void OptionsTouch(int x, int y) {
     case OPT_TURBO: g_ui.turbo = !g_ui.turbo; break;
     case OPT_FRAMESKIP:
       g_ui.frameskip = !g_ui.frameskip;
-      if (!g_ui.frameskip) Toast("FRAME SKIP OFF: heavy rooms may slow down");
+      if (!g_ui.frameskip) Toast(Tr(kStrFrameSkipOffToast));
       break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
     case OPT_FPS: g_ui.fps_overlay = !g_ui.fps_overlay; break;
@@ -669,6 +677,7 @@ static void OptionsTouch(int x, int y) {
       break;
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
+    case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
     default: break;
     }
     return;
@@ -683,11 +692,11 @@ static Rect NoRect(void) { return (Rect){ 168, 136, 96, 24 }; }
 static void DrawResetModal(Surface s) {
   UiFillRect(s, 40, 76, 240, 96, COL_MODAL_EDGE);
   UiFillRect(s, 41, 77, 238, 94, COL_MODAL);
-  UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, "RESET THE GAME?");
-  UiDrawTextCentered(s, SCREEN_W / 2, 108, COL_DIM, "PROGRESS SINCE THE LAST SAVE");
-  UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_DIM, "IS LOST");
-  UiDrawBoxLabel(s, YesRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(YesRect()), "RESET");
-  UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), "CANCEL");
+  UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, Tr(kStrResetQuestion));
+  UiDrawTextCentered(s, SCREEN_W / 2, 108, COL_DIM, Tr(kStrResetLost1));
+  UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_DIM, Tr(kStrResetLost2));
+  UiDrawBoxLabel(s, YesRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(YesRect()), Tr(kStrReset));
+  UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrCancel));
 }
 
 static void ResetModalTouch(int x, int y) {
@@ -866,11 +875,11 @@ static void DebugTouch(int x, int y) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang };
 }
 
 static void SaveConfig(void) {
@@ -878,8 +887,8 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n",
-          o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide);
+  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
+          "language=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide, o.language);
   fclose(f);
 }
 
@@ -906,6 +915,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
+    else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
   fclose(f);
 }
@@ -1081,6 +1091,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   SmWarp_Init();
   APT_CheckNew3DS(&g_is_new3ds);
   g_ui.new3ds_speedup = g_is_new3ds;
+  g_ui_lang = UiLang_FromSystem();   // until config.ini says otherwise
   LoadConfig();
   if (!g_is_new3ds) g_ui.new3ds_speedup = false;
   if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);
