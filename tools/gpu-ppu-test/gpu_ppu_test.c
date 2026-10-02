@@ -210,7 +210,7 @@ static void TestWide(const char *label) {
   GpuPpu_SetNarrowBg3Map(-1);
   g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
   GpuPpu_SetNoSpriteWrap(false);
-  if (built) SmWide_AddMasks(&g_frame);
+  if (built) SmWide_AddMasks(&g_frame, &g_cap);
   if (!built) {
     g_wide_bad++;
     printf("%s: WIDE build refused (%s)\n", label, why);
@@ -322,8 +322,9 @@ static void TestWide(const char *label) {
     }
   }
   const int dump = getenv("WIDE_DUMP") ? atoi(getenv("WIDE_DUMP")) : 0;
-  // WIDE_DUMP_ROOM=hex: only frames in that room count.
-  if (g_wide_dumped < dump && (!getenv("WIDE_DUMP_ROOM") || room_ptr == strtol(getenv("WIDE_DUMP_ROOM"), 0, 16))) {
+  // WIDE_DUMP_ROOM=hex: only frames in that room count; WIDE_DUMP_FROM=n: only from tested frame n on.
+  if (g_wide_dumped < dump && (!getenv("WIDE_DUMP_FROM") || g_frames >= atoi(getenv("WIDE_DUMP_FROM"))) &&
+      (!getenv("WIDE_DUMP_ROOM") || room_ptr == strtol(getenv("WIDE_DUMP_ROOM"), 0, 16))) {
     char name[64];
     snprintf(name, sizeof(name), "wide-%03d.ppm", g_wide_dumped++);
     FILE *f = fopen(name, "wb");
@@ -354,7 +355,7 @@ static void TestWide(const char *label) {
     GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
     GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
     if (GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &f2, &why2)) {
-      SmWide_AddMasks(&f2);
+      SmWide_AddMasks(&f2, &g_cap);
       memset(old, 0, sizeof(old));
       GpuRef_DrawFrameColumns(&f2, old, pitch, -ml, 256 + mr);
       if (memcmp(old, g_w, (32 + ey) * pitch)) {
@@ -756,7 +757,7 @@ int main(int argc, char **argv) {
     // 0x40, B jump 0x01, Y run 0x02), e.g. to scroll while WIDE is checked.
     g_input = getenv("ROOM_INPUT") ? (int)strtol(getenv("ROOM_INPUT"), 0, 16) : 0;
     for (int k = 0; k < frames; k++) {
-      samus_health = 99;
+      samus_health = getenv("SAMUS_HEALTH") ? (uint16)atoi(getenv("SAMUS_HEALTH")) : 99;
       // EARTHQUAKE=type: the room shakes (HandleRoomShaking) for every tested frame.
       if (getenv("EARTHQUAKE")) earthquake_type = (uint16)atoi(getenv("EARTHQUAKE")), earthquake_timer = 30;
       // CERES_ESCAPE: the escape is on (ceres_status bit 15): the elevator shaft (DF45) tilts,

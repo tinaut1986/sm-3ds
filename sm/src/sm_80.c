@@ -2654,7 +2654,7 @@ void RtlOamXReset(void) {
 // mode 7 VRAM: only the sprites join the HUD, and the renderer draws the plane under it.
 static uint8 HudLinesTM(void) {
   if (!g_rtl_wide_hud_over_room) return 4;
-  return 4 | (gameplay_TM & (irq_enable_mode7 ? 0x10 : 0x13));
+  return 4 | (gameplay_TM & (irq_enable_mode7 && (reg_BGMODE_fake & 7) == 7 ? 0x10 : 0x13));
 }
 
 // Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer.
