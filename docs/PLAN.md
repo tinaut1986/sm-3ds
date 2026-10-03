@@ -15,20 +15,14 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.0` (renamed from `release/v0.1.4` on 2026-10-03: stereo 3D is the milestone). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
+**Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine):
-`feat/ra-cards` (P4.4: the achievements tab as mzm's windows, badges, drag scrolling).
-`fix/ceres-ridley-wide-margins` (#15, #17, confirmed) was merged on 2026-10-03. The
-stack frameskip-warning, ui-languages, wide-vertical-lean, retroachievements, game-text,
-ra-options, wide-xray-cone was merged into `release/v0.1.4` on 2026-10-03 at the owner's
-request (#16 confirmed); what each still needs from the console is in its task (P4.4, P4.6,
+with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+Everything above was merged into the release line at the owner's request and shipped in the
+`v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
-Also waiting: `feat/item-names` (P4.7, P4.8: the Status tab's items, beams, ammo and areas
-translated; the message boxes' item names as Nintendo's Spanish and French ones; the game's
-other screens translated, see P4.8).
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
@@ -1016,3 +1010,7 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   no new build, and the repo carries no RA artwork. Locked badges are the same image drawn
   grey (no `_lock` download). Loads wait behind rcheevos' calls on the one worker thread;
   the badge the UI is drawing goes first.
+- 2026-10-03: `v0.2.0` tagged as a beta on `release/v0.2.0` (stereo, circle pad as D-pad,
+  `feat/item-names`, `feat/ra-cards` merged at the owner's request after they tried the CIA
+  on both consoles); the line is now `release/v0.2.1`. The tasks stay unticked until the
+  owner checks each one in detail.
