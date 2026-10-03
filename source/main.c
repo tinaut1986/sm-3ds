@@ -342,6 +342,19 @@ int idx_of_btn(enum Button b) {
   }
 }
 
+// The circle pad acts as the D-pad: SNES joypad bits 4..7 are up, down, left, right.
+static int CirclePadAsDpad(void) {
+  enum { kDeadZone = 40 };   // of the pad's ~±155 range
+  circlePosition cp;
+  hidCircleRead(&cp);
+  int bits = 0;
+  if (cp.dy > kDeadZone) bits |= 1 << 4;
+  if (cp.dy < -kDeadZone) bits |= 1 << 5;
+  if (cp.dx < -kDeadZone) bits |= 1 << 6;
+  if (cp.dx > kDeadZone) bits |= 1 << 7;
+  return bits;
+}
+
 static void HandleCommand(uint32 j, bool pressed) {
   int idx = idx_of_btn(j);
   if (idx < 0) return;
@@ -711,7 +724,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra);
 
       u64 t0 = svcGetSystemTick();
-      int inputs = g_input1_state | g_gamepad_buttons;
+      int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
       RetroAch_DoFrame();
