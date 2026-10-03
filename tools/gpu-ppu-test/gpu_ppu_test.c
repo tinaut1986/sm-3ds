@@ -540,6 +540,11 @@ static void TestFrame(const char *label, bool check_capture) {
   if (g_frame.quad_count > g_max_quads) g_max_quads = g_frame.quad_count;
   memset(g_c, 0, sizeof(g_c));
   GpuRef_DrawFrame(&g_frame, g_c, kPitch);
+  if (getenv("QUAD_LEVELS") && g_frames == atoi(getenv("QUAD_LEVELS")))
+    for (int q = 0; q < g_frame.quad_count; q++) {
+      const GpuQuad *qd = &g_frame.quads[q];
+      printf("quad %d level %d flags %x x %d y %d w %d h %d\n", q, qd->level, qd->flags, qd->x, qd->y, qd->w, qd->h);
+    }
   // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
   // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
   int sp_a, sp_b;
@@ -555,6 +560,7 @@ static void TestFrame(const char *label, bool check_capture) {
         const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
         const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
         if (StereoDepth_Plane(&sf, &it) != pl) one.quads[q].w = 0;
+        if (getenv("ONLY_LEVEL") && qd->level != atoi(getenv("ONLY_LEVEL"))) one.quads[q].w = 0;
       }
       for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
       memset(img, 0, sizeof(img));

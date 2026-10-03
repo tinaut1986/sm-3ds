@@ -15,12 +15,12 @@
 typedef enum {
   kStereoHud,      // the HUD list (HUD rows, escape timer), message boxes, the port's own text
   kStereoFront,    // BG3 priority 1 FX that is not the HUD (water, lava, fog over the room)
-  kStereoPlay,     // BG1 tile priority 1: SM's walls and floors (Samus passes behind them);
+  kStereoPlay,     // BG1 or BG2 tile priority 1: SM's walls and floors (Samus passes behind them);
                    // sprites of OAM priority 3 (drawn over them: wall faces); the mode 7 plane
   kStereoObj,      // the other world sprites: Samus, enemies (OAM priority 0-2)
   kStereoBack,     // BG1 tile priority 0: the level's parts Samus passes in front of (the
                    // save station's glass, background pipes)
-  kStereoMid,      // BG2 (the room's background)
+  kStereoMid,      // BG2 priority 0 (the room's background)
   kStereoFar,      // BG3 priority 0 FX, the backdrop
   kStereoScreen,   // a non-gameplay screen: flat until P3.4 gives it depth
   kStereoPlaneCount

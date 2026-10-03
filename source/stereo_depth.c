@@ -25,7 +25,7 @@ StereoPlane StereoDepth_Plane(const StereoFrame *frame, const StereoItem *item) 
   case kStereoKindBg:
     switch (item->layer) {
     case 0: return item->priority ? kStereoPlay : kStereoBack;
-    case 1: return kStereoMid;
+    case 1: return item->priority ? kStereoPlay : kStereoMid;   // priority 1 draws over Samus: a wall (9C5E)
     default: return item->priority ? kStereoFront : kStereoFar;
     }
   }

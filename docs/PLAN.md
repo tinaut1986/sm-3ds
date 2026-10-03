@@ -19,7 +19,8 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+with `--no-ff` only after they confirm, closing the issues that turned out fine): `fix/stereo-bg2-play-v021` (the Fireflea room's
+flat 3D, BG2 priority 1 on the play plane; CIA on the console at .132).
 Everything above was merged into the release line at the owner's request and shipped in the
 `v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
@@ -1014,3 +1015,8 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   `feat/item-names`, `feat/ra-cards` merged at the owner's request after they tried the CIA
   on both consoles); the line is now `release/v0.2.1`. The tasks stay unticked until the
   owner checks each one in detail.
+- 2026-10-03: Fireflea room (9C5E) looked flat in 3D. A scene recording and `STEREO_PLANES`
+  with `ONLY_LEVEL` showed its whole level is BG2 priority 1 (BG1 holds only the door cap),
+  and BG2 was all on `MID` (-3 px): floors behind Samus and level with the background.
+  BG2 priority 1 draws over Samus, so it joins BG1 priority 1 on `PLAY`; `MID` is now BG2
+  priority 0 only. The accepted "BG2 always mid" exceptions in stereo-test are gone.

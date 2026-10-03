@@ -44,11 +44,6 @@ static const struct { const char *front, *back; bool needs_thickness; const char
   { "BG1 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 1", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
-  // BG2 priority 1 over the level or over Samus: rare (Spore Spawn's body); P3.3 checks it.
-  { "BG2 prio 1", "OBJ prio 2", false, "BG2 always mid" },
-  { "BG2 prio 1", "BG1 prio 0", false, "BG2 always mid" },
-  { "BG2 prio 1", "OBJ prio 1", false, "BG2 always mid" },
-  { "BG2 prio 1", "OBJ prio 0", false, "BG2 always mid" },
 };
 enum { kAcceptedCount = sizeof(kAccepted) / sizeof(kAccepted[0]) };
 

@@ -67,10 +67,10 @@ Values are a starting point to tune on the console, not a decision.
 |---|---|---|
 | `HUD` | the HUD list (BG3 HUD rows, the escape timer), message boxes, the port's text (FPS overlay, toasts) | +2 |
 | `FRONT` | BG3 priority 1 that is not the HUD: water surface, lava, fog over the room | +1 |
-| `PLAY` | BG1 tile priority 1 (level 12): SM's walls and floors; sprites of OAM priority 3 (drawn over them); the mode 7 plane | 0 |
+| `PLAY` | BG1 and BG2 tile priority 1 (levels 12, 11): SM's walls and floors; sprites of OAM priority 3 (drawn over them); the mode 7 plane | 0 |
 | `OBJ` | Samus and enemies (OAM priority 0-2) | -1 |
 | `BACK` | BG1 tile priority 0 (level 8): the level's parts Samus passes in front of (the save station's glass, background pipes) | -2 |
-| `MID` | BG2, both priorities (levels 7, 11) | -3 |
+| `MID` | BG2 tile priority 0 (level 7) | -3 |
 | `FAR` | BG3 priority 0 FX, backdrop | -4 |
 | `SCREEN` | non-gameplay screens until P3.4 treats them: everything flat | 0 |
 
@@ -85,9 +85,10 @@ Why these (revised 2026-10-03 after the first console test):
   behind it.
 - `PLAY` at 0 keeps the walls at the screen's own depth, where the eyes focus anyway.
 - `OBJ` = `PLAY` when the thickness option is off; the test checks both settings.
-- `MID` behind everything else in the room: on the SNES BG2 priority 1 (level 11) draws
-  over Samus (level 10). Rooms use it rarely (Spore Spawn's body is BG2); a known case
-  for P3.3, checked with the scene recorder.
+- `MID` is BG2 priority 0, the room's background. BG2 priority 1 (level 11) draws over
+  Samus, so it is a wall and goes on `PLAY` like BG1 priority 1. Some rooms keep their
+  whole level on it: the Fireflea room (9C5E) has BG1 empty, and with BG2 all on `MID` the
+  floors sat 3 px behind Samus and level with the background (found with the scene recorder).
 - `HUD` and every other plane move in whole pixels (point 3).
 - The mode 7 plane goes on `PLAY`: in the Ceres elevator it is the room Samus stands
   in, in Ridley's room it is Ridley flying at her.
