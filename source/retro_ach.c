@@ -40,7 +40,10 @@ static uint16_t g_view[kMaxAchievements];   // g_list in the chosen order
 static RaAchievement g_toast;
 static bool g_notify_top, g_sound = true, g_descending;
 static RaSort g_sort;
-static volatile int g_sound_pos = -1;   // fixed point 16.16 into the sound, -1 = silent
+// Fixed point into the sound, kSoundFrac fraction bits; -1 = silent. 16.16 overflowed an int
+// after 32768 samples (1 s of the 3.15 s sound), which cut it short.
+enum { kSoundFrac = 12 };
+static volatile int g_sound_pos = -1;
 static u64 g_toast_until;
 
 static void Changed(void) { g_version++; }
@@ -916,9 +919,9 @@ extern const int16_t gRaUnlockSoundPcm[];
 void RetroAch_MixAudio(int16_t *out, int frames) {
   int pos = g_sound_pos;
   if (pos < 0) return;
-  const uint32_t step = (uint32_t)(((uint64_t)gRaUnlockSoundRate << 16) / 44100);
+  const uint32_t step = (uint32_t)(((uint64_t)gRaUnlockSoundRate << kSoundFrac) / 44100);
   for (int i = 0; i < frames; i++, pos += (int)step) {
-    const uint32_t k = (uint32_t)pos >> 16;
+    const uint32_t k = (uint32_t)pos >> kSoundFrac;
     if (k >= gRaUnlockSoundFrames) {
       g_sound_pos = -1;
       return;
