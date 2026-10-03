@@ -25,14 +25,22 @@ typedef enum {
   kRaLoginError,   // the server rejected the login
 } RaStatus;
 
+// RA's achievement types (rcheevos' RC_CLIENT_ACHIEVEMENT_TYPE_*, same values).
+typedef enum { kRaTypeStandard, kRaTypeMissable, kRaTypeProgression, kRaTypeWin } RaType;
+
 typedef struct {
   uint32_t id;
   char title[64];
   char description[128];
+  char badge[16];         // RA's badge name, "" for none (RetroAch_Badge)
   uint32_t points;
+  RaType type;
   bool unlocked;
   uint32_t unlock_time;   // seconds since 1970, 0 when locked
 } RaAchievement;
+
+// Badge sizes RetroAch_Badge has: the list's cards and the detail window.
+enum { kRaBadgeSmall = 28, kRaBadgeBig = 64 };
 
 // How the list is ordered (mzm's choices): as rcheevos groups it (locked first), by title,
 // by points, or by unlock time (still locked ones last).
@@ -71,7 +79,13 @@ const RaAchievement *RetroAch_Get(int i);   // in the list's order (RetroAch_Set
 int RetroAch_UnlockedCount(void);
 uint32_t RetroAch_Points(bool unlocked_only);
 
-// Bumped whenever anything above changes, so the UI knows to redraw.
+// An achievement's badge, `size` x `size` (kRaBadgeSmall or kRaBadgeBig) in row-major
+// order, each pixel in the UI's RGB() layout; NULL until it has been loaded. Badges are
+// downloaded on the worker thread the first time and kept in badges/ in the data folder;
+// asking for one moves it to the front of the queue.
+const uint32_t *RetroAch_Badge(const char *badge, int size);
+
+// Bumped whenever anything above changes (a badge arriving too), so the UI knows to redraw.
 uint32_t RetroAch_Version(void);
 
 // The last unlock, while its notice should show (3 s); NULL otherwise.

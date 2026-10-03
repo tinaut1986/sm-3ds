@@ -10,6 +10,7 @@
 
 #include "rc_client.h"
 #include "src/types.h"
+#include "third_party/stb/stb_image.h"   // PNG only, compiled in sm/src/glsl_shader.c
 #include "src/sm_rtl.h"
 #include "version.h"
 
@@ -20,6 +21,7 @@ static const char kRomMd5[] = "21f3e98df4780ee1c667b84e57d88675";
 
 #define RA_INI "retroachievements.ini"
 #define RA_LOG "debug/retroachievements.log"
+#define RA_BADGES "badges"
 
 // A response grows as needed: Super Metroid's achievement set alone is over 64 KB.
 enum { kMaxPending = 8, kRequestMax = 1024, kResponseMax = 4 << 20, kMaxAchievements = 256, kToastMs = 3000 };
@@ -248,6 +250,8 @@ static LightLock g_lock;
 static Thread g_worker;
 static volatile bool g_worker_stop;
 
+static bool LoadNextBadge(void);
+
 static void Worker(void *arg) {
   (void)arg;
   while (!g_worker_stop) {
@@ -261,12 +265,13 @@ static void Worker(void *arg) {
       have = true;
     }
     LightLock_Unlock(&g_lock);
+    if (!g_response && (g_response = malloc(64 * 1024))) g_response_cap = 64 * 1024;
     if (!have) {
-      svcSleepThread(20000000ULL);
+      // Server calls first; badges fill the gaps between them.
+      if (!g_response || !LoadNextBadge()) svcSleepThread(20000000ULL);
       continue;
     }
     int status = 0;
-    if (!g_response && (g_response = malloc(64 * 1024))) g_response_cap = 64 * 1024;
     if (!g_response) continue;
     const int n = Http(call.url, call.has_post ? call.post : NULL, call.has_post ? call.content_type : NULL,
                        &g_response, &g_response_cap, &status);
@@ -354,6 +359,138 @@ static void DrainResponses(void) {
   }
 }
 
+
+// ---- Badges -----------------------------------------------------------------------------
+// Each achievement's badge (a 64x64 PNG on RA's media server), loaded on the worker thread
+// between server calls: from badges/<name>.png when it is there, downloaded and saved there
+// otherwise, then scaled to the two sizes the UI draws. The main thread only adds entries
+// (under g_lock); the worker fills one in and publishes it by setting `state` last.
+
+enum { kBadgeQueued, kBadgeLoading, kBadgeReady, kBadgeFailed, kBadgeTries = 2 };
+
+typedef struct {
+  char name[16];
+  char url[160];
+  volatile int state;
+  volatile u64 wanted;   // when the UI last asked for it: the newest goes first
+  int tries;
+  uint32_t *small, *big;
+} RaBadge;
+
+static RaBadge g_badges[kMaxAchievements];
+static int g_badge_count;
+static volatile bool g_badge_arrived;   // the UI should redraw (read in RetroAch_Update)
+
+static RaBadge *FindBadge(const char *name) {
+  for (int i = 0; i < g_badge_count; i++)
+    if (!strcmp(g_badges[i].name, name)) return &g_badges[i];
+  return NULL;
+}
+
+static void QueueBadge(const char *name, const char *url) {
+  if (!name[0] || FindBadge(name) || g_badge_count >= kMaxAchievements) return;
+  RaBadge b = { .state = kBadgeQueued };
+  snprintf(b.name, sizeof(b.name), "%s", name);
+  if (url && url[0]) snprintf(b.url, sizeof(b.url), "%s", url);
+  else snprintf(b.url, sizeof(b.url), "https://media.retroachievements.org/Badge/%s.png", name);
+  LightLock_Lock(&g_lock);
+  g_badges[g_badge_count] = b;
+  g_badge_count++;
+  LightLock_Unlock(&g_lock);
+}
+
+// `src` (sw x sh RGBA) scaled to size x size by averaging the source pixels each target
+// pixel covers, over the UI's background so a transparent edge does not come out white.
+static uint32_t *ScaleBadge(const uint8_t *src, int sw, int sh, int size) {
+  uint32_t *out = malloc(size * size * sizeof(uint32_t));
+  if (!out) return NULL;
+  for (int y = 0; y < size; y++) {
+    const int y0 = y * sh / size, y1 = (y + 1) * sh / size > y0 ? (y + 1) * sh / size : y0 + 1;
+    for (int x = 0; x < size; x++) {
+      const int x0 = x * sw / size, x1 = (x + 1) * sw / size > x0 ? (x + 1) * sw / size : x0 + 1;
+      uint32_t sum[3] = { 0 }, n = 0;
+      for (int yy = y0; yy < y1; yy++)
+        for (int xx = x0; xx < x1; xx++, n++) {
+          const uint8_t *p = src + (yy * sw + xx) * 4;
+          static const uint8_t kBack[3] = { 12, 16, 24 };
+          for (int c = 0; c < 3; c++) sum[c] += (p[c] * p[3] + kBack[c] * (255 - p[3])) / 255;
+        }
+      out[y * size + x] = (sum[0] / n) << 24 | (sum[1] / n) << 16 | (sum[2] / n) << 8 | 0xFF;
+    }
+  }
+  return out;
+}
+
+// The PNG from the cache, or downloaded into g_response and saved; NULL when neither.
+static uint8_t *BadgePng(RaBadge *b, int *len) {
+  char path[64];
+  snprintf(path, sizeof(path), RA_BADGES "/%s.png", b->name);
+  FILE *f = fopen(path, "rb");
+  if (f) {
+    fseek(f, 0, SEEK_END);
+    const long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *buf = n > 8 && n < 256 * 1024 ? malloc(n) : NULL;
+    const bool ok = buf && fread(buf, 1, n, f) == (size_t)n;
+    fclose(f);
+    if (ok) {
+      *len = (int)n;
+      return buf;
+    }
+    free(buf);
+  }
+  int status = 0;
+  const int n = Http(b->url, NULL, NULL, &g_response, &g_response_cap, &status);
+  if (n < 8 || status != 200 || memcmp(g_response, "\x89PNG", 4)) {
+    LogLine("badge %s: http %d, %d bytes", b->name, status, n);
+    return NULL;
+  }
+  uint8_t *buf = malloc(n);
+  if (!buf) return NULL;
+  memcpy(buf, g_response, n);
+  mkdir(RA_BADGES, 0777);
+  if ((f = fopen(path, "wb"))) {
+    const bool ok = fwrite(buf, 1, n, f) == (size_t)n;
+    fclose(f);
+    if (!ok) remove(path);   // a cut file would be read back as a broken badge
+  }
+  *len = n;
+  return buf;
+}
+
+// Worker thread: loads one queued badge. False when there was none to load.
+static bool LoadNextBadge(void) {
+  RaBadge *b = NULL;
+  LightLock_Lock(&g_lock);
+  for (int i = 0; i < g_badge_count; i++) {
+    RaBadge *c = &g_badges[i];
+    if (c->state == kBadgeQueued && (!b || c->wanted > b->wanted)) b = c;
+  }
+  if (b) b->state = kBadgeLoading;
+  LightLock_Unlock(&g_lock);
+  if (!b) return false;
+  int len = 0, w = 0, h = 0, comp = 0;
+  uint8_t *png = BadgePng(b, &len);
+  uint8_t *rgba = png ? stbi_load_from_memory(png, len, &w, &h, &comp, 4) : NULL;
+  free(png);
+  if (rgba) {
+    b->small = ScaleBadge(rgba, w, h, kRaBadgeSmall);
+    b->big = ScaleBadge(rgba, w, h, kRaBadgeBig);
+    stbi_image_free(rgba);
+  }
+  __sync_synchronize();   // the pixels before the state that publishes them
+  if (b->small && b->big) b->state = kBadgeReady;
+  else if (++b->tries < kBadgeTries) b->state = kBadgeQueued;
+  else b->state = kBadgeFailed;
+  g_badge_arrived = true;
+  return true;
+}
+
+static void FreeBadges(void) {
+  for (int i = 0; i < g_badge_count; i++) free(g_badges[i].small), free(g_badges[i].big);
+  g_badge_count = 0;
+}
+
 // ---- Achievement list -------------------------------------------------------------------
 
 // The comparators are ascending and apply the direction themselves; ties keep rcheevos'
@@ -414,9 +551,12 @@ static void RefreshList(void) {
       o->id = a->id;
       snprintf(o->title, sizeof(o->title), "%s", a->title ? a->title : "");
       snprintf(o->description, sizeof(o->description), "%s", a->description ? a->description : "");
+      snprintf(o->badge, sizeof(o->badge), "%s", a->badge_name);
       o->points = a->points;
+      o->type = a->type <= RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? (RaType)a->type : kRaTypeStandard;
       o->unlocked = a->unlocked != RC_CLIENT_ACHIEVEMENT_UNLOCKED_NONE;
       o->unlock_time = o->unlocked ? (uint32_t)a->unlock_time : 0;
+      QueueBadge(o->badge, a->badge_url);
     }
   }
   rc_client_destroy_achievement_list(list);
@@ -434,6 +574,7 @@ static void EventHandler(const rc_client_event_t *event, rc_client_t *client) {
     memset(&g_toast, 0, sizeof(g_toast));
     g_toast.id = a->id;
     snprintf(g_toast.title, sizeof(g_toast.title), "%s", a->title ? a->title : "");
+    snprintf(g_toast.badge, sizeof(g_toast.badge), "%s", a->badge_name);
     g_toast.points = a->points;
     g_toast.unlocked = true;
     g_toast_until = osGetTime() + kToastMs;
@@ -565,6 +706,7 @@ void RetroAch_Shutdown(void) {
     rc_client_destroy(g_client);
     g_client = NULL;
   }
+  FreeBadges();
   if (g_http_ready) {
     httpcExit();
     g_http_ready = false;
@@ -574,6 +716,10 @@ void RetroAch_Shutdown(void) {
 void RetroAch_Update(void) {
   if (!g_client) return;
   DrainResponses();
+  if (g_badge_arrived) {
+    g_badge_arrived = false;
+    Changed();
+  }
   if (g_enabled && g_status == kRaOnline && !rc_client_is_game_loaded(g_client)) BeginLoadGame();
   // Keeps the session alive and retries pending unlocks when no game frame runs (pause).
   rc_client_idle(g_client);
@@ -709,6 +855,16 @@ uint32_t RetroAch_Points(bool unlocked_only) {
   for (int i = 0; i < g_count; i++)
     if (!unlocked_only || g_list[i].unlocked) n += g_list[i].points;
   return n;
+}
+
+const uint32_t *RetroAch_Badge(const char *badge, int size) {
+  RaBadge *b = badge && badge[0] ? FindBadge(badge) : NULL;
+  if (!b) return NULL;
+  if (b->state != kBadgeReady) {
+    if (b->state == kBadgeQueued) b->wanted = osGetTime();
+    return NULL;
+  }
+  return size == kRaBadgeBig ? b->big : b->small;
 }
 
 uint32_t RetroAch_Version(void) { return g_version; }

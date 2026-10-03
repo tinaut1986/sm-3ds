@@ -41,7 +41,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -883,18 +883,26 @@ static void DebugTouch(int x, int y) {
 #endif
 
 // ---- Achievements tab -------------------------------------------------------------
-// RetroAchievements (retro_ach.h): on/off, log in, the set's list with each one's
-// description, and the unlock notice drawn over whatever tab is shown.
+// RetroAchievements (retro_ach.h), laid out after mzm's achievement windows: the account
+// and the settings (log in, on/off, where the notice shows with a sample, the sound) on
+// top, then the set as cards with their badges, scrolled by dragging the list or its bar.
+// A tap on a card opens it (MODAL_RA_DETAIL). The unlock notice is drawn over any tab.
 
-enum { kRaListY = 96, kRaRowH = 11, kRaRows = 10 };
-static int g_ra_scroll, g_ra_sel = -1;
+enum {
+  kRaListY0 = 106, kRaListY1 = 238,   // the cards' band
+  kRaCardX = 6, kRaCardW = 300, kRaCardPitch = 34, kRaCardH = 32,
+  kRaBarX = 310, kRaBarW = 4, kRaBarHitX = 306,
+  kRaDragSlop = 6,   // a stylus wobbles this much on a tap; past it the touch scrolls
+};
+static int g_ra_scroll;   // pixels
+static struct { bool active, dragging, bar; int start_y, last_y; } g_ra_touch;
+static RaAchievement g_ra_detail;   // the card opened, copied: the list may change under it
 
-static Rect RaOnRect(void) { return (Rect){ 8, 60, 100, 18 }; }
-static Rect RaLoginRect(void) { return (Rect){ 112, 60, 100, 18 }; }
-static Rect RaSettingsRect(void) { return (Rect){ 216, 60, 96, 18 }; }
-static Rect RaUpRect(void) { return (Rect){ 294, kRaListY, 22, kRaRows * kRaRowH / 2 - 1 }; }
-static Rect RaDownRect(void) { return (Rect){ 294, kRaListY + kRaRows * kRaRowH / 2 + 1, 22, kRaRows * kRaRowH / 2 - 1 }; }
-static Rect RaRowRect(int row) { return (Rect){ 8, kRaListY + row * kRaRowH, 284, kRaRowH - 1 }; }
+static Rect RaCellRect(int i) { return (Rect){ 8 + (i % 2) * 154, 50 + (i / 2) * 19, 150, 16 }; }
+static Rect RaPreviewRect(void) { const Rect r = RaCellRect(2); return (Rect){ r.x + r.w - 20, r.y, 20, r.h }; }
+static Rect RaSortRect(void) { return (Rect){ 170, 88, 120, 14 }; }
+static Rect RaDirRect(void) { return (Rect){ 292, 88, 20, 14 }; }
+static Rect RaDetailCloseRect(void) { return (Rect){ 116, 210, 88, 20 }; }
 
 // Copies at most `chars` characters (UTF-8) of `src`.
 static void ClipText(char *dst, size_t size, const char *src, int chars) {
@@ -909,176 +917,320 @@ static void ClipText(char *dst, size_t size, const char *src, int chars) {
   dst[n] = 0;
 }
 
+// `text` on up to `lines` lines of `chars` characters, broken at spaces, 10 px apart.
+// Returns the lines used.
+static int DrawWrapped(Surface s, int x, int y, int chars, int lines, uint32_t col, const char *text) {
+  int line = 0;
+  for (; line < lines && *text; line++) {
+    int n = 0, cut = 0;
+    size_t at = 0, cut_at = 0;
+    while (text[at] && n < chars) {
+      size_t len = 1;
+      while (text[at + len] && (text[at + len] & 0xC0) == 0x80) len++;
+      at += len, n++;
+      if (text[at] == ' ' || !text[at]) cut = n, cut_at = at;
+    }
+    if (!text[at] || !cut) cut_at = at;
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%.*s", (int)cut_at, text);
+    UiDrawText(s, x, y + line * 10, 1, col, buf);
+    text += cut_at;
+    while (*text == ' ') text++;
+  }
+  return line;
+}
+
 static bool RaLoggedIn(void) {
   const RaStatus st = RetroAch_Status();
   return st == kRaOnline || st == kRaOffline || st == kRaConnecting;
 }
 
+static int RaMaxScroll(void) {
+  const int content = RetroAch_Count() * kRaCardPitch - (kRaCardPitch - kRaCardH);
+  return content > kRaListY1 - kRaListY0 ? content - (kRaListY1 - kRaListY0) : 0;
+}
+
+static void RaClampScroll(void) {
+  const int max = RaMaxScroll();
+  if (g_ra_scroll > max) g_ra_scroll = max;
+  if (g_ra_scroll < 0) g_ra_scroll = 0;
+}
+
+// Scrollbar track position -> scroll offset.
+static void RaScrollToBar(int y) {
+  g_ra_scroll = (y - kRaListY0) * RaMaxScroll() / (kRaListY1 - kRaListY0);
+  RaClampScroll();
+}
+
+static uint32_t RaTypeColor(RaType t) {
+  switch (t) {
+  case kRaTypeMissable: return RGB(255, 140, 40);
+  case kRaTypeProgression: return RGB(90, 160, 255);
+  case kRaTypeWin: return RGB(210, 120, 255);
+  default: return COL_DIM;
+  }
+}
+
+// RA's glyph for a special type, 12x12 at (x, y), as on its website: a warning triangle
+// (missable), rising bars (progression), a chequered flag (win condition).
+static void DrawTypeIcon(Surface s, int x, int y, RaType t, bool dim) {
+  if (t == kRaTypeStandard) return;
+  uint32_t c = RaTypeColor(t);
+  if (dim) c = ((c >> 24) / 2 + 30) << 24 | ((c >> 16 & 0xFF) / 2 + 30) << 16 | ((c >> 8 & 0xFF) / 2 + 30) << 8 | 0xFF;
+  const uint32_t bg = RGB(12, 16, 24);
+  if (t == kRaTypeMissable) {
+    for (int r = 0; r < 6; r++) UiFillRect(s, x + 5 - r, y + r * 2, 2 + r * 2, 2, c);
+    UiFillRect(s, x + 5, y + 3, 2, 4, bg);
+    UiFillRect(s, x + 5, y + 8, 2, 2, bg);
+  } else if (t == kRaTypeProgression) {
+    UiFillRect(s, x, y + 7, 3, 5, c);
+    UiFillRect(s, x + 4, y + 4, 3, 8, c);
+    UiFillRect(s, x + 8, y + 1, 3, 11, c);
+  } else {
+    UiFillRect(s, x + 1, y, 2, 12, c);
+    UiFillRect(s, x + 3, y + 1, 8, 6, c);
+    static const int8_t kSquares[5][2] = { { 3, 1 }, { 7, 1 }, { 5, 3 }, { 3, 5 }, { 7, 5 } };
+    for (int i = 0; i < 5; i++) UiFillRect(s, x + kSquares[i][0], y + kSquares[i][1], 2, 2, bg);
+  }
+}
+
+// The badge, or while it loads a box with a check (unlocked) or a question mark.
+static void DrawBadge(Surface s, int x, int y, int size, const RaAchievement *a) {
+  const uint32_t *px = RetroAch_Badge(a->badge, size);
+  if (px) {
+    UiBlit(s, x, y, size, px, !a->unlocked);
+    return;
+  }
+  UiFillRect(s, x, y, size, size, RGB(12, 16, 24));
+  const int m = size / 5;
+  UiFillRect(s, x + m, y + m, size - 2 * m, size - 2 * m, a->unlocked ? RGB(60, 200, 100) : RGB(40, 50, 70));
+  UiDrawText(s, x + size / 2 - 2, y + size / 2 - 3, 1, a->unlocked ? COL_TEXT : RGB(120, 140, 170),
+             a->unlocked ? "*" : "?");
+}
+
+// 8x8 padlock at (x, y): open and green when unlocked, closed and grey otherwise.
+static void DrawPadlock(Surface s, int x, int y, bool open) {
+  const uint32_t c = open ? RGB(80, 255, 120) : RGB(110, 130, 160);
+  if (open) {
+    UiFillRect(s, x + 3, y, 4, 1, c);
+    UiFillRect(s, x + 6, y + 1, 1, 2, c);
+  } else {
+    UiFillRect(s, x + 2, y, 4, 1, c);
+    UiFillRect(s, x + 2, y + 1, 1, 2, c);
+    UiFillRect(s, x + 5, y + 1, 1, 2, c);
+  }
+  UiFillRect(s, x + 1, y + 3, 6, 4, c);
+}
+
+static void DrawCard(Surface s, int y, const RaAchievement *a) {
+  const int x = kRaCardX;
+  UiFillRect(s, x, y, kRaCardW, kRaCardH, a->unlocked ? RGB(35, 120, 65) : RGB(35, 45, 65));
+  UiFillRect(s, x + 1, y + 1, kRaCardW - 2, kRaCardH - 2, a->unlocked ? RGB(16, 38, 26) : RGB(18, 22, 34));
+  UiFillRect(s, x + 1, y + 1, 30, 30, a->unlocked ? RGB(80, 255, 120) : RGB(60, 75, 100));
+  DrawBadge(s, x + 2, y + 2, kRaBadgeSmall, a);
+  char buf[96];
+  ClipText(buf, sizeof(buf), a->title, 40);
+  UiDrawText(s, x + 36, y + 6, 1, a->unlocked ? RGB(140, 240, 170) : RGB(220, 235, 255), buf);
+  snprintf(buf, sizeof(buf), Tr(kStrRaPoints), (unsigned)a->points);
+  UiDrawText(s, x + 36, y + 19, 1, a->unlocked ? RGB(120, 255, 160) : RGB(140, 160, 190), buf);
+  DrawPadlock(s, x + kRaCardW - 13, y + 4, a->unlocked);
+  DrawTypeIcon(s, x + kRaCardW - 15, y + 16, a->type, !a->unlocked);
+}
+
 static void DrawAchievements(Surface s) {
   UiDrawText(s, 8, 28, 1, COL_TITLE, "RETROACHIEVEMENTS");
   UiDrawText(s, SCREEN_W - 8 - UiTextWidth("SOFTCORE", 1), 28, 1, COL_DIM, "SOFTCORE");
+  // One line: a cheat or the server's last word beat the connection state.
   char buf[96];
   uint32_t col = COL_DIM;
-  switch (RetroAch_Status()) {
-  case kRaOff: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaDisabled)); break;
-  case kRaNoAccount: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaNoAccount)); break;
-  case kRaConnecting: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaConnecting)); col = COL_WARN; break;
-  case kRaOnline: snprintf(buf, sizeof(buf), Tr(kStrRaOnline), RetroAch_User()); col = COL_GOOD; break;
-  case kRaOffline: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaOffline)); col = COL_WARN; break;
-  case kRaLoginError: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaLoginError)); col = COL_BAD; break;
-  }
-  UiDrawText(s, 8, 40, 1, col, buf);
   if (RetroAch_CheatsUsed()) {
-    UiDrawText(s, 8, 50, 1, COL_BAD, Tr(kStrRaCheats));
+    snprintf(buf, sizeof(buf), "%s", Tr(kStrRaCheats));
+    col = COL_BAD;
   } else if (RetroAch_Message()[0]) {
     ClipText(buf, sizeof(buf), RetroAch_Message(), 50);
-    UiDrawText(s, 8, 50, 1, COL_WARN, buf);
+    col = COL_WARN;
+  } else {
+    switch (RetroAch_Status()) {
+    case kRaOff: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaDisabled)); break;
+    case kRaNoAccount: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaNoAccount)); break;
+    case kRaConnecting: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaConnecting)); col = COL_WARN; break;
+    case kRaOnline: snprintf(buf, sizeof(buf), Tr(kStrRaOnline), RetroAch_User()); col = COL_GOOD; break;
+    case kRaOffline: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaOffline)); col = COL_WARN; break;
+    case kRaLoginError: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaLoginError)); col = COL_BAD; break;
+    }
   }
+  UiDrawText(s, 8, 39, 1, col, buf);
+
+  // Settings, two by two, as mzm's SETTINGS window.
   const bool on = RetroAch_Enabled();
-  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaAchievements), Tr(on ? kStrOn : kStrOff));
-  UiDrawBoxLabel(s, RaOnRect(), on ? RGB(20, 70, 40) : COL_BOX, on ? COL_ON : COL_BOX_EDGE, COL_TEXT, Pressed(RaOnRect()),
-                 buf);
-  UiDrawBoxLabel(s, RaLoginRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaLoginRect()),
+  UiDrawBoxLabel(s, RaCellRect(0), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaCellRect(0)),
                  Tr(RaLoggedIn() ? kStrRaLogout : kStrRaLogin));
-  UiDrawBoxLabel(s, RaSettingsRect(), COL_BTN, COL_BORDER, COL_TEXT, Pressed(RaSettingsRect()), Tr(kStrRaSettings));
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaAchievements), Tr(on ? kStrOn : kStrOff));
+  UiDrawBoxLabel(s, RaCellRect(1), on ? RGB(20, 70, 40) : COL_BOX, on ? COL_ON : COL_BOX_EDGE, COL_TEXT,
+                 Pressed(RaCellRect(1)), buf);
+  Rect notice = RaCellRect(2);
+  notice.w -= RaPreviewRect().w + 2;
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaNotify), Tr(RetroAch_NotifyTop() ? kStrRaTop : kStrRaBottom));
+  UiDrawBoxLabel(s, notice, COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(notice), buf);
+  const Rect p = RaPreviewRect();   // the sample: a play triangle
+  UiDrawBox(s, p, COL_BTN, COL_BORDER, Pressed(p));
+  for (int i = 0; i < 4; i++) UiFillRect(s, p.x + 8 + i, p.y + 4 + i, 1, 8 - 2 * i, COL_GOOD);
+  const bool snd = RetroAch_Sound();
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaSound), Tr(snd ? kStrOn : kStrOff));
+  UiDrawBoxLabel(s, RaCellRect(3), snd ? RGB(20, 70, 40) : COL_BOX, snd ? COL_ON : COL_BOX_EDGE, COL_TEXT,
+                 Pressed(RaCellRect(3)), buf);
 
   const int n = RetroAch_Count();
   if (!n) {
     const bool loading = on && RetroAch_Status() == kRaOnline && !RetroAch_Message()[0];
-    UiDrawTextCentered(s, SCREEN_W / 2, 140, COL_DIM, Tr(loading ? kStrRaLoading : kStrRaNoList));
+    UiDrawTextCentered(s, SCREEN_W / 2, 160, COL_DIM, Tr(loading ? kStrRaLoading : kStrRaNoList));
     return;
   }
   snprintf(buf, sizeof(buf), Tr(kStrRaSummary), RetroAch_UnlockedCount(), n, (unsigned)RetroAch_Points(true),
            (unsigned)RetroAch_Points(false));
-  UiDrawText(s, 8, 84, 1, COL_TEXT, buf);
-  if (g_ra_scroll > n - kRaRows) g_ra_scroll = n - kRaRows > 0 ? n - kRaRows : 0;
-  for (int row = 0; row < kRaRows && g_ra_scroll + row < n; row++) {
-    const int i = g_ra_scroll + row;
-    const RaAchievement *a = RetroAch_Get(i);
-    const Rect r = RaRowRect(row);
-    if (i == g_ra_sel) UiFillRect(s, r.x, r.y, r.w, r.h, RGB(30, 44, 76));
-    if (a->unlocked) UiFillRect(s, r.x + 2, r.y + 2, 6, 6, COL_GOOD);
-    else UiFrameRect(s, r.x + 2, r.y + 2, 6, 6, COL_FAINT);
-    char title[96], pts[12];
-    snprintf(pts, sizeof(pts), "%u", (unsigned)a->points);
-    ClipText(title, sizeof(title), a->title, 40);
-    UiDrawText(s, r.x + 12, r.y + 2, 1, a->unlocked ? COL_TEXT : COL_DIM, title);
-    UiDrawText(s, r.x + r.w - 2 - UiTextWidth(pts, 1), r.y + 2, 1, a->unlocked ? COL_ENERGY : COL_FAINT, pts);
+  UiDrawText(s, 8, 92, 1, COL_GOOD, buf);
+  // The order, and its direction as a chevron (down = descending).
+  static const UiStr kSorts[kRaSortCount] = { kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints, kStrRaSortRecent };
+  UiDrawBoxLabel(s, RaSortRect(), RGB(24, 40, 70), RGB(70, 110, 170), RGB(190, 220, 255), Pressed(RaSortRect()),
+                 Tr(kSorts[RetroAch_Sort()]));
+  const Rect d = RaDirRect();
+  UiDrawBox(s, d, RGB(24, 40, 70), RGB(70, 110, 170), Pressed(d));
+  for (int row = 0; row < 4; row++) {
+    const int w = 1 + 2 * (RetroAch_Descending() ? 3 - row : row);
+    UiFillRect(s, d.x + d.w / 2 - w / 2, d.y + 4 + row * 2, w, 2, RGB(150, 200, 255));
   }
-  const bool up = g_ra_scroll > 0, down = g_ra_scroll + kRaRows < n;
-  // Page up / page down: a triangle each.
-  for (int k = 0; k < 2; k++) {
-    const Rect r = k ? RaDownRect() : RaUpRect();
-    const bool can = k ? down : up;
-    UiDrawBox(s, r, can ? COL_BTN : COL_PANEL, COL_BORDER, Pressed(r));
-    const int cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-    for (int i = 0; i < 5; i++)
-      UiFillRect(s, cx - i, k ? cy + 2 - i : cy - 2 + i, 2 * i + 1, 1, can ? COL_TEXT : COL_FAINT);
+
+  RaClampScroll();
+  UiClipY(kRaListY0, kRaListY1);
+  for (int i = 0; i < n; i++) {
+    const int y = kRaListY0 - g_ra_scroll + i * kRaCardPitch;
+    if (y + kRaCardH <= kRaListY0) continue;
+    if (y >= kRaListY1) break;
+    DrawCard(s, y, RetroAch_Get(i));
   }
-  // The selected one's description, on up to two lines broken at spaces.
-  const RaAchievement *sel = RetroAch_Get(g_ra_sel);
-  if (!sel) {
-    UiDrawTextCentered(s, SCREEN_W / 2, 212, COL_FAINT, Tr(kStrRaTapHint));
-    return;
-  }
-  const char *d = sel->description;
-  for (int line = 0; line < 2 && *d; line++) {
-    int chars = 0, cut = 0;
-    size_t at = 0, cut_at = 0;
-    while (d[at] && chars < 52) {
-      size_t len = 1;
-      while (d[at + len] && (d[at + len] & 0xC0) == 0x80) len++;
-      at += len, chars++;
-      if (d[at] == ' ' || !d[at]) cut = chars, cut_at = at;
-    }
-    if (!d[at] || !cut) cut_at = at;
-    char text[160];
-    snprintf(text, sizeof(text), "%.*s", (int)cut_at, d);
-    UiDrawText(s, 8, 208 + line * 10, 1, COL_ACCENT, text);
-    d += cut_at;
-    while (*d == ' ') d++;
+  UiNoClip();
+  const int max = RaMaxScroll();
+  if (max > 0) {
+    const int track = kRaListY1 - kRaListY0;
+    int thumb = track * track / (track + max);
+    if (thumb < 16) thumb = 16;
+    UiFillRect(s, kRaBarX, kRaListY0, kRaBarW, track, RGB(60, 24, 36));
+    UiFillRect(s, kRaBarX, kRaListY0 + g_ra_scroll * (track - thumb) / max, kRaBarW, thumb, RGB(80, 160, 240));
   }
 }
 
 static void AchievementsTouch(int x, int y) {
-  if (UiIn(RaOnRect(), x, y)) {
-    RetroAch_SetEnabled(!RetroAch_Enabled());
-    return;
-  }
-  if (UiIn(RaSettingsRect(), x, y)) {
-    g_modal = MODAL_RA;
-    return;
-  }
-  if (UiIn(RaLoginRect(), x, y)) {
+  if (UiIn(RaCellRect(0), x, y)) {
     if (RaLoggedIn()) RetroAch_Logout();
     else RetroAch_PromptLogin();
+  } else if (UiIn(RaCellRect(1), x, y)) {
+    RetroAch_SetEnabled(!RetroAch_Enabled());
+  } else if (UiIn(RaPreviewRect(), x, y)) {
+    RetroAch_ShowPreview();
+  } else if (UiIn(RaCellRect(2), x, y)) {
+    RetroAch_SetNotifyTop(!RetroAch_NotifyTop());
+  } else if (UiIn(RaCellRect(3), x, y)) {
+    RetroAch_SetSound(!RetroAch_Sound());
+  } else if (!RetroAch_Count()) {
     return;
+  } else if (UiIn(RaSortRect(), x, y)) {
+    RetroAch_SetSort((RaSort)((RetroAch_Sort() + 1) % kRaSortCount), RetroAch_Descending());
+    g_ra_scroll = 0;   // the old offset means nothing in a new order
+  } else if (UiIn(RaDirRect(), x, y)) {
+    RetroAch_SetSort(RetroAch_Sort(), !RetroAch_Descending());
+    g_ra_scroll = 0;
+  } else if (y >= kRaListY0 && y < kRaListY1) {
+    // A card opens on release, and only if the touch never became a drag.
+    g_ra_touch.active = true;
+    g_ra_touch.dragging = false;
+    g_ra_touch.bar = x >= kRaBarHitX && RaMaxScroll() > 0;
+    g_ra_touch.start_y = g_ra_touch.last_y = y;
+    if (g_ra_touch.bar) RaScrollToBar(y);
   }
-  const int n = RetroAch_Count();
-  if (UiIn(RaUpRect(), x, y)) {
-    g_ra_scroll = g_ra_scroll > kRaRows ? g_ra_scroll - kRaRows : 0;
-    return;
-  }
-  if (UiIn(RaDownRect(), x, y)) {
-    if (g_ra_scroll + kRaRows < n) g_ra_scroll += kRaRows;
-    return;
-  }
-  for (int row = 0; row < kRaRows; row++)
-    if (UiIn(RaRowRect(row), x, y) && g_ra_scroll + row < n) g_ra_sel = g_ra_scroll + row;
 }
 
-// Achievement settings, as in mzm: where the notice shows (with a sample), the sound, the
-// list's order and direction.
-static Rect RaSetRowRect(int i) { return (Rect){ 24, 66 + i * 28, 272, 22 }; }
-static Rect RaPreviewRect(void) { return (Rect){ 266, 66, 30, 22 }; }
-static Rect RaCloseRect(void) { return (Rect){ 112, 182, 96, 20 }; }
-
-static void DrawRaModal(Surface s) {
-  UiFillRect(s, 14, 34, 292, 176, COL_MODAL_EDGE);
-  UiFillRect(s, 15, 35, 290, 174, COL_MODAL);
-  UiDrawTextCentered(s, SCREEN_W / 2, 46, COL_TITLE, Tr(kStrRaSettings));
-  static const UiStr kSorts[kRaSortCount] = { kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints, kStrRaSortRecent };
-  const struct { UiStr label; UiStr value; } rows[4] = {
-    { kStrRaNotify, RetroAch_NotifyTop() ? kStrRaTop : kStrRaBottom },
-    { kStrRaSound, RetroAch_Sound() ? kStrOn : kStrOff },
-    { kStrRaOrder, kSorts[RetroAch_Sort()] },
-    { kStrRaDirection, RetroAch_Descending() ? kStrRaDescending : kStrRaAscending },
-  };
-  for (int i = 0; i < 4; i++) {
-    Rect r = RaSetRowRect(i);
-    if (i == 0) r.w -= RaPreviewRect().w + 4;
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%s: %s", Tr(rows[i].label), Tr(rows[i].value));
-    UiDrawBox(s, r, COL_BOX, COL_BOX_EDGE, Pressed(r));
-    UiDrawText(s, r.x + 8, r.y + (r.h - 7) / 2, 1, COL_TEXT, buf);
+static bool AchievementsTouchMove(int y) {
+  if (!g_ra_touch.active) return false;
+  const int before = g_ra_scroll;
+  if (g_ra_touch.bar) {
+    RaScrollToBar(y);
+  } else if (g_ra_touch.dragging || abs(y - g_ra_touch.start_y) >= kRaDragSlop) {
+    g_ra_touch.dragging = true;
+    g_ra_scroll += g_ra_touch.last_y - y;
+    RaClampScroll();
+  } else {
+    return false;   // still a tap: keep last_y where it landed
   }
-  // The sample: a play triangle.
-  const Rect p = RaPreviewRect();
-  UiDrawBox(s, p, COL_BTN, COL_BORDER, Pressed(p));
-  for (int i = 0; i < 5; i++) UiFillRect(s, p.x + 12 + i, p.y + 6 + i, 1, 11 - 2 * i, COL_GOOD);
-  UiDrawBoxLabel(s, RaCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaCloseRect()), Tr(kStrClose));
+  g_ra_touch.last_y = y;
+  return g_ra_scroll != before;
 }
 
-static void RaModalTouch(int x, int y) {
-  if (UiIn(RaPreviewRect(), x, y)) RetroAch_ShowPreview();
-  else if (UiIn(RaSetRowRect(0), x, y)) RetroAch_SetNotifyTop(!RetroAch_NotifyTop());
-  else if (UiIn(RaSetRowRect(1), x, y)) RetroAch_SetSound(!RetroAch_Sound());
-  else if (UiIn(RaSetRowRect(2), x, y)) RetroAch_SetSort((RaSort)((RetroAch_Sort() + 1) % kRaSortCount), RetroAch_Descending());
-  else if (UiIn(RaSetRowRect(3), x, y)) RetroAch_SetSort(RetroAch_Sort(), !RetroAch_Descending());
-  else if (UiIn(RaCloseRect(), x, y)) g_modal = MODAL_NONE;
+static void AchievementsTouchUp(void) {
+  if (!g_ra_touch.active) return;
+  g_ra_touch.active = false;
+  if (g_ra_touch.dragging || g_ra_touch.bar) return;
+  const int i = (g_ra_touch.start_y - kRaListY0 + g_ra_scroll) / kRaCardPitch;
+  const RaAchievement *a = RetroAch_Get(i);
+  if (a && (g_ra_touch.start_y - kRaListY0 + g_ra_scroll) % kRaCardPitch < kRaCardH) {
+    g_ra_detail = *a;
+    g_modal = MODAL_RA_DETAIL;
+  }
 }
 
-// The unlock notice's box, 300x36 at (x, y).
+// One achievement in full, as mzm's detail window: the badge at full size, the title,
+// points, state with the unlock date, type, and the whole description.
+static void DrawRaDetail(Surface s) {
+  const RaAchievement *a = &g_ra_detail;
+  UiFillRect(s, 6, 26, 308, 210, COL_TITLE);
+  UiFillRect(s, 8, 28, 304, 206, RGB(8, 11, 20));
+  UiFillRect(s, 16, 36, kRaBadgeBig + 4, kRaBadgeBig + 4, a->unlocked ? RGB(80, 255, 120) : RGB(60, 75, 100));
+  DrawBadge(s, 18, 38, kRaBadgeBig, a);
+  const int tx = 18 + kRaBadgeBig + 10;
+  const int lines = DrawWrapped(s, tx, 38, (306 - tx) / 6, 3, RGB(255, 230, 120), a->title);
+  int y = 42 + lines * 10;
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(kStrRaPoints), (unsigned)a->points);
+  UiDrawText(s, tx, y, 1, RGB(120, 255, 160), buf);
+  y += 12;
+  UiDrawText(s, tx, y, 1, a->unlocked ? RGB(80, 255, 120) : RGB(150, 170, 200),
+             Tr(a->unlocked ? kStrRaUnlockedState : kStrRaLockedState));
+  y += 12;
+  if (a->unlocked && a->unlock_time) {
+    const time_t t = (time_t)a->unlock_time;
+    const struct tm *tm = gmtime(&t);
+    if (tm && strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", tm)) UiDrawText(s, tx, y, 1, RGB(150, 180, 210), buf);
+  }
+  if (a->type != kRaTypeStandard) {
+    static const UiStr kTypes[] = { kStrRaMissable, kStrRaMissable, kStrRaProgression, kStrRaWin };
+    DrawTypeIcon(s, 18, 114, a->type, false);
+    UiDrawText(s, 36, 117, 1, RaTypeColor(a->type), Tr(kTypes[a->type]));
+  }
+  DrawWrapped(s, 18, 136, 47, 7, RGB(220, 235, 255), a->description);
+  UiDrawBoxLabel(s, RaDetailCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaDetailCloseRect()), Tr(kStrClose));
+}
+
+static void RaDetailTouch(int x, int y) {
+  if (UiIn(RaDetailCloseRect(), x, y)) g_modal = MODAL_NONE;
+}
+
+// The unlock notice's box, 300x36 at (x, y), with the badge when it has been loaded.
 static void DrawNoticeBox(Surface s, int x, int y, const RaAchievement *a) {
   const Rect r = { x, y, 300, 36 };
   UiFillRect(s, r.x, r.y, r.w, r.h, COL_GOOD);
   UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, RGB(14, 20, 32));
-  UiFillRect(s, r.x + 3, r.y + 3, 2, r.h - 6, RGB(40, 150, 90));
-  UiDrawText(s, r.x + 10, r.y + 8, 1, COL_GOOD, Tr(kStrRaUnlocked));
+  const uint32_t *badge = RetroAch_Badge(a->badge, kRaBadgeSmall);
+  int tx = r.x + 10;
+  if (badge) {
+    UiBlit(s, r.x + 4, r.y + 4, kRaBadgeSmall, badge, false);
+    tx = r.x + 4 + kRaBadgeSmall + 6;
+  } else {
+    UiFillRect(s, r.x + 3, r.y + 3, 2, r.h - 6, RGB(40, 150, 90));
+  }
+  UiDrawText(s, tx, r.y + 8, 1, COL_GOOD, Tr(kStrRaUnlocked));
   char title[96], line[128];
-  ClipText(title, sizeof(title), a->title, 38);
+  ClipText(title, sizeof(title), a->title, badge ? 34 : 38);
   snprintf(line, sizeof(line), "%s (+%u)", title, (unsigned)a->points);
-  UiDrawText(s, r.x + 10, r.y + 21, 1, COL_TEXT, line);
+  UiDrawText(s, tx, r.y + 21, 1, COL_TEXT, line);
 }
 
 // On the bottom screen: over the tab bar on any tab, for as long as RetroAch_Toast says.
@@ -1160,7 +1312,7 @@ static void TouchDownImpl(int x, int y) {
   // A window swallows every touch below the tab bar.
   switch (g_modal) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
-  case MODAL_RA: RaModalTouch(x, y); return;
+  case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -1191,8 +1343,16 @@ void BottomUi_TouchDown(int x, int y) {
   g_dirty = 2;
 }
 
-void BottomUi_TouchMove(int x, int y) { (void)x; (void)y; }
-void BottomUi_TouchUp(void) {}
+void BottomUi_TouchMove(int x, int y) {
+  (void)x;
+  if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
+}
+
+void BottomUi_TouchUp(void) {
+  if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE) AchievementsTouchUp();
+  g_ra_touch.active = false;
+  g_dirty = 2;
+}
 
 static void DrawBottom(const UiPerf *p) {
   Surface s = UiDraw_Screen(GFX_BOTTOM);
@@ -1211,7 +1371,7 @@ static void DrawBottom(const UiPerf *p) {
   }
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
-  case MODAL_RA: DrawRaModal(s); break;
+  case MODAL_RA_DETAIL: DrawRaDetail(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
 #endif

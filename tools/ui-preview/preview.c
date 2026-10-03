@@ -120,15 +120,32 @@ int main(int argc, char **argv) {
   Shot("states, slot 2 save armed");
   extern bool g_preview_ra_toast;
   TapTab(kAchievements);
-  Tap(100, 96 + 2 * 11 + 5);         // the third achievement: its description
-  Shot("achievements, one selected");
+  Shot("achievements");
+  BottomUi_TouchDown(150, 220);      // drag the list up by 60 px
+  for (int y = 216; y >= 160; y -= 8) BottomUi_TouchMove(150, y);
+  BottomUi_TouchUp();
+  Shot("achievements, list dragged");
+  BottomUi_TouchDown(312, 237);      // the scrollbar's bottom end
+  BottomUi_TouchUp();
+  Shot("achievements, scrollbar to the end");
+  Tap(150, 130);                     // a card: its detail window
+  Shot("achievements, detail window");
+  Tap(160, 220);                     // close
+  BottomUi_TouchDown(312, 106);      // back to the top
+  BottomUi_TouchUp();
+  Tap(150, 106 + 2 * 34 + 10);       // the third card (missable, long title)
+  Shot("achievements, detail of a locked one");
+  Tap(160, 220);
+  Tap(150, 106 + 10);                // the first card (unlocked): its date
+  Shot("achievements, detail of an unlocked one");
+  Tap(160, 220);
   g_preview_ra_toast = true;
   Shot("achievements, unlock notice");
   g_preview_ra_toast = false;
-  Tap(260, 66);                      // SETTINGS
-  Tap(100, 66 + 2 * 28 + 5);         // ORDER: next
-  Shot("achievements, settings window");
-  Tap(160, 190);                     // close
+  Tap(100, 70 + 5);                  // NOTICE: top
+  Tap(100 + 154, 70 + 5);            // SOUND: off
+  Tap(230, 95);                      // ORDER: next
+  Shot("achievements, settings changed");
   TapTab(kOptions);
   Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
@@ -164,10 +181,10 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "achievements, unlock notice, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     g_preview_ra_toast = false;
-    Tap(260, 66);
-    snprintf(what, sizeof(what), "achievements, settings window, %s", UiLang_Name(g_ui_lang));
+    Tap(150, 106 + 2 * 34 + 10);
+    snprintf(what, sizeof(what), "achievements, detail window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
-    Tap(160, 190);
+    Tap(160, 220);
   }
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;
