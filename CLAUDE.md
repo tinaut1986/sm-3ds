@@ -171,7 +171,8 @@ is kept in `.3ds_ftp_ip` (gitignored).
 `FULL_NATIVE`: run only the C game code, never the ROM on the emulated CPU.
 The CIA never contains the ROM. At runtime it reads any `.smc`/`.sfc` in
 `sdmc:/3ds/Super Metroid 3DS/` whose headerless sha1 matches the JU ROM, and shows
-an error screen otherwise. Saves, `config.ini` and `debug/` live in that folder too.
+an error screen otherwise. Saves, `config.ini`, `debug/` and the RetroAchievements badge cache
+(`badges/`) live in that folder too.
 
 Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,

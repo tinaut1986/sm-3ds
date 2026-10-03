@@ -19,7 +19,8 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+with `--no-ff` only after they confirm, closing the issues that turned out fine):
+`feat/ra-cards` (P4.4: the achievements tab as mzm's windows, badges, drag scrolling).
 `fix/ceres-ridley-wide-margins` (#15, #17, confirmed) was merged on 2026-10-03. The
 stack frameskip-warning, ui-languages, wide-vertical-lean, retroachievements, game-text,
 ra-options, wide-xray-cone was merged into `release/v0.1.4` on 2026-10-03 at the owner's
@@ -313,9 +314,14 @@ Lessons from mzm that apply directly:
   until restart. Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
   notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
   game's audio), the list's order and direction. A response may grow to 4 MB (the set is
-  over 64 KB: the first build cut it there, "Invalid JSON" on the console). Not done: badges
-  (a drawn notice only). *Done when:* logged in on the console, the list loads, an unlock in play
-  shows the notice and appears on the RA site.
+  over 64 KB: the first build cut it there, "Invalid JSON" on the console).
+  2026-10-03 (owner's request): the tab looks like mzm's windows: the settings on top, then
+  the set as cards with badges, type and lock glyphs, dragged with the stylus or by its bar;
+  a tap opens the achievement (badge at 64 px, state and date, type, description). Badges
+  are downloaded on the worker thread and kept in `badges/` in the data folder.
+  *Done when:* logged in on the console, the list loads with its badges, dragging scrolls
+  without opening cards and a tap opens one, an unlock in play shows the notice (with its
+  badge) and appears on the RA site.
 - [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
   the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
   style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
@@ -955,3 +961,9 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   platform thickness kept (scenery slightly nearer than Samus and enemies); mzm's
   menu/map/cutscene override lists are not to be copied, SM's screens are looked at on
   their own.
+- 2026-10-03: Achievement badges are downloaded at runtime (rcheevos' `badge_url`, cached as
+  PNG in `badges/`, decoded with the stb_image already built for `sm/src/glsl_shader.c`)
+  rather than baked into the source as mzm's 55 are: SM's set is larger, a set update needs
+  no new build, and the repo carries no RA artwork. Locked badges are the same image drawn
+  grey (no `_lock` download). Loads wait behind rcheevos' calls on the one worker thread;
+  the badge the UI is drawing goes first.
