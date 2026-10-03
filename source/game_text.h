@@ -2,15 +2,27 @@
 // file or the game's RAM: only what is already in VRAM changes, so the game state, the
 // save files and RetroAchievements are the same in every language.
 //
-// Today: the message boxes (item pickups, map and energy stations, the save prompt).
-// Their tilemap is rewritten in VRAM once the game has put it there
+// The message boxes (item pickups, map and energy stations, the save prompt), here:
+// their tilemap is rewritten in VRAM once the game has put it there
 // (g_rtl_message_box_hook, sm_85.c): titles with the box's own capitals, accents as
 // marks in the blank cell above; the instruction line under an item with a lowercase
 // font of ours, drawn into the characters of the English words it replaces, which are
 // put back when the box closes. English leaves everything as the game draws it.
+//
+// The other screens (game_text_screens.c): option menus, file select, intro pages, HUD,
+// pause screen, game over, credits. Each frame, before the PPU draws, the English is read
+// from a copy of VRAM as the game wrote it (g_ppu_vram_shadow) and the translation
+// written over it; what is no longer wanted is put back from that copy.
 #pragma once
 
 void GameText_Init(void);
+
+// The other screens (game_text_screens.c), set up by GameText_Init.
+void GameTextScreens_Init(void);
+void GameTextScreens_Forget(void);
+// Puts the game's own VRAM back (the next frame translates again): before a save state, so
+// the state holds the game's VRAM and not the translation.
+void GameTextScreens_PutBack(void);
 
 // VRAM was replaced wholesale (a loaded state, a reset): forget the characters to put back.
 void GameText_Forget(void);

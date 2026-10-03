@@ -25,6 +25,9 @@ stack frameskip-warning, ui-languages, wide-vertical-lean, retroachievements, ga
 ra-options, wide-xray-cone was merged into `release/v0.1.4` on 2026-10-03 at the owner's
 request (#16 confirmed); what each still needs from the console is in its task (P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
+Also waiting: `feat/item-names` (P4.7, P4.8: the Status tab's items, beams, ammo and areas
+translated; the message boxes' item names as Nintendo's Spanish and French ones; the game's
+other screens translated, see P4.8).
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
@@ -443,23 +446,45 @@ Lessons from mzm that apply directly:
   (index, append-only order); with no saved choice the console's language is used when the UI
   has it (Catalan never comes from there: the 3DS has none). Only player-facing text is
   translated (`source/ui_lang.c`): the DEBUG tab, the debug tools and the DEBUG_TOOLS-only
-  parts stay English, as do the game's names (areas, items, beams, ammo). Strings are UTF-8;
+  parts stay English. The game's names (items, beams, ammo, areas: Status tab, map and
+  states) are translated too since 2026-10-03 (owner's request), short forms of the same
+  names as the message boxes (P4.8; `TrItem` and the others in `ui_lang.c`). Strings are UTF-8;
   the font draws accents as marks above the plain capital. `tools/ui-preview` renders the
   tabs in every language and fails if a translation changes a format string's conversions.
   *Done when:* checked on the console in each language, nothing cut or overlapping.
 
 - [ ] **P4.8** The game's own texts in the UI language (owner's request, 2026-10-02), with the
   ROM file untouched and RetroAchievements valid: only VRAM changes, never the game's RAM
-  (`source/game_text.c`, hook `g_rtl_message_box_hook` in `sm_85.c`; host test `msgbox-es`
-  checks the WRAM hash equals English).
+  (`source/game_text.c`, hook `g_rtl_message_box_hook` in `sm_85.c`; `source/game_text_screens.c`
+  for the rest; host tests `msgbox-es`, `newgame-es`, `pause-es`, `gameover-es` check the WRAM
+  hash equals English).
   Done: the message boxes (item names and their instruction lines, map/energy/missile
   stations, the save prompt and its YES/NO). Titles use the box's capitals, accents are marks
   in the blank cell above (cedilla below), the box widens for a longer text; the instruction
   line is drawn with a lowercase font of ours into the characters of the English words, put
-  back when the box closes. Open: the title and file-select menus, the pause screen, the
-  intro and Ceres texts, the ending (other fonts and tilemaps; same method).
-  *Done when:* every message box checked on the console in the four languages, and the open
-  screens either done or split into their own tasks.
+  back when the box closes.
+  2026-10-03, the other screens (`game_text_screens.c`): option menus (OPTION MODE, controller
+  and special settings), file select (data copy/clear and their prompts, the ENERGY/TIME
+  pictures), the intro (THE LAST METROID page and the six typed story pages, the typed share of
+  the translation following the English), the HUD's ENERGY, the pause screen (equipment names,
+  headers, MAP/EXIT buttons, the Wrecked Ship title), game over, the credits' headings with
+  SEE YOU NEXT MISSION and the item rate (names stay). Checked on the PC in all languages.
+  How to add a screen: `tools/game-text/README.md`.
+  Open: the texts drawn as sprites (PLANET ZEBES on the file-select map, the ending's mode 7
+  THE OPERATION WAS COMPLETED SUCCESSFULLY and CLEAR TIME), the pause screen's RESERVE TANK and
+  MODE AUTO/MANUAL (not seen yet), the beams' names (drawn, not seen with beams collected).
+  *Done when:* every message box and screen checked on the console in the four languages, and the
+  open ones either done or split into their own tasks.
+
+- [ ] **P4.9** One language setting for the port and the game (owner's request, 2026-10-03; after
+  P4.8). Today the game's own OPTION MODE choice (ENGLISH TEXT / JAPANESE TEXT, the Japanese
+  subtitles of the intro) and the bottom screen's LANGUAGE are separate. Two ways, to pick:
+  (a) keep both in step: LANGUAGE on the bottom screen gains JAPANESE, which sets the game's
+  Japanese text flag, and choosing JAPANESE TEXT in the game's menu sets LANGUAGE (and English
+  text puts back the last non-Japanese language); (b) the game's menu line becomes one
+  language entry that opens a list of the port's languages, Japanese among them. Either way
+  the bottom screen needs a Japanese UI translation (and a font with kana for it).
+  *Done when:* the language is chosen in one place and the other follows, checked on the console.
 
 ## Phase 5: completion
 
@@ -949,6 +974,30 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   #18 stays open for the X-ray scope (the security eyes were confirmed). The debug log's
   settings line now carries the display mode and WIDE (it did not, so these runs' WIDE
   state came from the owner: on).
+- 2026-10-03: Item names (message boxes and the Status tab) follow Nintendo's own Spanish
+  and French where it has them, at the owner's request ("BOLA SALTARINA" read wrong): Zero
+  Mission's (Morfosfera, Supersalto, Salto en barrena, Aceleración, Rayo recarga, Rayo de
+  ondas, Traje climático, Bomba de energía; Costume Varia, Méga Saut, Attaque en Vrille,
+  Rayon à Vague, Bombe de Puissance), then the later games' (Rotosalto for the Spring Ball;
+  the Spanish wiki's "Saltosfera" has no official source we could find; Rayo enganche, Visor
+  de rayos X, Salto espacial, Traje gravitatorio, Tanque de reserva). The 2012 fan
+  translation ("Super Metroid [Esp]") uses the same set except Ataque en barrena and Rayo
+  ancho. Spazer has no official Spanish name: Rayo múltiple, as the Spanish Metroid wiki.
+  Catalan follows the Spanish choices. Portuguese: the only official Metroid in it is Prime 4
+  (PT-BR, 2025, hardly any of these items); Morfosfera as its Brazilian guides, Salto Esfera
+  as the 2013 PT-BR fan translation (denim, spyblack), the rest as before. Super Metroid itself never had an official Spanish or French text.
+- 2026-10-03: The game's screens other than the message boxes are translated by reading the
+  English back from VRAM, not by hooking each screen's code: the PPU keeps a copy of VRAM as the
+  game wrote it (`g_ppu_vram_shadow`, set in `ppu.c`'s data port) and `g_rtl_game_text_hook`
+  (before the PPU draws) finds the current screen's English phrases there by their letters and
+  writes over them; what was changed and is no longer wanted is put back from the copy. One
+  engine covers all the fonts (a letter is a char, or a top and a bottom char, often sharing
+  halves: menu B, V, Y, Z exist that way; Q is O's top over a drawn bottom). Letters a screen lacks are
+  drawn into chars no tilemap on screen uses, never a tilemap's or the sprites' bytes nor the
+  font's own letters (the credits' last screen reuses B and D: those letters are a copy).
+  Pictured words (pause screen names, ENERGY) are redrawn with a 3 px font of ours.
+  The game's RAM is never touched (RetroAchievements), and save states are written with the
+  game's own VRAM (`GameTextScreens_PutBack`).
 - 2026-10-03: The owner made stereo 3D the next minor: `release/v0.1.4` (never tagged)
   renamed to `release/v0.2.0`. For the design they asked for (1) text and HUD with depth
   in whole pixels, so they never ghost as in mzm before its rounding, and (2) mzm's

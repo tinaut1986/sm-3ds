@@ -952,6 +952,7 @@ void RunOneFrameOfGame_Emulated(void) {
 }
 
 void (*g_rtl_before_ppu_draw)(void);
+void (*g_rtl_game_text_hook)(void);
 
 void DrawFrameToPpu(void) {
   g_snes->hPos = g_snes->vPos = 0;
@@ -1050,6 +1051,8 @@ void RtlRunFrameCompare(uint16 input, int run_what) {
     g_use_my_apu_code = true;
     // g_snes->runningWhichVersion = 0xff;
     RunOneFrameOfGame();
+    if (g_rtl_game_text_hook)   // 3DS port, see sm_cpu_infra.h
+      g_rtl_game_text_hook();
     if (g_rtl_before_ppu_draw)   // 3DS port, see sm_cpu_infra.h
       g_rtl_before_ppu_draw();
     DrawFrameToPpu();
