@@ -280,7 +280,9 @@ Lessons from mzm that apply directly:
   per-layer and per-tile priority, OBJ priority, which layer carries HUD/FX),
   with exhaustive host tests like `../mzm/platform/3ds/tests/stereo_depth_test.c`.
   Design: `docs/stereo-design.md` (planes, whole-pixel offsets, the platform-thickness
-  plane, drawing twice; draft 2026-10-03, waiting for the owner's review).
+  plane, drawing twice; agreed with the owner 2026-10-03).
+  Done on the host 2026-10-03: `source/stereo_depth.{h,c}`, `tools/stereo-test` (in
+  `make test`). Nothing to see on the console until P3.2.
 - [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
   Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
