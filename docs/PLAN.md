@@ -285,6 +285,12 @@ Lessons from mzm that apply directly:
   `make test`). Nothing to see on the console until P3.2.
 - [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
   Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
+  First cut 2026-10-03 (branch `feat/stereo`, to check on the New 3DS): each eye drawn
+  from the one frame build with every quad moved by its plane's whole-pixel offset
+  (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
+  CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
+  (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
+  no option to turn it off besides the slider, second eye's vertices pushed again.
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
   a debug depth tint like mzm's.
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes

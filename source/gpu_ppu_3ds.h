@@ -28,7 +28,9 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
 
 // Draws `f` and queues it for the top screen, centred: scaled to 274x240, or 1:1 with
 // `pixel_perfect`.
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect);
+// `slider`: the 3D slider (0 = one flat eye); `gameplay`: the room is on screen (stereo
+// planes; otherwise the frame is drawn flat, its HUD list and text excepted).
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay);
 
 // Waits until the GPU has finished everything queued, so the CPU can write the top
 // framebuffer again (when switching back to the CPU renderer).

@@ -39,6 +39,10 @@ bool SmWide_Filled(void);
 // plane goes on under the HUD (GpuPpu_SetMode7UnderHud).
 bool SmWide_Mode7(void);
 
+// The room is on screen, door transitions included: the game states the stereo planes
+// apply in (StereoFrame.gameplay); title, menus, the pause map and cutscenes are flat.
+bool SmWide_Gameplay(void);
+
 // The room's rectangle in screen pixels for the last frame ([x0, x1) x [y0, y1)); the
 // level data does not go beyond it, so outside it should be masked.
 void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);

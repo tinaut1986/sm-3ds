@@ -153,6 +153,16 @@ static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (r[dy][sx] << 8) | 0xFFu;
     }
+    if (gfxIs3D()) memcpy(gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL), fb, FB_W * FB_H * 4);   // flat
+}
+
+// The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
+// one 400x240 image per eye). The CPU path then shows the same image to both eyes.
+static float Stereo3dSlider(void) {
+  const float slider = osGet3DSliderState();
+  const bool want = slider > 0;
+  if (want != gfxIs3D()) gfxSet3D(want);
+  return slider;
 }
 
 // GPU renderer state: the line capture it draws from, its draw list, and whether the
@@ -749,7 +759,7 @@ int main(int argc, char** argv) {
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
-          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect);
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
