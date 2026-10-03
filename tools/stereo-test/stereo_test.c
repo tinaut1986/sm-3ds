@@ -3,7 +3,9 @@
 // with it means something.
 //
 // The two failures it looks for (mzm's lesson): a layer placed nearer than something that
-// visibly draws over it, or farther than something it draws over. Each case where the
+// visibly draws over it, or farther than something it draws over. SM puts its walls and
+// floors on BG1 priority 1 and Samus at OAM priority 2, under them: following the
+// compositor gives the platform thickness by itself. Each case where the
 // mapping does that on purpose is listed in kAccepted; a new one fails, and so does an
 // accepted one that no longer happens (the list must stay exact).
 #include <math.h>
@@ -36,18 +38,17 @@ enum { kLayerCount = sizeof(kLayers) / sizeof(kLayers[0]) };
 
 // "front" draws over "back" yet sits farther. Why each is accepted:
 static const struct { const char *front, *back; bool needs_thickness; const char *why; } kAccepted[] = {
-  // Platform thickness: Samus and enemies just behind the level they are drawn over.
-  { "OBJ prio 2", "BG1 prio 0", true, "platform thickness" },
-  { "OBJ prio 3", "BG1 prio 0", true, "platform thickness" },
-  // One plane for every sprite: a priority 3 sprite over foreground tiles stays on it.
-  { "OBJ prio 3", "BG1 prio 1", false, "one sprite plane" },
+  // Sprites of OAM priority 0/1 share Samus's plane though the level's back tiles and BG2
+  // are drawn over them: rare in SM (things hidden behind the background).
+  { "BG1 prio 0", "OBJ prio 1", false, "low sprites on Samus's plane" },
+  { "BG1 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
+  { "BG2 prio 0", "OBJ prio 1", false, "low sprites on Samus's plane" },
+  { "BG2 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
   // BG2 priority 1 over the level or over Samus: rare (Spore Spawn's body); P3.3 checks it.
   { "BG2 prio 1", "OBJ prio 2", false, "BG2 always mid" },
   { "BG2 prio 1", "BG1 prio 0", false, "BG2 always mid" },
   { "BG2 prio 1", "OBJ prio 1", false, "BG2 always mid" },
   { "BG2 prio 1", "OBJ prio 0", false, "BG2 always mid" },
-  { "BG2 prio 0", "OBJ prio 1", false, "BG2 always mid" },
-  { "BG2 prio 0", "OBJ prio 0", false, "BG2 always mid" },
 };
 enum { kAcceptedCount = sizeof(kAccepted) / sizeof(kAccepted[0]) };
 
@@ -85,10 +86,12 @@ static void TestPlanes(void) {
   const StereoFrame play = { true }, menu = { false };
   for (int t = 0; t < 2; t++) {
     StereoDepth_SetThickness(t);
-    // One plane for every world sprite.
+    // Sprites over the walls (OAM priority 3) on the walls' plane, the rest on Samus's.
     for (int p = 0; p < 4; p++) {
       const StereoItem obj = { kStereoKindObj, 0, (uint8_t)p, false };
-      CHECK(StereoDepth_Plane(&play, &obj) == kStereoObj, "OBJ prio %d off the sprite plane", p);
+      const StereoPlane want = p == 3 ? kStereoPlay : kStereoObj;
+      CHECK(StereoDepth_Plane(&play, &obj) == want, "OBJ prio %d on plane %d, want %d", p,
+            StereoDepth_Plane(&play, &obj), want);
     }
     const int obj = StereoDepth_PlanePx(kStereoObj), lvl = StereoDepth_PlanePx(kStereoPlay);
     CHECK(t ? obj < lvl : obj == lvl, "thickness %d: sprites %+d px against the level %+d px", t, obj, lvl);

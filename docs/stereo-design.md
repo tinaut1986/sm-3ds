@@ -60,36 +60,39 @@ quad is in the HUD list, whether the frame is gameplay, WIDE margins).
 
 ## Planes
 
-Seven planes; offsets are pixels of shift per eye at full slider, positive = nearer.
+Eight planes; offsets are pixels of shift per eye at full slider, positive = nearer.
 Values are a starting point to tune on the console, not a decision.
 
 | Plane | What goes there | Offset (full slider) |
 |---|---|---|
-| `HUD` | the HUD list (BG3 HUD rows, the escape timer), message boxes, the port's text (FPS overlay, toasts) | +2 (whole) |
-| `FRONT` | BG1 tile priority 1 (level 12), BG3 priority 1 FX that is not HUD (water surface, lava) | +1 |
-| `PLAY` | BG1 tile priority 0 (level 8): the level Samus stands on | 0 |
-| `OBJ` | every world sprite, any OBJ priority | -1 |
-| `MID` | BG2, both priorities (levels 7, 11) | -2 |
-| `FAR` | BG3 priority 0 FX, backdrop | -3 |
+| `HUD` | the HUD list (BG3 HUD rows, the escape timer), message boxes, the port's text (FPS overlay, toasts) | +2 |
+| `FRONT` | BG3 priority 1 that is not the HUD: water surface, lava, fog over the room | +1 |
+| `PLAY` | BG1 tile priority 1 (level 12): SM's walls and floors; sprites of OAM priority 3 (drawn over them); the mode 7 plane | 0 |
+| `OBJ` | Samus and enemies (OAM priority 0-2) | -1 |
+| `BACK` | BG1 tile priority 0 (level 8): the level's parts Samus passes in front of (the save station's glass, background pipes) | -2 |
+| `MID` | BG2, both priorities (levels 7, 11) | -3 |
+| `FAR` | BG3 priority 0 FX, backdrop | -4 |
 | `SCREEN` | non-gameplay screens until P3.4 treats them: everything flat | 0 |
 
-Why these:
+Why these (revised 2026-10-03 after the first console test):
 
-- `PLAY` at 0 keeps the level at the screen's own depth, where the eyes focus anyway;
-  the player looks at it all the time.
-- `OBJ` just behind `PLAY` is mzm's platform thickness (point 4). It is a constant, so
-  a menu option can turn it off (`OBJ` = `PLAY`) if it reads wrong somewhere; the test
-  checks both settings.
-- `FRONT` above `OBJ`: BG1 priority 1 tiles really are drawn over Samus, so they must
-  also be nearer than her. Pillars and foliage then stand out in front of her, which
-  is what the room means.
-- `MID` behind `OBJ`: on the SNES BG2 priority 1 (level 11) draws over Samus (level
-  10). Rooms use it rarely (Spore Spawn's body is BG2); where it shows, the boss would
-  sit behind Samus while drawing over her. Listed as a known case for P3.3, which
-  checks the rooms that use it with the scene recorder.
-- `HUD` uses only whole-pixel steps (point 3).
+- SM draws its walls and floors with BG1 tile priority 1 and Samus at OAM priority 2,
+  under them (she passes behind wall edges). Following that order puts the walls one step
+  in front of her: mzm's platform thickness comes from the compositor itself, with no
+  contradiction. The first cut had BG1 priority 1 as a "foreground" plane and priority 0
+  as the level, which put the save station's glass (priority 0, drawn under Samus) in
+  front of her and sank the wall faces of 9A44 (sprites of priority 3 drawn over the wall)
+  behind it.
+- `PLAY` at 0 keeps the walls at the screen's own depth, where the eyes focus anyway.
+- `OBJ` = `PLAY` when the thickness option is off; the test checks both settings.
+- `MID` behind everything else in the room: on the SNES BG2 priority 1 (level 11) draws
+  over Samus (level 10). Rooms use it rarely (Spore Spawn's body is BG2); a known case
+  for P3.3, checked with the scene recorder.
+- `HUD` and every other plane move in whole pixels (point 3).
 - The mode 7 plane goes on `PLAY`: in the Ceres elevator it is the room Samus stands
   in, in Ridley's room it is Ridley flying at her.
+- Without WIDE the HUD is not taken out into the HUD list: BG3 quads within the top 32
+  rows count as HUD there (gpu_ppu_3ds.c `QuadDx`).
 
 ## The 3D slider and whole pixels
 

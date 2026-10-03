@@ -4,7 +4,7 @@
 // point to tune on the console; the order is what tools/stereo-test pins.
 static const int8_t kPlanePx[kStereoPlaneCount] = {
   [kStereoHud] = 2, [kStereoFront] = 1, [kStereoPlay] = 0, [kStereoObj] = -1,
-  [kStereoMid] = -2, [kStereoFar] = -3, [kStereoScreen] = 0,
+  [kStereoBack] = -2, [kStereoMid] = -3, [kStereoFar] = -4, [kStereoScreen] = 0,
 };
 
 static bool g_thickness = true;
@@ -17,19 +17,30 @@ StereoPlane StereoDepth_Plane(const StereoFrame *frame, const StereoItem *item) 
   if (!frame->gameplay) return kStereoScreen;
   switch (item->kind) {
   case kStereoKindObj:
-    return kStereoObj;   // one plane for all world sprites, whatever their OAM priority
+    return item->priority == 3 ? kStereoPlay : kStereoObj;   // priority 3: drawn over the walls
   case kStereoKindMode7:
     return kStereoPlay;  // the elevator shaft's room, Ridley's flight
   case kStereoKindBackdrop:
     return kStereoFar;
   case kStereoKindBg:
     switch (item->layer) {
-    case 0: return item->priority ? kStereoFront : kStereoPlay;
+    case 0: return item->priority ? kStereoPlay : kStereoBack;
     case 1: return kStereoMid;
     default: return item->priority ? kStereoFront : kStereoFar;
     }
   }
   return kStereoScreen;
+}
+
+StereoItem StereoDepth_ItemOfLevel(int level, bool obj, bool mode7, bool hud) {
+  StereoItem it = { kStereoKindBg, 0, 0, hud };
+  if (mode7) it.kind = kStereoKindMode7;
+  else if (obj) it.kind = kStereoKindObj, it.priority = (uint8_t)((level - 2) / 4);
+  else if (level == 0) it.kind = kStereoKindBackdrop;
+  else if (level == 8 || level == 12) it.layer = 0, it.priority = level == 12;
+  else if (level == 7 || level == 11) it.layer = 1, it.priority = level == 11;
+  else it.layer = 2, it.priority = level == 15;
+  return it;
 }
 
 int StereoDepth_PlanePx(StereoPlane plane) {

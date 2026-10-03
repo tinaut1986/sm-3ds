@@ -154,18 +154,11 @@ static StereoFrame g_stereo_frame;
 // The plane of a quad, from what the frame builder put in it: its level and flags
 // (gpu_ppu.c: kBgLevel, sprites at 4 * priority + 2). `hud`: in the HUD list.
 static int QuadDx(const GpuQuad *qd, bool hud) {
-  StereoItem it = { kStereoKindBg, 0, 0, hud };
-  if (qd->flags & kGpuQuadAffine) it.kind = kStereoKindMode7;
-  else if (qd->flags & kGpuQuadObj) it.kind = kStereoKindObj, it.priority = (uint8_t)((qd->level - 2) / 4);
-  else
-    switch (qd->level) {
-    case 12: it.priority = 1; /* fall through */
-    case 8: it.layer = 0; break;
-    case 11: it.priority = 1; /* fall through */
-    case 7: it.layer = 1; break;
-    case 15: it.priority = 1; /* fall through */
-    default: it.layer = 2; break;   // 1
-    }
+  // Without WIDE the HUD stays in its band: SM's HUD is BG3 on the top 32 rows.
+  if (g_stereo_frame.gameplay && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) && (qd->level == 15 || qd->level == 1) &&
+      qd->y + qd->h <= 32)
+    hud = true;
+  const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
   return g_eye_dx[StereoDepth_Plane(&g_stereo_frame, &it)];
 }
 
