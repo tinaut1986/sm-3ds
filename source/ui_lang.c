@@ -27,6 +27,7 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrBeams] = { "BEAMS", "RAYOS", "RAIGS", "RAYONS", "RAIOS" },
   [kStrMapStations] = { "MAP STATIONS", "ESTACIONES DE MAPA", "ESTACIONS DE MAPA", "STATIONS DE CARTE",
                         "ESTAÇÕES DE MAPA" },
+  [kStrRoom] = { "ROOM", "SALA", "SALA", "SALLE", "SALA" },
   // States tab.
   [kStrSaveStates] = { "SAVE STATES", "ESTADOS GUARDADOS", "ESTATS DESATS", "ÉTATS SAUVEGARDÉS", "ESTADOS SALVOS" },
   [kStrEmpty] = { "- EMPTY -", "- VACÍO -", "- BUIT -", "- VIDE -", "- VAZIO -" },
@@ -141,3 +142,63 @@ UiLang UiLang_FromSystem(void) {
   return kLangEn;
 #endif
 }
+
+// ---- The game's names -----------------------------------------------------------------
+// Spanish and French follow Nintendo's own translations: Zero Mission (Morfosfera,
+// Supersalto, Salto en barrena, Aceleración, Rayo recarga, Rayo de ondas, Traje climático,
+// Bomba de energía; Méga Saut, Attaque en Vrille, Rayon à Vague...), then the later games
+// (Rotosalto, Rayo enganche). Spazer has no official Spanish name: Rayo múltiple, as the
+// Spanish Metroid wiki. Catalan follows the Spanish choices. Portuguese: Morfosfera (the
+// Brazilian Metroid Prime 4 guides), Salto Esfera (the 2013 PT-BR fan translation).
+
+static const char *const kItems[kLangCount][11] = {
+  { "VARIA", "GRAV", "MORPH", "BOMB", "HIJUMP", "SPACE", "SPEED", "SCREW", "SPRING", "GRAPPL", "XRAY" },
+  { "CLIMÁTICO", "GRAVITAT.", "MORFOSFERA", "BOMBAS", "SUPERSALTO", "SALTO ESP.", "ACELERACIÓN", "BARRENA",
+    "ROTOSALTO", "ENGANCHE", "RAYOS X" },
+  { "CLIMÀTIC", "GRAVITAT.", "MORFOESFERA", "BOMBES", "SUPERSALT", "SALT ESP.", "ACCELERACIÓ", "BARRINA",
+    "ROTOSALT", "ENGANXADA", "RAIGS X" },
+  { "VARIA", "GRAVITÉ", "MORPHING", "BOMBES", "MÉGA SAUT", "SAUT SPAT.", "ACCÉLÉR.", "VRILLE", "REBOND",
+    "GRAPPIN", "RAYONS X" },
+  { "VARIA", "GRAVITAC.", "MORFOSFERA", "BOMBAS", "BOTAS SALTO", "SALTO ESP.", "ACELERADOR", "GIRATÓRIO",
+    "SALTO ESF.", "GANCHO", "RAIOS X" },
+};
+
+static const char *const kBeams[kLangCount][5] = {
+  { "CHARGE", "ICE", "WAVE", "SPAZER", "PLASMA" },
+  { "RECARGA", "HIELO", "ONDAS", "MÚLTIPLE", "PLASMA" },
+  { "CÀRREGA", "GEL", "ONES", "MÚLTIPLE", "PLASMA" },
+  { "CHARGE", "GLACE", "VAGUE", "SPAZER", "PLASMA" },
+  { "CARGA", "GELO", "ONDA", "SPAZER", "PLASMA" },
+};
+
+static const char *const kAmmo[kLangCount][3] = {
+  { "MSL", "SUPER", "PB" },
+  { "MISIL", "SUPER", "BOMBA" },
+  { "MÍSSIL", "SUPER", "BOMBA" },
+  { "MISSILE", "SUPER", "BOMBE" },
+  { "MÍSSIL", "SUPER", "BOMBA" },
+};
+
+static const char *const kAreas[kLangCount][8] = {
+  { "Crateria", "Brinstar", "Norfair", "Wrecked Ship", "Maridia", "Tourian", "Ceres", "Debug" },
+  { "Crateria", "Brinstar", "Norfair", "Nave Hundida", "Maridia", "Tourian", "Ceres", "Debug" },
+  { "Crateria", "Brinstar", "Norfair", "Nau Nàufraga", "Maridia", "Tourian", "Ceres", "Debug" },
+  { "Crateria", "Brinstar", "Norfair", "Épave", "Maridia", "Tourian", "Ceres", "Debug" },
+  { "Crateria", "Brinstar", "Norfair", "Nau Afundada", "Maridia", "Tourian", "Ceres", "Debug" },
+};
+
+static const char *const kAreasShort[kLangCount][8] = {
+  { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER", "DBG" },
+  { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
+  { "CRA", "BRI", "NOR", "NAU", "MAR", "TOU", "CER", "DBG" },
+  { "CRA", "BRI", "NOR", "ÉPA", "MAR", "TOU", "CER", "DBG" },
+  { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
+};
+
+static unsigned Lang(void) { return (unsigned)g_ui_lang < kLangCount ? (unsigned)g_ui_lang : kLangEn; }
+
+const char *TrItem(int i) { return (unsigned)i < 11 ? kItems[Lang()][i] : ""; }
+const char *TrBeam(int i) { return (unsigned)i < 5 ? kBeams[Lang()][i] : ""; }
+const char *TrAmmo(int i) { return (unsigned)i < 3 ? kAmmo[Lang()][i] : ""; }
+const char *TrArea(int area) { return kAreas[Lang()][(unsigned)area < 8 ? area : 7]; }
+const char *TrAreaShort(int area) { return kAreasShort[Lang()][(unsigned)area < 8 ? area : 7]; }

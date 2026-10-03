@@ -672,6 +672,7 @@ int main(int argc, char** argv) {
       RetroAch_GameReset();
     }
     if (g_ui.req_save_state) {
+      GameTextScreens_PutBack();
       const bool ok = RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
       BottomUi_StateSaved(g_ui.save_slot, ok);
       if (ok) RetroAch_StateSaved(g_ui.save_slot);

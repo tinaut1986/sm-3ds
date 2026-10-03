@@ -1,6 +1,8 @@
 # Expected values for tools/test/run.sh. Regenerate with --update after a change
 # that is meant to alter them, and say why in the commit.
 audio-rooms.hash=2711ed38f007843a
+gameover-es.refused=0
+gameover-es.wram=d35913b68593af80
 gpu-newgame.refused=0
 gpu-newgame.wram=366a6272e2ec54c5
 gpu-pbomb.refused=0
@@ -9,6 +11,10 @@ gpu-rooms.refused=0
 gpu-rooms.wram=eea086f0dca547f8
 msgbox-es.refused=0
 msgbox-es.wram=3eac6fd7a751e5a0
+newgame-es.refused=0
+newgame-es.wram=366a6272e2ec54c5
+pause-es.refused=0
+pause-es.wram=8fd463b126e39004
 soft-reset.refused=0
 soft-reset.wram=b5af9e0e16ec4393
 warp-music.result=rooms 148, music queue stuck in 0, wrong music bank in 0

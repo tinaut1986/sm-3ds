@@ -429,8 +429,10 @@ static void TestFrame(const char *label, bool check_capture) {
   // SHOTS=a-b: tested frames a..b (counted from 1) as shot-NNNN.ppm (CPU renderer, 256x224)
   // with VRAM as vram-NNNN.bin, e.g. to look at a message box (MSGBOX) and its font.
   int shot_a, shot_b;
+  // SHOTS_STEP=n: only every n-th of those frames.
+  const int shot_step = getenv("SHOTS_STEP") ? atoi(getenv("SHOTS_STEP")) : 1;
   if (getenv("SHOTS") && sscanf(getenv("SHOTS"), "%d-%d", &shot_a, &shot_b) == 2 && g_frames >= shot_a &&
-      g_frames <= shot_b) {
+      g_frames <= shot_b && (shot_step <= 1 || (g_frames - shot_a) % shot_step == 0)) {
     char name[32];
     snprintf(name, sizeof(name), "shot-%04d.ppm", g_frames);
     FILE *f = fopen(name, "wb");
@@ -448,6 +450,22 @@ static void TestFrame(const char *label, bool check_capture) {
     if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->vram, 2, 0x8000, f), fclose(f);
     snprintf(name, sizeof(name), "cgram-%04d.bin", g_frames);
     if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->cgram, 2, 256, f), fclose(f);
+    // regs-NNNN.txt: the mode and each BG's tilemap, chars and scroll (to find a text's
+    // layer), wram-shot-NNNN.bin the WRAM, oam-NNNN.bin the OAM (544 bytes).
+    snprintf(name, sizeof(name), "regs-%04d.txt", g_frames);
+    if ((f = fopen(name, "w"))) {
+      const Ppu *p = g_snes->ppu;
+      fprintf(f, "mode %d obj %04x %04x size %d\n", p->mode, p->objTileAdr1, p->objTileAdr2, p->objSize);
+      for (int k = 0; k < 4; k++)
+        fprintf(f, "bg%d map %04x%s%s chars %04x scroll %d,%d\n", k + 1, p->bgLayer[k].tilemapAdr,
+                p->bgLayer[k].tilemapWider ? " wide" : "", p->bgLayer[k].tilemapHigher ? " high" : "",
+                p->bgLayer[k].tileAdr, p->bgLayer[k].hScroll, p->bgLayer[k].vScroll);
+      fclose(f);
+    }
+    snprintf(name, sizeof(name), "wram-shot-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_ram, 1, 0x20000, f), fclose(f);
+    snprintf(name, sizeof(name), "oam-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->oam, 2, 0x100, f), fwrite(g_snes->ppu->highOam, 1, 0x20, f), fclose(f);
   }
   int x0, y0, x1, y1, n;
   if (check_capture && (n = Diff(g_a, g_b, &x0, &y0, &x1, &y1))) {
@@ -698,6 +716,24 @@ int main(int argc, char **argv) {
         }
         played++;
       }
+      // BOOT_SEQ=hex@frame,...: the buttons from each frame on, instead of the START/A
+      // pattern (and of BOOT_INPUT), e.g. to walk the menus.
+      // BOOT_SEQ_STATE=hex: its frames count from the first frame in that game state (4: the
+      // file-select menus), with START/A until then.
+      static int seq_from = -1;
+      if (getenv("BOOT_SEQ_STATE") && seq_from < 0 && game_state == strtol(getenv("BOOT_SEQ_STATE"), 0, 16))
+        seq_from = i;
+      if (getenv("BOOT_SEQ") && (!getenv("BOOT_SEQ_STATE") || seq_from >= 0)) {
+        const int t = getenv("BOOT_SEQ_STATE") ? i - seq_from : i;
+        g_input = 0;
+        for (const char *q = getenv("BOOT_SEQ"); *q;) {
+          int bits, at, used;
+          if (sscanf(q, "%x@%d%n", &bits, &at, &used) != 2) break;
+          if (t >= at) g_input = bits;
+          q += used;
+          if (*q == ',') q++;
+        }
+      }
       // CERES_BOOM: once in the Ceres elevator room (DF45), jump to "made it to the
       // elevator" so the escape cutscene (Ceres explodes) plays.
       if (getenv("CERES_BOOM") && game_state == 8 && room_ptr == 0xDF45) {
@@ -808,6 +844,11 @@ int main(int argc, char **argv) {
         ceres_status |= 0x8000;
         if (!timer_status) timer_status = 0x8001, frame_handler_gamma = (uint16)fnSamus_Func3;
       }
+      // FORCE_STATE=n: game state n from frame 5 on (38: Samus escapes Zebes, then the ending).
+      if (getenv("FORCE_STATE") && k == 5) game_state = (uint16)atoi(getenv("FORCE_STATE"));
+      // SRAM_SAVE=n: the game saved to file n (0-2) on frame 2, into saves/sm.srm (e.g. for
+      // the file-select screens with data).
+      if (getenv("SRAM_SAVE") && k == 2) SaveToSram((uint16)atoi(getenv("SRAM_SAVE")));
       // MSGBOX=n: queue message box n (as an item pickup does) on frame 5.
       if (getenv("MSGBOX") && k == 5) queued_message_box_index = (uint16)atoi(getenv("MSGBOX"));
       // SAMUS_AT=x,y: put Samus there on frame 1 (a console dump's place; the camera follows).

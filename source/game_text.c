@@ -56,19 +56,19 @@ static const MsgText kEs[kMsgCount] = {
   [2] = { { "MISIL" }, "elige {} y pulsa el botón {}." },
   [3] = { { "SUPERMISIL" }, "elige {} y pulsa el botón {}." },
   [4] = { { "BOMBA DE ENERGÍA" }, "elige {} y ponla con el botón {}." },
-  [5] = { { "RAYO GARFIO" }, "elige {} y mantén pulsado {}." },
+  [5] = { { "RAYO ENGANCHE" }, "elige {} y mantén pulsado {}." },
   [6] = { { "VISOR DE RAYOS X" }, "elige {} y mantén pulsado {}." },
-  [7] = { { "TRAJE VARIA" } },
-  [8] = { { "BOLA SALTARINA" } },
+  [7] = { { "TRAJE CLIMÁTICO" } },
+  [8] = { { "ROTOSALTO" } },
   [9] = { { "MORFOSFERA" } },
-  [10] = { { "ATAQUE GIRATORIO" } },
-  [11] = { { "BOTAS DE SALTO" } },
+  [10] = { { "SALTO EN BARRENA" } },
+  [11] = { { "SUPERSALTO" } },
   [12] = { { "SALTO ESPACIAL" } },
-  [13] = { { "ACELERADOR" }, "mantén pulsado {} para correr." },
-  [14] = { { "RAYO DE CARGA" } },
+  [13] = { { "ACELERACIÓN" }, "mantén pulsado {} para correr." },
+  [14] = { { "RAYO RECARGA" } },
   [15] = { { "RAYO DE HIELO" } },
-  [16] = { { "RAYO DE ONDA" } },
-  [17] = { { "RAYO SPAZER" } },
+  [16] = { { "RAYO DE ONDAS" } },
+  [17] = { { "RAYO MÚLTIPLE" } },
   [18] = { { "RAYO DE PLASMA" } },
   [19] = { { "BOMBA" }, "{} ponla con el botón {}." },
   [20] = { { "DATOS DEL MAPA", NULL, "DESCARGADOS." } },
@@ -86,19 +86,19 @@ static const MsgText kCa[kMsgCount] = {
   [2] = { { "MÍSSIL" }, "tria {} i prem el botó {}." },
   [3] = { { "SUPERMÍSSIL" }, "tria {} i prem el botó {}." },
   [4] = { { "BOMBA D'ENERGIA" }, "tria {} i posa-la amb el botó {}." },
-  [5] = { { "RAIG GANXO" }, "tria {} i mantén premut {}." },
+  [5] = { { "RAIG D'ENGANXADA" }, "tria {} i mantén premut {}." },
   [6] = { { "VISOR DE RAIGS X" }, "tria {} i mantén premut {}." },
-  [7] = { { "VESTIT VARIA" } },
-  [8] = { { "BOLA SALTADORA" } },
+  [7] = { { "VESTIT CLIMÀTIC" } },
+  [8] = { { "ROTOSALT" } },
   [9] = { { "MORFOESFERA" } },
-  [10] = { { "ATAC GIRATORI" } },
-  [11] = { { "BOTES DE SALT" } },
+  [10] = { { "SALT EN BARRINA" } },
+  [11] = { { "SUPERSALT" } },
   [12] = { { "SALT ESPACIAL" } },
-  [13] = { { "ACCELERADOR" }, "mantén premut {} per córrer." },
+  [13] = { { "ACCELERACIÓ" }, "mantén premut {} per córrer." },
   [14] = { { "RAIG DE CÀRREGA" } },
   [15] = { { "RAIG DE GEL" } },
-  [16] = { { "RAIG D'ONA" } },
-  [17] = { { "RAIG SPAZER" } },
+  [16] = { { "RAIG D'ONES" } },
+  [17] = { { "RAIG MÚLTIPLE" } },
   [18] = { { "RAIG DE PLASMA" } },
   [19] = { { "BOMBA" }, "{} posa-la amb el botó {}." },
   [20] = { { "DADES DEL MAPA", NULL, "DESCARREGADES." } },
@@ -115,19 +115,19 @@ static const MsgText kFr[kMsgCount] = {
   [1] = { { "RÉSERVOIR D'ÉNERGIE" } },
   [2] = { { "MISSILE" }, "choisis {} et appuie sur {}." },
   [3] = { { "SUPER MISSILE" }, "choisis {} et appuie sur {}." },
-  [4] = { { "SUPER BOMBE" }, "choisis {} et pose-la avec {}." },
+  [4] = { { "BOMBE DE PUISSANCE" }, "choisis {} et pose-la avec {}." },
   [5] = { { "RAYON GRAPPIN" }, "choisis {} et maintiens {}." },
   [6] = { { "VISEUR À RAYONS X" }, "choisis {} et maintiens {}." },
-  [7] = { { "COMBINAISON VARIA" } },
+  [7] = { { "COSTUME VARIA" } },
   [8] = { { "BOULE REBOND" } },
   [9] = { { "BOULE MORPHING" } },
-  [10] = { { "ATTAQUE VRILLE" } },
-  [11] = { { "BOTTES DE SAUT" } },
+  [10] = { { "ATTAQUE EN VRILLE" } },
+  [11] = { { "MÉGA SAUT" } },
   [12] = { { "SAUT SPATIAL" } },
   [13] = { { "ACCÉLÉRATEUR" }, "maintiens {} pour courir." },
-  [14] = { { "RAYON CHARGÉ" } },
+  [14] = { { "RAYON DE CHARGE" } },
   [15] = { { "RAYON DE GLACE" } },
-  [16] = { { "RAYON ONDE" } },
+  [16] = { { "RAYON À VAGUE" } },
   [17] = { { "RAYON SPAZER" } },
   [18] = { { "RAYON PLASMA" } },
   [19] = { { "BOMBE" }, "{} pose-la avec le bouton {}." },
@@ -137,7 +137,7 @@ static const MsgText kFr[kMsgCount] = {
   [23] = { { "VOULEZ-VOUS", "SAUVEGARDER ?" }, NULL, "OUI", "NON" },
   [24] = { { "SAUVEGARDE FAITE." } },
   [25] = { { "RÉSERVOIR SECOURS" } },
-  [26] = { { "COMBINAISON GRAVITÉ" } },
+  [26] = { { "COSTUME GRAVITÉ" } },
   [28] = { { "VOULEZ-VOUS", "SAUVEGARDER ?" }, NULL, "OUI", "NON" },
 };
 
@@ -149,8 +149,8 @@ static const MsgText kPt[kMsgCount] = {
   [5] = { { "RAIO GANCHO" }, "escolha {} e segure {}." },
   [6] = { { "VISOR DE RAIOS X" }, "escolha {} e segure {}." },
   [7] = { { "TRAJE VARIA" } },
-  [8] = { { "BOLA SALTADORA" } },
-  [9] = { { "MORFOBOLA" } },
+  [8] = { { "SALTO ESFERA" } },
+  [9] = { { "MORFOSFERA" } },
   [10] = { { "ATAQUE GIRATÓRIO" } },
   [11] = { { "BOTAS DE SALTO" } },
   [12] = { { "SALTO ESPACIAL" } },
@@ -351,7 +351,10 @@ static void RestoreChars(void) {
   g_saved_count = 0;
 }
 
-void GameText_Forget(void) { g_saved_count = 0; }
+void GameText_Forget(void) {
+  g_saved_count = 0;
+  GameTextScreens_Forget();
+}
 
 // ---- Building a box -------------------------------------------------------------------------
 
@@ -640,4 +643,7 @@ static void Hook(int shown) {
   else RestoreChars();
 }
 
-void GameText_Init(void) { g_rtl_message_box_hook = Hook; }
+void GameText_Init(void) {
+  g_rtl_message_box_hook = Hook;
+  GameTextScreens_Init();
+}

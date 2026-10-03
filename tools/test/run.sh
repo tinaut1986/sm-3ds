@@ -115,6 +115,13 @@ MASH_B=400 MASH_B_STATE=4 run_gpu soft-reset boot "$OUT/empty.srm" 1200 &
 # The save prompt in Landing Site, YES/NO toggled, in English and in Spanish (game_text.c).
 MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-en rooms 200 91F8 &
 GAME_LANG=1 MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-es rooms 200 91F8 &
+# The other screens in Spanish (game_text_screens.c): the new game of gpu-newgame (title, file
+# select, options, intro, Ceres), the pause screen's map and equipment, the game over menu.
+GAME_LANG=1 CERES_BOOM=1 run_gpu newgame-es boot "$OUT/empty.srm" 10500 &
+ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-en rooms 300 91F8 &
+GAME_LANG=1 ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-es rooms 300 91F8 &
+SAMUS_HEALTH=0 run_gpu gameover-en rooms 500 91F8 &
+GAME_LANG=1 SAMUS_HEALTH=0 run_gpu gameover-es rooms 500 91F8 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
 run_audio audio-rooms rooms 120 &
 if [ $FULL = 1 ]; then
@@ -174,6 +181,19 @@ echo "msgbox-es: a message box in Spanish changes only VRAM (same game state as 
 gpu_checks msgbox-es
 check msgbox-es "WRAM identical to the English run" \
   "$( [ "$(field "$OUT/msgbox-es.log" 'WRAM hash [0-9a-f]*')" = "$(field "$OUT/msgbox-en.log" 'WRAM hash [0-9a-f]*')" ]; echo $?)"
+same_wram() {   # same_wram NAME OTHER: the WRAM hash of NAME's run equals OTHER's
+  check "$1" "WRAM identical to $2" \
+    "$( [ "$(field "$OUT/$1.log" 'WRAM hash [0-9a-f]*')" = "$(field "$OUT/$2.log" 'WRAM hash [0-9a-f]*')" ]; echo $?)"
+}
+echo "newgame-es: gpu-newgame in Spanish, menus and intro translated in VRAM only"
+gpu_checks newgame-es
+same_wram newgame-es gpu-newgame
+echo "pause-es: the pause screen (map, equipment) in Spanish"
+gpu_checks pause-es
+same_wram pause-es pause-en
+echo "gameover-es: the game over menu in Spanish"
+gpu_checks gameover-es
+same_wram gameover-es gameover-en
 echo "soft-reset: B on the file-select screens, soft resets back to the title"
 gpu_checks soft-reset
 check soft-reset "soft resets happened" \

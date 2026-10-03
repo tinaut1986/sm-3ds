@@ -189,7 +189,6 @@ static int g_map_area;              // area being shown
 static bool g_map_follow = true;    // follow the area Samus is in
 static int g_sel_col = -1, g_sel_row = -1;
 
-static const char *const kAreaShort[kSmAreaCount] = { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER" };
 
 static Rect AreaButtonRect(int i) { return (Rect){ 2 + i * 45, 183, 43, 13 }; }
 static Rect FollowRect(void) { return (Rect){ 226, 198, 92, 13 }; }
@@ -269,8 +268,8 @@ static void DrawMap(Surface s, const UiPerf *p) {
   }
 
   for (int i = 0; i < kSmAreaCount; i++)
-    UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, kAreaShort[i]);
-  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d %s%s%s", kSmAreaNames[area], seen, total, Tr(kStrCells),
+    UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, TrAreaShort(i));
+  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d %s%s%s", TrArea(area), seen, total, Tr(kStrCells),
               station ? "  " : "", station ? Tr(kStrMapMark) : "");
   char follow[32];
   snprintf(follow, sizeof(follow), "%s: %s", Tr(kStrFollow), Tr(g_map_follow ? kStrOn : kStrOff));
@@ -351,18 +350,16 @@ static void DrawStatus(Surface s) {
 #endif
 
   // Ammo panels.
-  static const struct { const char *name; uint32_t col; } kAmmo[3] = {
-    { "MSL", COL_MISSILE }, { "SUPER", COL_SUPER }, { "PB", COL_PBOMB },
-  };
+  static const uint32_t kAmmoCol[3] = { COL_MISSILE, COL_SUPER, COL_PBOMB };
   const unsigned cur[3] = { samus_missiles, samus_super_missiles, samus_power_bombs };
   const unsigned max[3] = { samus_max_missiles, samus_max_super_missiles, samus_max_power_bombs };
   for (int i = 0; i < 3; i++) {
     const int x = 8 + i * 103;
     UiFillRect(s, x, 73, 98, 26, COL_PANEL);
     UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
-    UiDrawText(s, x + 5, 77, 1, kAmmo[i].col, kAmmo[i].name);
+    UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], TrAmmo(i));
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
-    UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmo[i].col);
+    UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
   }
 
   // Items: green = equipped, yellow = collected but switched off, dim = missing.
@@ -372,7 +369,7 @@ static void DrawStatus(Surface s) {
     const bool have = (collected_items & kSmItems[i].mask) != 0;
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmItems[i].name);
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrItem(i));
   }
 #if DEBUG_TOOLS
   {
@@ -388,7 +385,7 @@ static void DrawStatus(Surface s) {
     const bool have = (collected_beams & kSmBeams[i].mask) != 0;
     const bool on = (equipped_beams & kSmBeams[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmBeams[i].name);
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrBeam(i));
   }
 
   // Map stations (Ceres has none). Debug builds: grey none, green used, purple forced,
@@ -404,12 +401,12 @@ static void DrawStatus(Surface s) {
     if (st == kSmMapDebug_Explored) { body = RGB(70, 45, 15); edge = RGB(255, 170, 60); text = COL_TEXT; }
     else if (st == kSmMapDebug_Station) { body = RGB(45, 30, 70); edge = RGB(170, 110, 240); text = COL_TEXT; }
     else if (SmMap_HasMapStation(i)) { body = RGB(18, 62, 32); edge = RGB(70, 220, 110); text = COL_TEXT; }
-    UiDrawBoxLabel(s, r, body, edge, text, Pressed(r), kAreaShort[i]);
+    UiDrawBoxLabel(s, r, body, edge, text, Pressed(r), TrAreaShort(i));
   }
 
   // Where and how long.
   const unsigned area = area_index < 8 ? area_index : 7;
-  UiDrawTextf(s, 8, 211, COL_TEXT, "%s  ROOM %02X", kSmAreaNames[area], (unsigned)room_index);
+  UiDrawTextf(s, 8, 211, COL_TEXT, "%s  %s %02X", TrArea(area), Tr(kStrRoom), (unsigned)room_index);
   UiDrawTextf(s, 224, 211, COL_DIM, "%02u:%02u:%02u", (unsigned)game_time_hours, (unsigned)game_time_minutes,
               (unsigned)game_time_seconds);
 }
@@ -564,7 +561,7 @@ static void DrawStates(Surface s) {
     } else if (!si->has_info) {
       UiDrawText(s, 26, y + 5, 1, COL_DIM, Tr(kStrSavedNoDetails));
     } else {
-      UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", kAreaShort[si->area < kSmAreaCount ? si->area : 0], si->room);
+      UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", TrAreaShort(si->area < kSmAreaCount ? si->area : 0), si->room);
       UiDrawTextf(s, 74, y + 5, COL_ENERGY, "E%u", si->health);
       if (si->max_missiles) UiDrawTextf(s, 110, y + 5, COL_MISSILE, "M%u", si->missiles);
       const time_t t = (time_t)si->saved_at;
