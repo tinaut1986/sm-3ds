@@ -8,6 +8,7 @@
 
 #include "debug_tools.h"
 #include "gpu_ppu_shbin.h"
+#include "stereo_depth.h"
 
 // Two 512x256 RGBA8 targets with depth+stencil: the main screen and the subscreen
 // (the SNES colour-math source). Screen pixel (x, y) is target pixel (x + g_off_x,
@@ -28,7 +29,8 @@ typedef struct {
   float x, y, z, u, v;
 } Vtx;
 
-enum { kMaxVerts = (kGpuMaxQuads + 256) * 6, kTexW = 512, kTexH = 256, kTexOffXCalib = 128,
+enum { kMaxVerts = (kGpuMaxQuads + 256) * 6 * 2,   // two eyes
+       kTexW = 512, kTexH = 256, kTexOffXCalib = 128,
        kTexOffY = kGpuMaxExtraRows };
 
 static bool g_ready, g_failed;
@@ -38,7 +40,7 @@ static int g_uloc_proj;
 static C3D_AttrInfo g_attr;
 static C3D_BufInfo g_buf;
 static C3D_Tex g_main_tex, g_sub_tex;
-static C3D_RenderTarget *g_rt_main, *g_rt_sub, *g_rt_top;
+static C3D_RenderTarget *g_rt_main, *g_rt_sub, *g_rt_top, *g_rt_top_right;
 static C3D_Mtx g_proj_tex, g_proj_top;
 static int g_off_x = kTexOffXCalib;   // target column of screen column 0
 
@@ -144,6 +146,22 @@ static void BlendOff(void) {
   C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
 
+// Stereo: the eye being drawn, each plane's shift for it in SNES pixels (whole pixels,
+// StereoDepth_EyeOffset), and whether the frame is gameplay (StereoFrame).
+static int g_eye_dx[kStereoPlaneCount];
+static StereoFrame g_stereo_frame;
+
+// The plane of a quad, from what the frame builder put in it: its level and flags
+// (gpu_ppu.c: kBgLevel, sprites at 4 * priority + 2). `hud`: in the HUD list.
+static int QuadDx(const GpuQuad *qd, bool hud) {
+  // Without WIDE the HUD stays in its band: SM's HUD is BG3 on the top 32 rows.
+  if (g_stereo_frame.gameplay && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) && (qd->level == 15 || qd->level == 1) &&
+      qd->y + qd->h <= 32)
+    hud = true;
+  const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
+  return g_eye_dx[StereoDepth_Plane(&g_stereo_frame, &it)];
+}
+
 // Depth for a priority level (0 = backdrop .. 15).
 static inline float LevelZ(int level) { return -((float)level + 0.5f) / 16.0f; }
 
@@ -185,7 +203,7 @@ static void PushQuad4(float x0, float y0, float x1, float y1, float z, const flo
 // (0, 0). A small bias keeps exact texel boundaries on the right side of the GPU's
 // limited precision: with every value a multiple of 64 (identity or simple scales)
 // positions are quarter texels and 1/8 texel is safe; otherwise half a unit (1/512).
-static void PushAffine(const GpuQuad *qd) {
+static void PushAffine(const GpuQuad *qd, int dx) {
   enum { kPlane = 1024 * 256 };
   const double bias = ((qd->ax | qd->ay | qd->adx | qd->ady | qd->ardx | qd->ardy) & 63) == 0 ? 32.0 : 0.5;
   double px = qd->ax, py = qd->ay;
@@ -200,7 +218,7 @@ static void PushAffine(const GpuQuad *qd) {
     uv[c][0] = (float)(tx / kPlane);
     uv[c][1] = (float)(1.0 - ty / kPlane);
   }
-  PushQuad4(qd->x, qd->y, qd->x + qd->w, qd->y + qd->h, LevelZ(qd->level), uv);
+  PushQuad4(qd->x + dx, qd->y, qd->x + qd->w + dx, qd->y + qd->h, LevelZ(qd->level), uv);
 }
 
 static void BatchDraw(void) {
@@ -285,15 +303,16 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
         }
       }
     }
+    const int dx = QuadDx(qd, over);
     if (qd->flags & kGpuQuadAffine) {
-      PushAffine(qd);
+      PushAffine(qd, dx);
       continue;
     }
     float u0 = qd->sx * inv_w, u1 = (qd->sx + qd->w) * inv_w;
     float v0 = 1.0f - qd->sy * inv_h, v1 = 1.0f - (qd->sy + qd->h) * inv_h;   // TexV
     if (qd->flags & kGpuQuadFlipX) { float s = u0; u0 = u1; u1 = s; }
     if (qd->flags & kGpuQuadFlipY) { float s = v0; v0 = v1; v1 = s; }
-    PushQuad(qd->x, qd->y, qd->x + qd->w, qd->y + qd->h, LevelZ(qd->level), u0, v0, u1, v1);
+    PushQuad(qd->x + dx, qd->y, qd->x + qd->w + dx, qd->y + qd->h, LevelZ(qd->level), u0, v0, u1, v1);
   }
   BatchDraw();
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
@@ -442,14 +461,9 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
   *submit_ms = (float)((double)g_submit_ticks * 1000.0 / SYSCLOCK_ARM11);
 }
 
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
-  if (!g_ready) return;
-  const u64 t0 = svcGetSystemTick();
-  C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
-  const u64 t1 = svcGetSystemTick();
-  g_wait_ticks = t1 - t0;
-  g_nverts = 0;
-  SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
+// One eye: the frame into the main (and sub) target with each plane moved by g_eye_dx,
+// then onto that eye's top-screen target.
+static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_top) {
   BlendOff();
   bool any_sub = false;
   for (int i = 0; i < f->band_count; i++) any_sub |= !f->bands[i].black && f->bands[i].math && f->bands[i].add_subscreen;
@@ -464,7 +478,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
   C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_main, &g_proj_tex);
   for (int i = 0; i < f->band_count; i++) DrawBandMain(f, &f->bands[i]);
-  if (f->mask_count) {
+  if (f->mask_count) {   // the margins: they belong to the screen, not to a plane
     EnvSolid(0xff000000);
     C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
     C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
@@ -479,8 +493,8 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
 
   // Top screen: the 256x224 picture centred, scaled to 274x240 or 1:1, like the CPU path
   // (DrawPpuFrame); WIDE margins at the same scale on each side, cut by the screen edge.
-  C3D_RenderTargetClear(g_rt_top, C3D_CLEAR_ALL, 0, 0);
-  SetTarget(g_rt_top, &g_proj_top);
+  C3D_RenderTargetClear(rt_top, C3D_CLEAR_ALL, 0, 0);
+  SetTarget(rt_top, &g_proj_top);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
@@ -502,13 +516,15 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
     PushQuad(x0, y0, x1, y1, 0, u0, RtV(b->y0), u1, RtV(b->y1));
     BatchDraw();
   }
+  // The port's own text, on the HUD's plane (screen pixels, whole like the planes').
+  const int text_dx = g_eye_dx[kStereoHud];
   if (g_overlay_on) {
     // See-through: the box is translucent black, the rest of the texture transparent.
     C3D_TexBind(0, &g_overlay_tex);
     EnvTexture();
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
     BatchBegin();
-    PushQuad(0, 0, kOverlaySize, kOverlaySize, 0, 0, 1, 1, 0);
+    PushQuad(text_dx, 0, kOverlaySize + text_dx, kOverlaySize, 0, 0, 1, 1, 0);
     BatchDraw();
     BlendOff();
   }
@@ -516,11 +532,30 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect) {
     C3D_TexBind(0, &g_toast_tex);
     EnvTexture();
     BlendOff();
-    const float x0 = (400 - kToastBoxW) / 2, y0 = 4;
+    const float x0 = (400 - kToastBoxW) / 2 + text_dx, y0 = 4;
     BatchBegin();
     PushQuad(x0, y0, x0 + kToastBoxW, y0 + kToastBoxH, 0, 0, 1, (float)kToastBoxW / kToastW,
              1.0f - (float)kToastBoxH / kToastH);
     BatchDraw();
+  }
+}
+
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay) {
+  if (!g_ready) return;
+  const u64 t0 = svcGetSystemTick();
+  C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
+  const u64 t1 = svcGetSystemTick();
+  g_wait_ticks = t1 - t0;
+  g_nverts = 0;
+  SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
+  g_stereo_frame.gameplay = gameplay;
+  // Two eyes only with the 3D screen on (gfxSet3D, main.c) and the slider up; otherwise
+  // one, unshifted (2DS: always).
+  const int eyes = slider > 0 && gfxIs3D() ? 2 : 1;
+  for (int e = 0; e < eyes; e++) {
+    for (int p = 0; p < kStereoPlaneCount; p++)
+      g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, e ? -1 : 1) : 0;
+    DrawEye(f, pixel_perfect, e ? g_rt_top_right : g_rt_top);
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;
@@ -675,7 +710,7 @@ bool GpuPpu3ds_Init(void) {
   if (g_ready) return true;
   if (g_failed) return false;
   g_failed = true;   // until everything below worked
-  if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2)) return false;
+  if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 4)) return false;   // two eyes
   g_dvlb = DVLB_ParseFile((u32 *)gpu_ppu_shbin, gpu_ppu_shbin_size);
   if (!g_dvlb) return false;
   shaderProgramInit(&g_prog);
@@ -697,8 +732,10 @@ bool GpuPpu3ds_Init(void) {
   g_rt_main = C3D_RenderTargetCreateFromTex(&g_main_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_sub = C3D_RenderTargetCreateFromTex(&g_sub_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
-  if (!g_rt_main || !g_rt_sub || !g_rt_top) return false;
+  g_rt_top_right = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
+  if (!g_rt_main || !g_rt_sub || !g_rt_top || !g_rt_top_right) return false;
   C3D_RenderTargetSetOutput(g_rt_top, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
+  C3D_RenderTargetSetOutput(g_rt_top_right, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
 
   SetTexOffset(kTexOffXCalib);
   Mtx_OrthoTilt(&g_proj_top, 0, 400, 240, 0, 1, -1, true);

@@ -9,6 +9,7 @@ SRAM, scripted inputs, warps).
 | Test | What | Checks |
 |---|---|---|
 | dsp-fuzz | random S-DSP register writes, optimised `dsp.c` against the vendored one | samples, registers and APU RAM identical (no ROM needed) |
+| stereo-depth | `tools/stereo-test`: every input of the stereo depth mapping (`source/stereo_depth.c`) | no layer nearer than what draws over it beyond the listed exceptions (and the list exact), one sprite plane, HUD nearest, whole-pixel symmetric eye offsets at every slider step (no ROM needed) |
 | gpu-rooms | every room reachable by a door, 10 frames each | GPU list == CPU renderer, nothing refused, WRAM hash |
 | gpu-newgame | power-on, title, intro, new game, Ceres (mode 7), Ceres exploding (`CERES_BOOM`) | same |
 | gpu-pbomb | a power bomb in Landing Site (layer and colour windows) | same |

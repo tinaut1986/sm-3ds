@@ -176,7 +176,8 @@ an error screen otherwise. Saves, `config.ini` and `debug/` live in that folder 
 Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
-room, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
+room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM),
+`tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
 console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in

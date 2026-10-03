@@ -15,7 +15,7 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.1.4`. Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
+**Release line:** `release/v0.2.0` (renamed from `release/v0.1.4` on 2026-10-03: stereo 3D is the milestone). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
@@ -279,8 +279,18 @@ Lessons from mzm that apply directly:
 - [ ] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
   per-layer and per-tile priority, OBJ priority, which layer carries HUD/FX),
   with exhaustive host tests like `../mzm/platform/3ds/tests/stereo_depth_test.c`.
+  Design: `docs/stereo-design.md` (planes, whole-pixel offsets, the platform-thickness
+  plane, drawing twice; agreed with the owner 2026-10-03).
+  Done on the host 2026-10-03: `source/stereo_depth.{h,c}`, `tools/stereo-test` (in
+  `make test`). Nothing to see on the console until P3.2.
 - [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
   Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
+  First cut 2026-10-03 (branch `feat/stereo`, to check on the New 3DS): each eye drawn
+  from the one frame build with every quad moved by its plane's whole-pixel offset
+  (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
+  CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
+  (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
+  no option to turn it off besides the slider, second eye's vertices pushed again.
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
   a debug depth tint like mzm's.
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
@@ -939,3 +949,9 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   #18 stays open for the X-ray scope (the security eyes were confirmed). The debug log's
   settings line now carries the display mode and WIDE (it did not, so these runs' WIDE
   state came from the owner: on).
+- 2026-10-03: The owner made stereo 3D the next minor: `release/v0.1.4` (never tagged)
+  renamed to `release/v0.2.0`. For the design they asked for (1) text and HUD with depth
+  in whole pixels, so they never ghost as in mzm before its rounding, and (2) mzm's
+  platform thickness kept (scenery slightly nearer than Samus and enemies); mzm's
+  menu/map/cutscene override lists are not to be copied, SM's screens are looked at on
+  their own.

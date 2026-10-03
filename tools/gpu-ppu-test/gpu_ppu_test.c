@@ -28,6 +28,7 @@
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "stereo_depth.h"
 #include "game_text.h"
 #include "ui_lang.h"
 
@@ -521,6 +522,39 @@ static void TestFrame(const char *label, bool check_capture) {
   if (g_frame.quad_count > g_max_quads) g_max_quads = g_frame.quad_count;
   memset(g_c, 0, sizeof(g_c));
   GpuRef_DrawFrame(&g_frame, g_c, kPitch);
+  // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
+  // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
+  int sp_a, sp_b;
+  if (getenv("STEREO_PLANES") && sscanf(getenv("STEREO_PLANES"), "%d-%d", &sp_a, &sp_b) == 2 && g_frames >= sp_a &&
+      g_frames <= sp_b) {
+    static GpuFrame one;
+    static uint8_t img[kPitch * 240];
+    const StereoFrame sf = { SmWide_Gameplay() };
+    for (int pl = 0; pl < kStereoPlaneCount; pl++) {
+      one = g_frame;
+      for (int q = 0; q < one.quad_count; q++) {
+        const GpuQuad *qd = &one.quads[q];
+        const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
+        const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
+        if (StereoDepth_Plane(&sf, &it) != pl) one.quads[q].w = 0;
+      }
+      for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
+      memset(img, 0, sizeof(img));
+      GpuRef_DrawFrame(&one, img, kPitch);
+      char name[40];
+      snprintf(name, sizeof(name), "planes-%04d-%d.ppm", g_frames, pl);
+      FILE *f = fopen(name, "wb");
+      if (!f) continue;
+      fprintf(f, "P6\n256 224\n255\n");
+      for (int y = 0; y < 224; y++)
+        for (int x = 0; x < 256; x++) {
+          const uint8_t *px = &img[y * kPitch + x * 4];
+          const uint8_t rgb[3] = { px[2], px[1], px[0] };
+          fwrite(rgb, 1, 3, f);
+        }
+      fclose(f);
+    }
+  }
   if ((n = Diff(g_b, g_c, &x0, &y0, &x1, &y1))) {
     g_gpu_bad++;
     printf("%s: GPU differs: %d px in %d,%d..%d,%d (%d bands, %d quads)\n", label, n, x0, y0, x1, y1,

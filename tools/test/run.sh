@@ -51,6 +51,9 @@ field() { grep -o "$2" "$1" | head -1; }
 echo "dsp-fuzz: optimised S-DSP against the vendored one, random register writes"
 WORK=$OUT/dsp-fuzz "$ROOT/tools/audio-bench/dsp_fuzz.sh" 1 2 > "$OUT/dsp-fuzz.log" 2>&1
 check dsp-fuzz "4 runs identical" "$( [ "$(grep -c '^OK:' "$OUT/dsp-fuzz.log")" = 4 ]; echo $?)"
+echo "stereo-depth: the stereo depth mapping against the SNES compositor's order"
+WORK=$OUT/stereo-test "$ROOT/tools/stereo-test/run.sh" > "$OUT/stereo-test.log" 2>&1
+check stereo-depth "0 failed" "$(grep -q ', 0 failed$' "$OUT/stereo-test.log"; echo $?)"
 
 if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
   echo "No ROM (pass it or set SM_ROM): the other tests need it."

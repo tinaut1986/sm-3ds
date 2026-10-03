@@ -474,6 +474,8 @@ bool SmWide_Filled(void) { return g_filled; }
 
 bool SmWide_Mode7(void) { return g_mode7; }
 
+bool SmWide_Gameplay(void) { return RoomShown() || game_state == kGameState_11_LoadingNextRoom; }
+
 void SmWide_Margins(int *left, int *right, int *hud_x, int *bg2_dx) {
   *left = g_left;
   *right = g_right;
