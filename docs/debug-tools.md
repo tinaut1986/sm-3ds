@@ -60,7 +60,7 @@ dump landed in slot 00 once all ten existed (issue #8).
 | `sm-dump-NN-game.txt` | game state, room, Samus |
 | `sm-dump-NN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
 | `sm-dump-NN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
-| `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
+| `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, display mode, WIDE, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
 | `sm-exit.txt` | the steps of the last exit, in every build: if closing hangs, the last line says where |
 | `sm-perf-NN.csv` | frame-time recorder |
 | `sm-rec-NN.bin` | scene recorder (below) |

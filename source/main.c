@@ -420,13 +420,14 @@ static void ExitStep(const char *what) {
 // audio thread's health (see AudioCallback).
 static void LogPeriodic(const UiPerf *p) {
   static int seconds;
-  static int last_speedup = -1, last_gpu = -1, last_audio = -1, last_paused = -1;
+  static int last_speedup = -1, last_gpu = -1, last_audio = -1, last_paused = -1, last_wide = -1, last_pp = -1;
   if (g_ui.new3ds_speedup != last_speedup || g_ui.gpu_render != last_gpu || g_ui.audio_on != last_audio ||
-      g_ui.paused != last_paused) {
+      g_ui.paused != last_paused || g_ui.wide != last_wide || g_ui.pixel_perfect != last_pp) {
     last_speedup = g_ui.new3ds_speedup, last_gpu = g_ui.gpu_render, last_audio = g_ui.audio_on;
-    last_paused = g_ui.paused;
-    Debug_Log("settings: cpu %s, renderer %s, audio %s%s", g_ui.new3ds_speedup ? "804" : "268",
-              g_ui.gpu_render ? "GPU" : "CPU", g_ui.audio_on ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
+    last_paused = g_ui.paused, last_wide = g_ui.wide, last_pp = g_ui.pixel_perfect;
+    Debug_Log("settings: cpu %s, renderer %s, audio %s, display %s, wide %s%s", g_ui.new3ds_speedup ? "804" : "268",
+              g_ui.gpu_render ? "GPU" : "CPU", g_ui.audio_on ? "on" : "off",
+              g_ui.pixel_perfect ? "pixel perfect" : "scaled", g_ui.wide ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
   }
   if (++seconds % 5) return;
   Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | frameskip %s | room %04X",
