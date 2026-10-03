@@ -27,8 +27,7 @@ request (#16 confirmed); what each still needs from the console is in its task (
 P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
-P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
-there) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -122,7 +121,7 @@ Lessons from mzm that apply directly:
 - [x] **P0.2** Build upstream and run it.
   Done 2026-09-30: the upstream build (ROM baked into romfs) booted on a New 3DS.
   Superseded by P1.1; that build no longer exists. Azahar never tried.
-- [ ] **P0.3** Measure the baseline.
+- [x] **P0.3** Measure the baseline.
   *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
   and `FULL_NATIVE`. Record in a table below.
@@ -130,6 +129,8 @@ Lessons from mzm that apply directly:
   Status 2026-10-01: Landing Site on both, title/intro/Ceres on the 2DS (see the
   table). Tools: the debug log (every 5 s: speed, work, logic, GPU build/submit, audio)
   and Debug tab -> PERF (`debug/sm-perf-NN.csv`).
+  Done 2026-10-03: every spot on both consoles, audio off on the 2DS; `FULL_NATIVE=0`
+  not measured (decisions log).
 - [ ] **P0.4** Establish game-logic correctness on PC.
   *Spec:* build the PC version from `sm/` on Linux; play or replay with the
   native-vs-ROM comparison on; note mismatches. Check whether snesrev's
@@ -462,13 +463,15 @@ Lessons from mzm that apply directly:
 
 ## Baseline measurements (P0.3)
 
+Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5 with audio), D055 54.9 (52.7), Landing Site 54.9 (52.3-54.0), work within ±1.5 ms. The audio thread is not what makes the frameskip drop frames there.
+
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
-| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer | | 2026-10-01 |
-| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer) | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
-| Brinstar | | | |
-| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | | numbers pending from the log |
-| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after | | numbers pending from the log |
+| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer. Log 2026-10-03 (268 MHz, audio on, WIDE on): speed 56.6-59.6, shown 44.4 (E0B5) to 55.2 (DF45), work 11-15 ms (draw 7-12); audio callbacks slower than their buffer 46-303 per room (crackles likely), against 0-40 elsewhere | GPU renderer: speed 59.6-59.7 in DF45-E021, 58.4 E06B, 58.6 E0B5 (Ridley, with the escape); work 5-8 ms (logic ~2, draw 3-5 = build 2-4 + submit ~1) | 2DS 2026-10-01. N3DS 2026-10-03 from the debug logs (5 s windows; the last window before a quit, 300-800 ms, left out), 804 MHz, audio on, frameskip on |
+| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer). GPU renderer (91F8, 2026-10-03): speed 59.8, work 4.9 ms (logic 1.9, draw 2.4 = build 1.5 + submit 0.4); other Crateria rooms 59.0-60.0, work 3-5 ms | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
+| Brinstar | 2DS 2026-10-03, 268 MHz, audio on (9E9F, 9F11, 9F64, A107): speed 59.1-59.7, shown 53.8-58.1, work 9-11 ms (logic 1.8-4.1, draw 5.7-7.8) | GPU renderer: speed 58.9-59.9 over 9AD9-A107 (9E9F morph ball room 58.9), work 4-5 ms (logic 1.2-2.0, draw 2.1-3.1); audio callbacks slower than their buffer: 0-1 per room | N3DS 2026-10-03, same logs |
+| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | B1E5, GPU renderer: speed 59.8-60.0 over 50 s, work 5.0-5.4 ms (logic 1.9, draw 2.8-3.2; build 1.4-2.0, submit 0.6-0.8), audio clean. A heat room (owner: it took health, lava, Samus jumped in); 238-260 quads: a layer drawn one quad per line (per-line scroll), as AFFB and A923 on the host (~209 quads each, GPU equal to the CPU renderer) | 2DS: A923 2026-10-03, 268 MHz, audio on: speed 58.4, shown 46.5 (frameskip), work 14.6 ms (logic 6.3, draw 8.6 = build 6.2 + submit 1.5), 284 quads |
+| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after. D055 2026-10-03: speed 58.5, shown 52.7, work 12.7 ms avg / 16.5 max (logic 5.7, draw 6.1), 223 quads | D017, GPU renderer: speed 59.9 over 25 s, work 4.8-5.2 ms (logic 1.9, draw 2.6-2.9), 414-451 quads in one band (per-line scroll), audio clean | numbers pending from the log |
 
 ## Decisions log
 
@@ -925,3 +928,14 @@ Lessons from mzm that apply directly:
   them all for testing) into `release/v0.1.4` once #16 (FX over the HUD's rows) was seen
   fixed. Merged branch by branch with `--no-ff`, oldest first. The tasks stay unticked until
   each is checked on its own (Done when), as do #7 and #18.
+- 2026-10-03: P0.3 closed from the debug logs of both consoles. `FULL_NATIVE=0` (the ROM on
+  the emulated CPU) was not measured: every build is FULL_NATIVE and that path is only a
+  host debugging aid. On the 2DS, switching audio off barely moves the shown fps (A923
+  46.5 -> 44.3, D055 52.7 -> 54.9): the game runs at ~58-59 while frames shown drop to
+  44-55 because work is 12-16 ms, close to the 16.7 ms budget, and draw is the larger part.
+  Ceres on the 2DS has 46-303 audio callbacks slower than their buffer per room (0-40
+  elsewhere). Both are P2 material, after Phase 3 in the owner's order. #7 confirmed by the
+  owner (Ridley's room: the walls go on up to the top edge, no black band) and closed;
+  #18 stays open for the X-ray scope (the security eyes were confirmed). The debug log's
+  settings line now carries the display mode and WIDE (it did not, so these runs' WIDE
+  state came from the owner: on).
