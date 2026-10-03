@@ -20,8 +20,8 @@ typedef enum {
   kStereoObj,      // the other world sprites: Samus, enemies (OAM priority 0-2)
   kStereoBack,     // BG1 tile priority 0: the level's parts Samus passes in front of (the
                    // save station's glass, background pipes)
-  kStereoMid,      // BG2 priority 0 (the room's background)
-  kStereoFar,      // BG3 priority 0 FX, the backdrop
+  kStereoMid,      // BG3 priority 0 FX: falling ash, fog, haze (in front of the room's background)
+  kStereoFar,      // BG2 priority 0 (the room's background), the backdrop
   kStereoScreen,   // a non-gameplay screen: flat until P3.4 gives it depth
   kStereoPlaneCount
 } StereoPlane;

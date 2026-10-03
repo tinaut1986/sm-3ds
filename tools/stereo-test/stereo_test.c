@@ -44,6 +44,9 @@ static const struct { const char *front, *back; bool needs_thickness; const char
   { "BG1 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 1", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
+  // BG3 priority 0 FX (ash, fog) are drawn under everything but meant to read in front of
+  // the room's background; they only show where BG2 is transparent.
+  { "BG2 prio 0", "BG3 prio 0", false, "FX in front of the background" },
 };
 enum { kAcceptedCount = sizeof(kAccepted) / sizeof(kAccepted[0]) };
 

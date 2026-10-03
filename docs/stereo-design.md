@@ -70,8 +70,8 @@ Values are a starting point to tune on the console, not a decision.
 | `PLAY` | BG1 and BG2 tile priority 1 (levels 12, 11): SM's walls and floors; sprites of OAM priority 3 (drawn over them); the mode 7 plane | 0 |
 | `OBJ` | Samus and enemies (OAM priority 0-2) | -1 |
 | `BACK` | BG1 tile priority 0 (level 8): the level's parts Samus passes in front of (the save station's glass, background pipes) | -2 |
-| `MID` | BG2 tile priority 0 (level 7) | -3 |
-| `FAR` | BG3 priority 0 FX, backdrop | -4 |
+| `MID` | BG3 priority 0 FX: falling ash, fog, haze (level 1) | -3 |
+| `FAR` | BG2 tile priority 0 (level 7), the room's background; backdrop | -4 |
 | `SCREEN` | non-gameplay screens until P3.4 treats them: everything flat | 0 |
 
 Why these (revised 2026-10-03 after the first console test):
@@ -85,9 +85,11 @@ Why these (revised 2026-10-03 after the first console test):
   behind it.
 - `PLAY` at 0 keeps the walls at the screen's own depth, where the eyes focus anyway.
 - `OBJ` = `PLAY` when the thickness option is off; the test checks both settings.
-- `MID` is BG2 priority 0, the room's background. BG2 priority 1 (level 11) draws over
+- `FAR` is BG2 priority 0, the room's background, and `MID` the BG3 priority 0 FX in front of it
+  (ash in room 9CB3 read as behind the background when both shared a plane order the other way;
+  the SNES draws BG3 under BG2, so the test pins it as accepted). BG2 priority 1 (level 11) draws over
   Samus, so it is a wall and goes on `PLAY` like BG1 priority 1. Some rooms keep their
-  whole level on it: the Fireflea room (9C5E) has BG1 empty, and with BG2 all on `MID` the
+  whole level on it: the Fireflea room (9C5E) has BG1 empty, and with BG2 all on a far plane the
   floors sat 3 px behind Samus and level with the background (found with the scene recorder).
 - `HUD` and every other plane move in whole pixels (point 3).
 - The mode 7 plane goes on `PLAY`: in the Ceres elevator it is the room Samus stands

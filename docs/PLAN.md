@@ -1020,3 +1020,8 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   and BG2 was all on `MID` (-3 px): floors behind Samus and level with the background.
   BG2 priority 1 draws over Samus, so it joins BG1 priority 1 on `PLAY`; `MID` is now BG2
   priority 0 only. The accepted "BG2 always mid" exceptions in stereo-test are gone.
+- 2026-10-03: Falling ash (room 9CB3) read as behind the background: it is BG3 priority 0, which
+  sat on `FAR` (-4) under BG2's `MID` (-3). The two swapped: BG2 priority 0 (background) is
+  `FAR`, BG3 priority 0 FX is `MID`. stereo-test pins "BG2 prio 0 over BG3 prio 0, farther"
+  as accepted. The Fireflea room's thorns (reported behind, should be at Samus's depth) are
+  not located yet: not in BG1/BG2 at the room's left end in the host runs.
