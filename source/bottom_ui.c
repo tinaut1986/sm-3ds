@@ -908,7 +908,7 @@ static void DrawToolsModal(Surface s) {
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
     UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
-      const uint32_t c = StereoDepth_RampColor(i / 159.0f);
+      const uint32_t c = StereoDepth_RampColor(i / 159.0f, g_ui.plane_tint == 3 ? kRampDepth : kRampOrder);
       UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
     }
     UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");

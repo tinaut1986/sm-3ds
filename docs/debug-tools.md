@@ -65,8 +65,8 @@ writes one image per plane on the host (`STEREO_QUADS=1` also prints every quad'
 and plane). The setting lasts for the session. The CPU renderer has no planes: the cell
 says so.
 
-DRAW ORDER and STEREO DEPTH use one colour (dark green at the back, bright green in front); the window
-shows the ramp. DRAW ORDER is how the game draws the quad: its compositor level (backdrop 0, BG3 priority 0
+DRAW ORDER (green) and STEREO DEPTH (blue) each use one colour, dark at the back and bright in front, so
+which of the two is on shows at a glance; the window shows the ramp. DRAW ORDER is how the game draws the quad: its compositor level (backdrop 0, BG3 priority 0
 1, sprites priority 0 2, sprites priority 1 6, BG2 priority 0 7, BG1 priority 0 8, sprites priority 2 10,
 BG2 priority 1 11, BG1 priority 1 12, sprites priority 3 14, BG3 priority 1 and the HUD 15). STEREO DEPTH is
 where 3D puts the same quad: the shift of its plane at full slider, far to near, planes set by hand included

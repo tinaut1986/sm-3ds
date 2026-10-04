@@ -331,8 +331,8 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
       if (key != tint) {
         BatchDraw();
         EnvPlaneTint(g_plane_tint == kPlaneTintPlanes ? StereoDepth_PlaneColor(plane)
-                     : g_plane_tint == kPlaneTintOrder ? StereoDepth_RampColor((float)qd->level / 15.0f)
-                                                       : StereoDepth_RampColor(StereoDepth_PlaneDepth(plane)));
+                     : g_plane_tint == kPlaneTintOrder ? StereoDepth_RampColor((float)qd->level / 15.0f, kRampOrder)
+                                                       : StereoDepth_RampColor(StereoDepth_PlaneDepth(plane), kRampDepth));
         tint = key;
       }
     }

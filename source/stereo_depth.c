@@ -75,11 +75,12 @@ uint32_t StereoDepth_PlaneColor(StereoPlane plane) {
   return plane >= 0 && plane < kStereoPlaneCount ? kPlaneColor[plane] : 0;
 }
 
-uint32_t StereoDepth_RampColor(float t) {
+uint32_t StereoDepth_RampColor(float t, int ramp) {
   if (t < 0) t = 0;
   if (t > 1) t = 1;
-  const int r = (int)(24 + 56 * t + 0.5f), g = (int)(40 + 215 * t + 0.5f), b = (int)(24 + 80 * t + 0.5f);
-  return (uint32_t)(r << 16 | g << 8 | b);
+  const int main = (int)(40 + 215 * t + 0.5f), side = (int)(24 + 56 * t + 0.5f), low = (int)(24 + 80 * t + 0.5f);
+  if (ramp == kRampDepth) return (uint32_t)(side << 16 | low << 8 | main);   // blue
+  return (uint32_t)(side << 16 | main << 8 | low);                           // green
 }
 
 float StereoDepth_PlaneDepth(StereoPlane plane) {
