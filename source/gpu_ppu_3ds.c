@@ -515,7 +515,16 @@ static void MathPass(const GpuFrame *f, const GpuBand *b) {
         if (!any || px > hmax) hmax = px;
         any = true;
       }
-    MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(hmax + 1, g_slider, g_eye_sign));
+    // ...but behind a layer the effect is not added to that draws over it (BG1's walls): that layer hides the effect, so the
+    // effect must be a pixel behind it, or there would be no reason for the layer to cover it. Sprites do not limit it.
+    int u = hmax + 1;
+    for (int q = b->main_first; q < b->main_first + b->main_count; q++) {
+      const GpuQuad *qd = &f->quads[q];
+      if (qd->flags & (kGpuQuadMath | kGpuQuadObj)) continue;
+      const int px = StereoDepth_PlanePx(QuadPlane(qd, false)) - 1;
+      if (px + 1 >= hmax && px < u) u = px;
+    }
+    MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(u, g_slider, g_eye_sign));
   } else {
     EnvSolid(ColorFrom555(b->fixed, 255));
     C3D_AlphaTest(false, GPU_ALWAYS, 0);

@@ -105,7 +105,9 @@ Why these (revised 2026-10-03 after the first console test):
   A layer rule set by hand (`SM_LAYER_PLANE`) for BG3 keeps its plane in both. The planes of BG3 above (`MID`, `FRONT`)
   only matter for the HUD and the rooms where BG3 is a plain layer.
 - Ash on the subscreen takes **one** plane, a pixel in front of every plane it is added to and of the sprites' (so it is
-  always in front of Samus): following each pixel's owner put it in front of her only while she crossed the layer it was on.
+  always in front of Samus), but a pixel behind a layer the game does not add it to that stands at or in front of those planes
+  (BG1's walls hide it; at the same depth nothing would explain why the wall covers it) Following each pixel's owner put it in front of
+  Samus only while she crossed the layer it was on; one plane a pixel past everything hid it behind the scenery it showed in front of.
 - A wall the game draws with tile priority 0 but that stands in front of Samus (A6A1) is on `PLAY` and still crossed by her
   weapon (sprites of priority 2 are drawn over BG1 priority 0): the plane is only the depth, the order is the priority.
   `SM_TILE_PRIO` (workbench) draws such tiles with priority 1.
