@@ -291,7 +291,9 @@ Lessons from mzm that apply directly:
   CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
   (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
   no option to turn it off besides the slider, second eye's vertices pushed again.
-- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors).
+- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
+  (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter and viewer exist, the
+  renderer does not read the `.inc` yet.
   The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
   (flat or with deliberate depth).
