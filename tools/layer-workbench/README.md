@@ -11,6 +11,10 @@ The decisions are saved in `source/sm_plane_fixes.inc`, which the renderer will 
 
 ## Use
 
+`./run_workbench.sh [ROM]` (repo root) does both steps below: it exports the rooms the first time (ROM as the
+argument or in `SM_ROM`; `EXPORT=1` exports again) and starts the server; further options go to `serve.py`.
+By hand:
+
 ```sh
 tools/layer-workbench/export.sh /path/to/Super\ Metroid\ \(Japan,\ USA\).sfc     # once: ~/sm-3ds-rooms/*.room
 tools/layer-workbench/serve.py                                                   # opens http://127.0.0.1:8765/
@@ -19,24 +23,34 @@ tools/layer-workbench/serve.py                                                  
 The exporter needs the ROM (never committed, nor is its output) and a 64-bit gcc; it boots the game headless,
 warps into every room with `source/sm_warp.c` (as `tools/warp-test` does) and writes one `.room` file per
 room. The viewer only reads those files: it does not emulate anything, so it can be left open while the
-`.inc` is edited. `serve.py ROOMS_DIR --port N --no-browser` change where it reads from and how it starts.
+`.inc` is edited. `serve.py ROOMS_DIR --rom ROM --port N --no-browser` change where it reads from, where the area map gets its room positions (optional) and how it starts.
 
 The page is a desk of floating windows (drag by the title, resize from the corner, minimise with the dash; the
 layout is kept in the browser, `RELAYOUT` resets it):
 
-- **Rooms:** the rooms by area (search by hex or area). A number shows how many fixes a room already has.
+- **Rooms:** the rooms in one folder per area (click to fold; the open ones are remembered). Search by hex or area.
+  A number shows how many fixes a room or an area has.
+- **Map:** the area map, one rectangle per room (positions read from the ROM's room headers: `run_workbench.sh` passes
+  `--rom`). Click a room to open it; where several rooms share a cell, each further click takes the next. The open room is
+  outlined in yellow, rooms with fixes carry a green dot.
 - **Result:** the room as the game draws it (BG2 prio 0, BG1 prio 0, BG2 prio 1, BG1 prio 1). The BG1 / BG2 boxes
   in its title hide a layer; they start from what the game really shows in that room (the top bar says which
   layers are on the main and the sub screen; Ceres' `E0B5` has level data in BG1 that is never drawn).
 - **BG1 and BG2:** one window per layer, each with a selector: `REAL` (the picture), `BEFORE` (every tile tinted
   by the plane the depth function gives it, the colours of PLANE TINT), `AFTER` (the same with the fixes and
-  rules applied) or `BEFORE|AFTER` side by side. All windows scroll and zoom together, and the selection is drawn in
-  all of them. A layer that is not level data (BG2 in most rooms) says so; whole-layer rules still apply to it.
+  rules applied) or `BEFORE|AFTER`, which stacks two panes, each with its own scroll bars. All panes scroll and zoom
+  together, and the selection is drawn in all of them. A layer that is not level data (BG2 in most rooms) says so;
+  whole-layer rules still apply to it. The `TINT` button in the top bar turns the tint off in BEFORE and AFTER to
+  see the real colours (a bar in the plane's colour still marks the tiles with a fix). In AFTER a tile belongs to
+  the window of the layer its plane puts it on (BACK and PLAY are BG1's, MID is BG2's): a BG2 tile sent to PLAY leaves
+  BG2's AFTER and shows in BG1's, on top of what is there.
 - **Tools:** the plane buttons, `same as` (the plane a tile on that layer would get: BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2
   MID, BG3 prio 0 FAR, BG3 prio 1 FRONT, sprites OBJ), `APPLY`, `CLEAR FIXES`, `COPY INFO`, the whole-layer rules,
   the room's fixes (click to select, `x` to remove) and `SAVE`.
-- **Select** with the top bar's `BLOCKS (16x16)` or `TILES (8x8)`: click or drag a rectangle; `Ctrl` adds (or removes what
-  is already selected), the arrows move the selection, `Esc` clears it. What a selection covers depends on where it
+- **Mouse:** a plain drag selects (a click is a one-block drag), `Ctrl` adds to the selection (or removes what is already
+  selected), `Shift` + drag or the middle button pans, `Ctrl` + wheel zooms around the pointer. A selection is bound to the
+  pane it started in. Select with the top bar's `BLOCKS (16x16)` or `TILES (8x8)`; the arrows move the selection, `Esc`
+  clears it. What a selection covers depends on where it
   was made: in the Result it covers every layer, in a layer window only that layer (the Tools window says which).
   Moving a tile "to another layer" means sending it to that layer's plane with `same as`: only its 3D depth changes,
   the picture still draws it where the game does. Hovering prints the block's words, type, the tile's own data and the
@@ -69,12 +83,18 @@ extensions, 8 solid, 9 door, A spike, B crumble, C shot, E grapple, F bomb). A t
 
 ## What exists, what does not
 
-- Done: the exporter, the viewer with selection and fixes, the server, the `.inc`, and the renderer reading
-  the **layer rules**: `SM_LAYER_PLANE` for BG1, BG2, BG3, the sprites of a priority (`layer` 4) and Mode 7
-  (`layer` 5) (`source/sm_planes.c`, `GpuPpu_SetPlaneRule`: the quads carry `GpuQuad.plane`, and
-  `QuadPlane` in `gpu_ppu_3ds.c` uses it, never over the HUD or outside gameplay). The debug log says when a
-  room with rules is entered; `tools/gpu-ppu-test` with `STEREO_QUADS=1` marks the quads "(set by hand)".
-- Not yet: block fixes (`SM_PLANE_FIX`): they are read by the viewer and written to the `.inc` but ignored by the
-  renderer, because they need BG1/BG2 split into one texture per plane (as `1fa4320` did by block type, and that
-  did not work on the console, so the cause is to be found first); sprites by enemy (`SM_SPRITE_PLANE`); the
-  room's enemies and PLMs in the viewer; scene recordings and dumps as extra views (mzm has them).
+- Done: the exporter, the viewer with selection and fixes, the server, the `.inc`, and the renderer reading it:
+  - the **layer rules** `SM_LAYER_PLANE` for BG1, BG2, BG3, the sprites of a priority (`layer` 4) and Mode 7 (`layer` 5)
+    (`source/sm_planes.c`, `GpuPpu_SetPlaneRule`: the quads carry `GpuQuad.plane`, and `QuadPlane` in `gpu_ppu_3ds.c`
+    uses it, never over the HUD or outside gameplay);
+  - the **block fixes** `SM_PLANE_FIX` for BG1 and BG2 (`GpuPpu_SetSlotPlanes`): a tile of a fixed block is decoded into a
+    texture of its plane (per priority, made when first needed) instead of the layer's own, and drawn with the same
+    quads at the same level, so only its plane changes. Where a block of the level sits in the tilemap is
+    `(2*bx + i, 2*by + j)` modulo the tilemap's size, and of the blocks that share a slot the one nearest the camera
+    is on screen (`SmPlanes_SlotPlanes`; checked against WRAM and VRAM of several rooms, `tools/gpu-ppu-test`). A fix
+    is ignored when its block word no longer matches the level data (another state of the room).
+  The debug log says when a room with rules or fixes is entered; `tools/gpu-ppu-test` with `STEREO_QUADS=1` marks the
+  quads "(set by hand)" and `STEREO_PLANES` splits a frame by plane.
+- Not yet: sprites by enemy (`SM_SPRITE_PLANE`); the room's enemies and PLMs in the viewer; scene recordings and dumps
+  as extra views (mzm has them). Rooms whose layer scrolls on so many lines that the GPU renderer composes its rows on
+  the CPU (it never has, on the console) fall back to the CPU renderer while they have tile fixes.

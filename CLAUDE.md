@@ -177,7 +177,7 @@ an error screen otherwise. Saves, `config.ini`, `debug/` and the RetroAchievemen
 Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
-room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `tools/layer-workbench/` (README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
+room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `./run_workbench.sh` (`tools/layer-workbench/`, README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
 `tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
