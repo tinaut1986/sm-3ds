@@ -24,6 +24,7 @@ with `--no-ff` only after they confirm, closing the issues that turned out fine)
 the English menu in the first frames of the map (#27). Not merged.
 `feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
 owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
+`fix/stereo-bg2-play-v021` (the Fireflea room's flat 3D, BG2 priority 1 on the play plane; CIA on the console at .132) waits too.
 Everything above was merged into the release line at the owner's request and shipped in the
 `v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
@@ -1039,3 +1040,13 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   CPU frames were identical on the host in every room: the cause was never found. Per-room and per-tile
   depth is chosen by hand instead, with a layer workbench like mzm's and a `.inc` (#33); PLANE TINT is the
   way to see the result on the console.
+- 2026-10-03: Fireflea room (9C5E) looked flat in 3D. A scene recording and `STEREO_PLANES`
+  with `ONLY_LEVEL` showed its whole level is BG2 priority 1 (BG1 holds only the door cap),
+  and BG2 was all on `MID` (-3 px): floors behind Samus and level with the background.
+  BG2 priority 1 draws over Samus, so it joins BG1 priority 1 on `PLAY`; `MID` is now BG2
+  priority 0 only. The accepted "BG2 always mid" exceptions in stereo-test are gone.
+- 2026-10-03: Falling ash (room 9CB3) read as behind the background: it is BG3 priority 0, which
+  sat on `FAR` (-4) under BG2's `MID` (-3). The two swapped: BG2 priority 0 (background) is
+  `FAR`, BG3 priority 0 FX is `MID`. stereo-test pins "BG2 prio 0 over BG3 prio 0, farther"
+  as accepted. The Fireflea room's thorns (reported behind, should be at Samus's depth) are
+  not located yet: not in BG1/BG2 at the room's left end in the host runs.
