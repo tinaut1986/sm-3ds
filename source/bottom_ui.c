@@ -902,9 +902,17 @@ static void DrawToolsModal(Surface s) {
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
                g_ui.gpu_render ? act : COL_FAINT);
-  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.plane_tint ? "ON" : "OFF",
+  static const char *const kTintName[] = { "OFF", "PLANES", "DRAW ORDER", "STEREO DEPTH" };
+  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : kTintName[g_ui.plane_tint & 3],
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
-  if (g_ui.plane_tint && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
+  if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
+    UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
+    for (int i = 0; i < 160; i++) {
+      const uint32_t c = StereoDepth_RampColor(i / 159.0f);
+      UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+    }
+    UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");
+  } else if (g_ui.plane_tint == 1 && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
     int x = 16;
     for (int p = 0; p < kStereoPlaneCount - 1; p++) {
       const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
@@ -963,7 +971,7 @@ static void ToolsModalTouch(int x, int y) {
       break;
     case TOOL_PLANE_TINT:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
-      else g_ui.plane_tint = !g_ui.plane_tint;
+      else g_ui.plane_tint = (g_ui.plane_tint + 1) % 4;
       break;
     default: break;
     }

@@ -145,8 +145,8 @@ static void EnvModulate(uint32_t rgba) {
 // Debug plane tint: the quad's own texel, mixed 78% towards a flat colour in a second stage
 // (constant colour, alpha = the mix); the alpha stays the texel's so the alpha test and the
 // silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
-static bool g_plane_tint;
-void GpuPpu3ds_SetPlaneTint(bool on) { g_plane_tint = on; }
+static int g_plane_tint;   // kPlaneTint*
+void GpuPpu3ds_SetPlaneTint(int mode) { g_plane_tint = mode; }
 
 static void EnvPlaneTint(uint32_t rgb) {
   C3D_TexEnv *e = C3D_GetTexEnv(1);
@@ -325,10 +325,16 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
     }
     const StereoPlane plane = QuadPlane(qd, over);
     const int dx = g_eye_dx[plane];
-    if (g_plane_tint && (int)plane != tint) {
-      BatchDraw();
-      EnvPlaneTint(StereoDepth_PlaneColor(plane));
-      tint = (int)plane;
+    if (g_plane_tint) {
+      // What the tint depends on: the plane, the drawing level or the plane's depth.
+      const int key = g_plane_tint == kPlaneTintOrder ? 100 + qd->level : (int)plane;
+      if (key != tint) {
+        BatchDraw();
+        EnvPlaneTint(g_plane_tint == kPlaneTintPlanes ? StereoDepth_PlaneColor(plane)
+                     : g_plane_tint == kPlaneTintOrder ? StereoDepth_RampColor((float)qd->level / 15.0f)
+                                                       : StereoDepth_RampColor(StereoDepth_PlaneDepth(plane)));
+        tint = key;
+      }
     }
     if (qd->flags & kGpuQuadAffine) {
       PushAffine(qd, dx);

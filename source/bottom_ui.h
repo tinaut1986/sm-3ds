@@ -45,7 +45,7 @@ typedef struct {
   bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can; on by default
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   bool pixel_perfect;    // top screen 256x224 at 1:1; otherwise scaled to 274x240
-  bool plane_tint;       // debug: tint each quad with its stereo plane's colour (GPU renderer)
+  int plane_tint;        // debug tint (GPU renderer): 0 off, 1 by plane, 2 by drawing order, 3 by stereo depth
   bool wide;             // WIDE view: more of the room on the sides in gameplay (GPU renderer)
   int save_slot;        // 0..9, for save states
   // One-shot requests, consumed by the main loop.

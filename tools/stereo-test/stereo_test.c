@@ -163,7 +163,34 @@ static void TestDebugView(void) {
   }
 }
 
+// The ramps of the DRAW ORDER and STEREO DEPTH views: monotonic, and the depth follows the planes' shifts.
+static void TestRamps(void) {
+  uint32_t prev = StereoDepth_RampColor(0);
+  for (int i = 1; i <= 100; i++) {
+    const uint32_t c = StereoDepth_RampColor(i / 100.0f);
+    CHECK((c >> 8 & 255) >= (prev >> 8 & 255) && (c >> 16 & 255) >= (prev >> 16 & 255), "ramp not brightening at %d", i);
+    prev = c;
+  }
+  CHECK(StereoDepth_RampColor(-1) == StereoDepth_RampColor(0) && StereoDepth_RampColor(2) == StereoDepth_RampColor(1),
+        "ramp not clamped");
+  for (int t = 0; t < 2; t++) {
+    StereoDepth_SetThickness(t);
+    for (int a = 0; a < kStereoPlaneCount; a++) {
+      const float da = StereoDepth_PlaneDepth((StereoPlane)a);
+      CHECK(da >= 0 && da <= 1, "plane %d depth %f out of 0..1", a, da);
+      for (int b = 0; b < kStereoPlaneCount; b++)
+        CHECK((StereoDepth_PlanePx((StereoPlane)a) < StereoDepth_PlanePx((StereoPlane)b)) ==
+                  (da < StereoDepth_PlaneDepth((StereoPlane)b)),
+              "thickness %d: depth of planes %d and %d out of step with their shifts", t, a, b);
+    }
+    CHECK(StereoDepth_PlaneDepth(kStereoHud) == 1.0f && StereoDepth_PlaneDepth(kStereoFar) == 0.0f,
+          "thickness %d: HUD is not the nearest or FAR the farthest", t);
+  }
+  StereoDepth_SetThickness(true);
+}
+
 int main(void) {
+  TestRamps();
   TestDebugView();
   TestGameplayOrder(true);
   TestGameplayOrder(false);
