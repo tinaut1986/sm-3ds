@@ -100,6 +100,18 @@ void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   GSPGPU_FlushDataCache(t->px + b0 * 8 * t->w, (u32)(b1 - b0) * 8 * t->w * 2);
 }
 
+static void WaitGpu(void);
+static bool g_any_frame;
+
+static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU"
+
+void GpuBackend_BeforeTexWrite(void) {
+  if (!g_ready || !g_any_frame) return;
+  const u64 t0 = svcGetSystemTick();
+  WaitGpu();   // the previous frame may still sample these texels
+  g_tex_wait_ticks += svcGetSystemTick() - t0;
+}
+
 // ---- Drawing helpers ------------------------------------------------------------------------
 
 static inline uint32_t Expand5(int c) { return (uint32_t)((c << 3) | (c >> 2)); }
@@ -145,8 +157,8 @@ static void EnvModulate(uint32_t rgba) {
 // Debug plane tint: the quad's own texel, mixed 78% towards a flat colour in a second stage
 // (constant colour, alpha = the mix); the alpha stays the texel's so the alpha test and the
 // silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
-static bool g_plane_tint;
-void GpuPpu3ds_SetPlaneTint(bool on) { g_plane_tint = on; }
+static int g_plane_tint;   // kPlaneTint*
+void GpuPpu3ds_SetPlaneTint(int mode) { g_plane_tint = mode; }
 
 static void EnvPlaneTint(uint32_t rgb) {
   C3D_TexEnv *e = C3D_GetTexEnv(1);
@@ -175,6 +187,8 @@ static StereoPlane QuadPlane(const GpuQuad *qd, bool hud) {
   if (g_stereo_frame.gameplay && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) && (qd->level == 15 || qd->level == 1) &&
       qd->y + qd->h <= 32)
     hud = true;
+  // A plane chosen by hand for this layer of this room (sm_planes.c): never over the HUD or outside gameplay.
+  if (qd->plane && !hud && g_stereo_frame.gameplay) return (StereoPlane)(qd->plane - 1);
   const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
   return StereoDepth_Plane(&g_stereo_frame, &it);
 }
@@ -323,10 +337,16 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
     }
     const StereoPlane plane = QuadPlane(qd, over);
     const int dx = g_eye_dx[plane];
-    if (g_plane_tint && (int)plane != tint) {
-      BatchDraw();
-      EnvPlaneTint(StereoDepth_PlaneColor(plane));
-      tint = (int)plane;
+    if (g_plane_tint) {
+      // What the tint depends on: the plane, the drawing level or the plane's depth.
+      const int key = g_plane_tint == kPlaneTintOrder ? 100 + qd->level : (int)plane;
+      if (key != tint) {
+        BatchDraw();
+        EnvPlaneTint(g_plane_tint == kPlaneTintPlanes ? StereoDepth_PlaneColor(plane)
+                     : g_plane_tint == kPlaneTintOrder ? StereoDepth_RampColor((float)qd->level / 15.0f, kRampOrder)
+                                                       : StereoDepth_RampColor(StereoDepth_PlaneDepth(plane), kRampDepth));
+        tint = key;
+      }
     }
     if (qd->flags & kGpuQuadAffine) {
       PushAffine(qd, dx);
@@ -442,8 +462,6 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
 }
 
 // ---- Frame --------------------------------------------------------------------------------
-
-static bool g_any_frame;
 
 // The FPS overlay: on the CPU path it is drawn into the framebuffer, here it is a texture
 // drawn over the top screen's left margin.
@@ -570,7 +588,8 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
-  g_wait_ticks = t1 - t0;
+  g_wait_ticks = t1 - t0 + g_tex_wait_ticks;
+  g_tex_wait_ticks = 0;
   g_nverts = 0;
   SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
   g_stereo_frame.gameplay = gameplay;

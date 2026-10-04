@@ -26,6 +26,7 @@
 #include "cheats.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "sm_planes.h"
 #include "debug_tools.h"
 #include "scene_rec.h"
 #include "gpu_ppu.h"
@@ -766,6 +767,15 @@ int main(int argc, char** argv) {
         const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
         GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
         GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
+        // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
+        const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();
+        GpuPpu_SetPlaneRule(by_hand ? SmPlanes_LayerRule : NULL);
+        GpuPpu_SetSlotPlanes(by_hand ? SmPlanes_SlotPlanes : NULL);
+        static bool was_by_hand;
+        if (by_hand != was_by_hand) {   // for the debug log: a room that has planes set by hand
+          was_by_hand = by_hand;
+          if (by_hand) Debug_Log("planes set by hand in room %04X (%d rules in the file)", (unsigned)room_ptr, SmPlanes_RuleCount());
+        }
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
           SmWide_AddMasks(&g_gpu_frame, &g_line_capture);

@@ -21,6 +21,7 @@
 # message box n first; GAME_LANG=n in UI language n, ui_lang.h). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # STEREO_PLANES=a-b: tested frames a..b split by stereo plane (planes-NNNN-P.ppm, magenta = none).
 # STEREO_QUADS=1 (with STEREO_PLANES): also prints every quad of those frames with its level and plane.
+# ONLY_LEVEL=n keeps only the quads of compositor level n in them; QUAD_LEVELS=n prints tested frame n's quads.
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode;
 # BOOT_SEQ=hex@frame,... is the same for the boot mode (instead of its START/A pattern).
 # BOOT_SEQ_STATE=hex: BOOT_SEQ's frames count from the first frame in that game state.
@@ -37,7 +38,7 @@ SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c
 if [ -z "$NO_BUILD" ]; then
   gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -g -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/SDL/include" \
       -I"$ROOT/SDL/build/include" -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE -w $SRCS \
-      "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/sm_wide.c" "$ROOT/source/stereo_depth.c" "$ROOT/source/game_text.c" "$ROOT/source/game_text_screens.c" "$ROOT/source/ui_lang.c" \
+      "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/sm_wide.c" "$ROOT/source/stereo_depth.c" "$ROOT/source/sm_planes.c" "$ROOT/source/game_text.c" "$ROOT/source/game_text_screens.c" "$ROOT/source/ui_lang.c" \
       "$ROOT/tools/gpu-ppu-test/gpu_ppu_test.c" -o "$WORK/gpu_ppu_test" -lm
 fi
 [ "$2" = build ] && exit 0   # tools/test: compile only

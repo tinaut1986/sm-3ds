@@ -227,7 +227,6 @@ static void MapTouch(int x, int y) {
 #if DEBUG_TOOLS
   const SmRoom *room = SelectedRoom(area);
   if (room && UiIn(WarpRect(), x, y)) {
-    RetroAch_NoteCheat();
     Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
   } else if (room && UiIn(DoorRect(), x, y)) {
     const int n = SmWarp_DoorCount(room);
@@ -414,12 +413,6 @@ static void DrawStatus(Surface s) {
 
 static void StatusTouch(int x, int y) {
 #if DEBUG_TOOLS
-  // Everything here edits the game: achievements stop counting (RetroAch_NoteCheat).
-  bool cheat = UiIn(GodRect(), x, y) || UiIn(MaxRect(), x, y) || UiIn(AllRect(), x, y);
-  for (int i = 0; i < kSmItemCount; i++) cheat |= UiIn(ItemRect(i), x, y);
-  for (int i = 0; i < kSmBeamCount; i++) cheat |= UiIn(BeamRect(i), x, y);
-  for (int i = 0; i < 6; i++) cheat |= UiIn(StationRect(i), x, y);
-  if (cheat) RetroAch_NoteCheat();
   if (UiIn(GodRect(), x, y)) {
     g_cheats.invincible = !g_cheats.invincible;
     return;
@@ -902,9 +895,17 @@ static void DrawToolsModal(Surface s) {
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
                g_ui.gpu_render ? act : COL_FAINT);
-  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.plane_tint ? "ON" : "OFF",
+  static const char *const kTintName[] = { "OFF", "PLANES", "DRAW ORDER", "STEREO DEPTH" };
+  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : kTintName[g_ui.plane_tint & 3],
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
-  if (g_ui.plane_tint && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
+  if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
+    UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
+    for (int i = 0; i < 160; i++) {
+      const uint32_t c = StereoDepth_RampColor(i / 159.0f, g_ui.plane_tint == 3 ? kRampDepth : kRampOrder);
+      UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+    }
+    UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");
+  } else if (g_ui.plane_tint == 1 && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
     int x = 16;
     for (int p = 0; p < kStereoPlaneCount - 1; p++) {
       const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
@@ -963,7 +964,7 @@ static void ToolsModalTouch(int x, int y) {
       break;
     case TOOL_PLANE_TINT:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
-      else g_ui.plane_tint = !g_ui.plane_tint;
+      else g_ui.plane_tint = (g_ui.plane_tint + 1) % 4;
       break;
     default: break;
     }
@@ -1173,13 +1174,10 @@ static void DrawCard(Surface s, int y, const RaAchievement *a) {
 static void DrawAchievements(Surface s) {
   UiDrawText(s, 8, 28, 1, COL_TITLE, "RETROACHIEVEMENTS");
   UiDrawText(s, SCREEN_W - 8 - UiTextWidth("SOFTCORE", 1), 28, 1, COL_DIM, "SOFTCORE");
-  // One line: a cheat or the server's last word beat the connection state.
+  // One line: the server's last word beats the connection state.
   char buf[96];
   uint32_t col = COL_DIM;
-  if (RetroAch_CheatsUsed()) {
-    snprintf(buf, sizeof(buf), "%s", Tr(kStrRaCheats));
-    col = COL_BAD;
-  } else if (RetroAch_Message()[0]) {
+  if (RetroAch_Message()[0]) {
     ClipText(buf, sizeof(buf), RetroAch_Message(), 50);
     col = COL_WARN;
   } else {

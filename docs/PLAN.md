@@ -18,12 +18,12 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
-`feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
-owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
-Everything above was merged into the release line at the owner's request and shipped in the
-`v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
+**Branches:** none open. `feat/plane-fixes` (which carried `fix/achievements-and-menu`, `feat/layer-workbench`,
+`feat/tint-depth-modes`, `fix/stereo-bg2-play-v021` and `fix/gpu-texture-race`) was merged into `release/v0.2.1` on
+2026-10-04 at the owner's request. Checked on the console by the owner: block fixes in 9AD9 (#33) and no flashing of the
+A66A statues with WIDE (#19). Still unchecked there: RetroAchievements not paused by cheats (#29) and the English
+menu in the first frames of the map (#27), the Fireflea room's depth and the ash (`fix/stereo-bg2-play-v021`), the
+PLANE TINT views (P3.3). The rest of what the earlier merges need from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
@@ -291,7 +291,10 @@ Lessons from mzm that apply directly:
   CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
   (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
   no option to turn it off besides the slider, second eye's vertices pushed again.
-- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors).
+- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
+  (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter, viewer and the layer rules
+  (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are read too
+  (`GpuPpu_SetSlotPlanes`: the fixed tiles go to a texture per plane, host-checked, not yet on the console). First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
   The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
   (flat or with deliberate depth).
@@ -309,8 +312,8 @@ Lessons from mzm that apply directly:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
   The existing SNES set runs as is: rcheevos' "System RAM" is `g_ram` (same layout as the
   SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
-  Progress goes with save states (`saves/saveN.rap`); a cheat or the teleport pauses it
-  until restart. Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
+  Progress goes with save states (`saves/saveN.rap`). Cheats and the teleport do not pause
+  it (see the decisions log, 2026-10-04). Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
   notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
   game's audio), the list's order and direction. A response may grow to 4 MB (the set is
   over 64 KB: the first build cut it there, "Invalid JSON" on the console).
@@ -1025,3 +1028,32 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   recordings no longer rotate: each takes the next number (4 digits), the owner deletes what
   has been handled (Claude asks after each one, then removes it over FTP). Rotating hid
   captures: ten slots were gone after a day of notes. The dump is of the frame after the pause.
+- 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
+  only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
+  restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
+  `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
+  block fixes' texture clears, which write texels earlier than `DecodeTile`.
+- 2026-10-04: Block fixes (`SM_PLANE_FIX`) reach the renderer (#33, `feat/plane-fixes`). The dropped attempt (#28) was
+  not a failure of the mechanism: its rule was wrong (the plane by the block type under each tile). A fix names a block
+  of the level by hand, and a block is found in the tilemap at `(2*bx + i, 2*by + j)` modulo the tilemap's size, the
+  one nearest the camera when several share a slot: checked against WRAM and VRAM of rooms with BG1 and BG2 as level
+  data, every visible tile matching. The workbench had stale defaults (BG2 MID, BG3 FAR), from before the BG2
+  priority 1 and BG3 changes of v0.2.1: fixed to `StereoDepth_Plane`'s, so fixes saved before may be redundant or
+  point at the wrong plane.
+- 2026-10-04: Tried and dropped, never merged: a rule sending BG1 priority 0 to a plane by the type of the
+  block under each tile (#28, #24). On the console `sm-dump-0004` (`9C5E`) showed all the scenery behind
+  Samus, although the block lookup was right on that dump's WRAM and VRAM (checked offline) and GPU and
+  CPU frames were identical on the host in every room: the cause was never found. Per-room and per-tile
+  depth is chosen by hand instead, with a layer workbench like mzm's and a `.inc` (#33); PLANE TINT is the
+  way to see the result on the console.
+- 2026-10-03: Fireflea room (9C5E) looked flat in 3D. A scene recording and `STEREO_PLANES`
+  with `ONLY_LEVEL` showed its whole level is BG2 priority 1 (BG1 holds only the door cap),
+  and BG2 was all on `MID` (-3 px): floors behind Samus and level with the background.
+  BG2 priority 1 draws over Samus, so it joins BG1 priority 1 on `PLAY`; `MID` is now BG2
+  priority 0 only. The accepted "BG2 always mid" exceptions in stereo-test are gone.
+- 2026-10-03: Falling ash (room 9CB3) read as behind the background: it is BG3 priority 0, which
+  sat on `FAR` (-4) under BG2's `MID` (-3). The two swapped: BG2 priority 0 (background) is
+  `FAR`, BG3 priority 0 FX is `MID`. stereo-test pins "BG2 prio 0 over BG3 prio 0, farther"
+  as accepted. The Fireflea room's thorns (reported behind, should be at Samus's depth) are
+  not located yet: not in BG1/BG2 at the room's left end in the host runs.

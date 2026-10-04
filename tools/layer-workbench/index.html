@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Super Metroid 3DS: layer workbench</title>
+<style>
+  :root { --bg:#0d1118; --panel:#1b2130; --edge:#33405c; --text:#d5deef; --dim:#8091b0; --accent:#ffd54a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui,sans-serif; height:100vh; overflow:hidden; }
+  button, select, input[type=text] { background:#26304a; color:var(--text); border:1px solid var(--edge); padding:2px 8px; cursor:pointer; font:inherit; }
+  input[type=text] { cursor:text; background:#0d1118; }
+  button:hover { background:#35426a; } button.on { background:#4a5a92; border-color:var(--accent); }
+  #top { position:fixed; left:0; right:0; top:0; height:34px; background:var(--panel); border-bottom:1px solid var(--edge); display:flex; gap:8px; align-items:center; padding:0 10px; z-index:100000; overflow:hidden; white-space:nowrap; }
+  #top b { color:var(--accent); } .hint { color:var(--dim); font-size:12px; }
+  #info { position:fixed; left:0; right:0; bottom:0; height:56px; background:var(--panel); border-top:1px solid var(--edge); padding:3px 10px; color:var(--dim); font:12px/1.35 ui-monospace,monospace; white-space:pre; z-index:100000; overflow:hidden; }
+  #desk { position:fixed; left:0; right:0; top:34px; bottom:56px; overflow:hidden; }
+  .win { position:absolute; background:var(--panel); border:1px solid var(--edge); display:flex; flex-direction:column; resize:both; overflow:hidden; min-width:160px; min-height:60px; box-shadow:0 4px 14px #0008; }
+  .win > header { cursor:move; background:#26304a; padding:2px 6px; display:flex; gap:6px; align-items:center; user-select:none; flex:none; }
+  .win > header .t { flex:1; font-weight:600; color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .win > header button { padding:0 6px; }
+  .win .body { flex:1; min-height:0; overflow:auto; position:relative; background:#05070b; }
+  .win .body.pad { padding:8px; background:var(--panel); }
+  .win.min { resize:none; height:auto !important; min-height:0; } .win.min .body { display:none; }
+  .win .body.panes { display:flex; flex-direction:column; overflow:hidden; }
+  .pane { flex:1 1 0; min-height:0; overflow:auto; position:relative; background:#05070b; }
+  .pane + .pane { border-top:2px solid var(--edge); }
+  .pane .cvs { padding:8px; width:max-content; }
+  body.shift .pane, body.shift .pane canvas { cursor:grab; } body.panning .pane, body.panning .pane canvas { cursor:grabbing; }
+  .cvs { display:flex; gap:10px; }
+  .stack { position:relative; flex:none; } .stack canvas { display:block; image-rendering:pixelated; }
+  .stack canvas.ov { position:absolute; left:0; top:0; }
+  .stack .tag { position:absolute; left:2px; top:2px; z-index:2; background:#000a; color:var(--accent); font-size:11px; padding:0 4px; pointer-events:none; }
+  details.area > summary { padding:3px 8px; background:#232b3f; color:var(--dim); font-weight:600; cursor:pointer; position:sticky; top:0; z-index:1; user-select:none; }
+  details.area > summary .n { float:right; color:var(--accent); font-size:11px; font-weight:400; }
+  #mapcv { display:block; cursor:pointer; }
+  .room { padding:2px 8px 2px 14px; cursor:pointer; display:flex; justify-content:space-between; }
+  .room:hover { background:#273049; } .room.cur { background:#34406a; } .room .n { color:var(--accent); font-size:11px; }
+  h3 { margin:10px 0 4px; font-size:12px; color:var(--accent); text-transform:uppercase; letter-spacing:.06em; }
+  h3:first-child { margin-top:0; }
+  .planes { display:flex; flex-wrap:wrap; gap:4px; }
+  .planes button { min-width:58px; font-weight:600; color:#000; border:2px solid transparent; }
+  .planes button.on { border-color:#fff; }
+  .row { display:flex; gap:6px; align-items:center; margin:3px 0; flex-wrap:wrap; }
+  #fixes div { display:flex; justify-content:space-between; padding:1px 4px; cursor:pointer; font:12px ui-monospace,monospace; }
+  #fixes div:hover { background:#273049; } #fixes div.sel { background:#4a5a92; outline:1px solid var(--accent); }
+  .chip { display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:middle; }
+  #status { color:var(--dim); margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="top">
+  <b id="title">no room</b><span id="screens" class="hint"></span>
+  <span class="hint">|</span>
+  <label>select</label><button id="selBlocks" class="on">BLOCKS (16x16)</button><button id="selTiles">TILES (8x8)</button>
+  <label>zoom</label><button id="zm">-</button><span id="zv">3</span><button id="zp">+</button>
+  <button id="grid" class="on">GRID</button>
+  <button id="tint" class="on" title="BEFORE and AFTER tint every tile by its plane; off shows the real colours">TINT</button>
+  <button id="relayout">RELAYOUT</button>
+  <span class="hint">drag selects, Ctrl adds, Shift+drag (or middle button) pans, Ctrl+wheel zooms, arrows move, Esc clears</span>
+</div>
+<div id="desk"></div>
+<div id="info"></div>
+
+<script>
+'use strict';
+// StereoPlane order and the colours of PLANE TINT (source/stereo_depth.c).
+const PLANES = [['kStereoHud','HUD','#ff00ff'],['kStereoFront','FRONT','#00e5ff'],['kStereoPlay','PLAY','#ff9600'],
+  ['kStereoObj','OBJ','#ffffff'],['kStereoBack','BACK','#ff2828'],['kStereoMid','MID','#3cc83c'],['kStereoFar','FAR','#3c5aff']];
+const PLANE_BY_NAME = Object.fromEntries(PLANES.map((p, i) => [p[0], i]));
+const TYPES = ['air','slope','spike air','special air','shootable air','h-extension','unused','unused','solid','door','spike','crumble','shot block','v-extension','grapple','bomb'];
+const AREAS = ['Crateria','Brinstar','Norfair','Wrecked Ship','Maridia','Tourian','Ceres'];
+const LAYER_NAMES = ['', 'BG1', 'BG2', 'BG3', 'sprites', 'Mode 7'];
+const CORNER_NAMES = ['TL','TR','BL','BR'];
+// What StereoDepth_Plane does without a hand-made fix (source/stereo_depth.c): BG1 prio 0 BACK, BG1 prio 1 PLAY,
+// BG2 prio 0 FAR (the background), BG2 prio 1 PLAY (a wall: it draws over Samus).
+const DEFAULT_PLANE = (layer, prio) => layer === 2 ? (prio ? 2 : 6) : prio ? 2 : 4;
+// The default plane of a whole layer's priority (README: Defaults), for rules; tiles of BG1 and BG2 use DEFAULT_PLANE.
+const defaultPlaneOf = (layer, prio) => layer <= 2 ? DEFAULT_PLANE(layer, prio) : layer === 3 ? (prio ? 1 : 5) : layer === 4 ? (prio === 3 ? 2 : 3) : 2;
+// "Same as": the plane a tile would have if it were on that layer.
+const SAME_AS = [['BG1 p0', 4], ['BG1 p1 / BG2 p1', 2], ['BG2 p0', 6], ['BG3 p0', 5], ['BG3 p1', 1], ['sprites', 3]];
+
+let rooms = [], room = null, rules = [], fixHead = '';
+// Tile fixes of every room: "room:layer,bx,by,corner" -> {plane, block, room}; tileFix is the current room's, "layer,bx,by,corner".
+let tileFixAll = new Map(), tileFix = new Map();
+let zoom = 3, showGrid = true, tileMode = false, curPlane = 2;
+let sel = { scope: 0, set: new Set() };   // keys "bx,by,corner"; scope 0 = every layer (picked on the result), 1/2 = that layer
+let dragging = null, views = [], tintOn = true;
+const $ = id => document.getElementById(id);
+const hex = (v, n = 4) => '0x' + v.toString(16).toUpperCase().padStart(n, '0');
+const tileKey = (layer, bx, by, c) => `${layer},${bx},${by},${c}`;
+
+// ---------- the .room file ----------
+function parseRoom(buf) {
+  const dv = new DataView(buf), u16 = o => dv.getUint16(o, true);
+  const r = { hdr: u16(8), area: dv.getUint8(10), w: u16(12), h: u16(14), l2scroll: u16(16),
+    main: u16(26), sub: u16(28), mode: u16(30) & 15, bg3pri: u16(30) >> 4 & 1 };
+  let o = 34;
+  const bank = new Uint8Array(buf, o, 0x10000); o += 0x10000;
+  r.table = new Uint16Array(buf.slice(o, o + 0x2000)); o += 0x2000;
+  r.cgram = new Uint16Array(buf.slice(o, o + 512)); o += 512;
+  r.vram = new Uint8Array(buf, o, 0x10000);
+  const n = r.w * r.h, words = at => { const a = new Uint16Array(n); for (let i = 0; i < n; i++) a[i] = bank[at + i*2] | bank[at + i*2 + 1] << 8; return a; };
+  r.layer = [null, words(2), (r.l2scroll & 1) === 0 ? words(0x9602) : null];
+  r.chars = new Map();
+  return r;
+}
+function charPixels(r, n) {
+  let c = r.chars.get(n); if (c) return c;
+  c = new Uint8Array(64);
+  const b = r.vram, base = n * 32;
+  for (let y = 0; y < 8; y++) {
+    const p0 = b[base + y*2], p1 = b[base + y*2 + 1], p2 = b[base + 16 + y*2], p3 = b[base + 16 + y*2 + 1];
+    for (let x = 0; x < 8; x++) { const s = 7 - x; c[y*8 + x] = (p0 >> s & 1) | (p1 >> s & 1) << 1 | (p2 >> s & 1) << 2 | (p3 >> s & 1) << 3; }
+  }
+  r.chars.set(n, c); return c;
+}
+function rgb(r, i) { const v = r.cgram[i]; const c = x => x << 3 | x >> 2; return [c(v & 31), c(v >> 5 & 31), c(v >> 10 & 31)]; }
+function blockTiles(r, word) {   // TL, TR, BL, BR with the block's flips, as the game builds them
+  const t = r.table, i = (word & 0x3ff) * 4, a = [t[i], t[i+1], t[i+2], t[i+3]], f = word & 0xc00;
+  if (f === 0x400) return [a[1]^0x4000, a[0]^0x4000, a[3]^0x4000, a[2]^0x4000];
+  if (f === 0x800) return [a[2]^0x8000, a[3]^0x8000, a[0]^0x8000, a[1]^0x8000];
+  if (f === 0xc00) return [a[3]^0xc000, a[2]^0xc000, a[1]^0xc000, a[0]^0xc000];
+  return a;
+}
+const tileHasInk = (r, e) => charPixels(r, e & 0x3ff).some(c => c);
+
+// ---------- planes of a tile ----------
+function ruleFor(layer, prio) { const f = rules.find(x => x.room === room.hdr && x.layer === layer && x.prio === prio); return f ? f.plane : null; }
+function planeOf(layer, bx, by, corner, prio, withHand) {
+  if (withHand) {
+    const t = tileFix.get(tileKey(layer, bx, by, corner)); if (t) return t.plane;
+    const r = ruleFor(layer, prio); if (r !== null) return r;
+  }
+  return DEFAULT_PLANE(layer, prio);
+}
+
+// ---------- drawing ----------
+// A tile belongs to a layer window by where its plane puts it: BACK and PLAY are BG1's planes, FAR is BG2's; any
+// other plane (FRONT, MID, OBJ) leaves it on the layer it came from, and so does the plane it has by default. So a BG2 tile sent to BG1's plane leaves BG2's
+// AFTER and shows in BG1's AFTER, as in mzm's workbench. BEFORE and the result always use the layer the data is on.
+const PLANE_LAYER = { 4: 1, 2: 1, 6: 2 };
+function ownerOf(layer, bx, by, corner, prio, kind) {
+  if (kind !== 'after') return layer;
+  const p = planeOf(layer, bx, by, corner, prio, true);
+  return p === DEFAULT_PLANE(layer, prio) ? layer : PLANE_LAYER[p] || layer;   // PLAY is both layers': only a change moves it
+}
+// kind: 'real' (the picture), 'before' (tinted by the default planes), 'after' (tinted with the rules and tile fixes).
+// `pane` is the layer window the canvas belongs to (1, 2), or 0 for the result, which draws `layers` as they are.
+function paint(cv, kind, pane, layers) {
+  const W = room.w * 16, H = room.h * 16;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), px = img.data;
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  const tint = kind !== 'real' && tintOn;
+  // in a layer window the tiles that came from the other layer go on top, so a tile sent there is always seen
+  for (const [pass, layer, prio] of [[0,2,0],[0,1,0],[0,2,1],[0,1,1],[1,2,0],[1,1,0],[1,2,1],[1,1,1]]) {
+    if (pane ? (pass === 0) !== (layer === pane) : (pass === 1 || !layers.includes(layer))) continue;
+    const words = room.layer[layer]; if (!words) continue;
+    for (let by = 0; by < room.h; by++) for (let bx = 0; bx < room.w; bx++) {
+      const tiles = blockTiles(room, words[by * room.w + bx]);
+      for (let k = 0; k < 4; k++) {
+        const e = tiles[k]; if ((e >> 13 & 1) !== prio) continue;
+        if (pane && ownerOf(layer, bx, by, k, prio, kind) !== pane) continue;
+        const px8 = charPixels(room, e & 0x3ff), pal = e >> 10 & 7, hf = e & 0x4000, vf = e & 0x8000;
+        let tc = null;
+        if (tint) { const pc = PLANES[planeOf(layer, bx, by, k, prio, kind === 'after')][2]; tc = [1, 3, 5].map(i => parseInt(pc.slice(i, i + 2), 16)); }
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+          const c = px8[(vf ? 7 - y : y) * 8 + (hf ? 7 - x : x)]; if (!c) continue;
+          let col = rgb(room, pal * 16 + c);
+          if (tint) col = col.map((v, i) => Math.round(v * 0.22 + tc[i] * 0.78));
+          const o = ((by * 16 + (k >> 1) * 8 + y) * W + bx * 16 + (k & 1) * 8 + x) * 4;
+          px[o] = col[0]; px[o+1] = col[1]; px[o+2] = col[2];
+        }
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function paintOverlay(ov, pane, kind) {
+  ov.width = room.w * 16; ov.height = room.h * 16;
+  const o = ov.getContext('2d');
+  if (showGrid) {
+    o.strokeStyle = 'rgba(255,255,255,.13)'; o.lineWidth = 1; o.beginPath();
+    for (let x = 0; x <= room.w; x++) { o.moveTo(x*16 + .5, 0); o.lineTo(x*16 + .5, ov.height); }
+    for (let y = 0; y <= room.h; y++) { o.moveTo(0, y*16 + .5); o.lineTo(ov.width, y*16 + .5); }
+    o.stroke();
+  }
+  // tiles with a hand-made fix: a bar in the colour of the plane they go to (where they are drawn: see ownerOf)
+  for (const [key, t] of tileFix) {
+    const [l, bx, by, c] = key.split(',').map(Number);
+    if (pane) {
+      const words = room.layer[l], e = words && blockTiles(room, words[by * room.w + bx])[c];
+      if (!e || ownerOf(l, bx, by, c, e >> 13 & 1, kind) !== pane) continue;
+    }
+    o.fillStyle = PLANES[t.plane][2]; o.fillRect(bx*16 + (c & 1) * 8, by*16 + (c >> 1) * 8, 8, 4);
+    o.strokeStyle = '#000'; o.lineWidth = 1; o.strokeRect(bx*16 + (c & 1) * 8 + .5, by*16 + (c >> 1) * 8 + .5, 7, 3);
+  }
+  o.lineWidth = 1.5;
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number), x = bx*16 + (c & 1) * 8, y = by*16 + (c >> 1) * 8;
+    o.strokeStyle = '#fff'; o.strokeRect(x + .75, y + .75, 6.5, 6.5); o.strokeStyle = '#000'; o.strokeRect(x + 1.75, y + 1.75, 4.5, 4.5);
+  }
+  if (dragging && dragging.cur && dragging.pane.ov === ov) {
+    const [x0, y0, x1, y1] = rectOf(dragging.start, dragging.cur), u = tileMode ? 8 : 16;
+    o.strokeStyle = '#ffd54a'; o.setLineDash([4, 3]); o.strokeRect(x0*u + .5, y0*u + .5, (x1-x0+1)*u - 1, (y1-y0+1)*u - 1); o.setLineDash([]);
+  }
+}
+
+// ---------- windows ----------
+const desk = $('desk'); let zTop = 10;
+const layoutKey = 'smwb.layout.v2';
+const saved = JSON.parse(localStorage.getItem(layoutKey) || '{}');
+function saveLayout() {
+  const out = {};
+  document.querySelectorAll('.win').forEach(w => out[w.id] = { x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight, min: w.classList.contains('min') });
+  localStorage.setItem(layoutKey, JSON.stringify(out));
+}
+const DEFAULTS = { 'w-rooms': [8, 8, 230, 330], 'w-map': [8, 346, 230, 300], 'w-result': [248, 8, 540, 420], 'w-bg1': [798, 8, 460, 330], 'w-bg2': [798, 348, 460, 330], 'w-tools': [1268, 8, 330, 700] };
+function makeWindow(id, title, extraHeader) {
+  const w = document.createElement('div'); w.className = 'win'; w.id = id;
+  const h = document.createElement('header'), t = document.createElement('span'); t.className = 't'; t.textContent = title; h.appendChild(t);
+  if (extraHeader) h.appendChild(extraHeader);
+  const mn = document.createElement('button'); mn.textContent = '—'; mn.title = 'minimise'; h.appendChild(mn);
+  const body = document.createElement('div'); body.className = 'body';
+  w.append(h, body); desk.appendChild(w);
+  const d = saved[id] || { x: DEFAULTS[id][0], y: DEFAULTS[id][1], w: DEFAULTS[id][2], h: DEFAULTS[id][3] };
+  w.style.left = d.x + 'px'; w.style.top = d.y + 'px'; w.style.width = d.w + 'px'; w.style.height = d.h + 'px'; if (d.min) w.classList.add('min');
+  w.addEventListener('mousedown', () => { w.style.zIndex = ++zTop; if (zTop > 90000) zTop = 10; });
+  mn.onclick = () => { w.classList.toggle('min'); saveLayout(); };
+  h.addEventListener('mousedown', ev => {
+    if (['BUTTON', 'SELECT', 'INPUT', 'LABEL'].includes(ev.target.tagName)) return;
+    const sx = ev.clientX - w.offsetLeft, sy = ev.clientY - w.offsetTop;
+    const mv = e => { w.style.left = Math.max(-w.offsetWidth + 60, Math.min(desk.clientWidth - 60, e.clientX - sx)) + 'px'; w.style.top = Math.max(0, Math.min(desk.clientHeight - 24, e.clientY - sy)) + 'px'; };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); saveLayout(); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); ev.preventDefault();
+  });
+  new ResizeObserver(() => saveLayout()).observe(w);
+  return { win: w, body, title: t, header: h };
+}
+
+// A view is a window showing the room (one layer, or the result of all) with a mode selector: REAL / BEFORE / AFTER /
+// BEFORE|AFTER. Each picture is a pane of its own (own scroll bars); every pane of every window scrolls together.
+function makeView(id, title, layer, mode) {
+  const modeSel = document.createElement('select');
+  for (const m of ['REAL', 'BEFORE', 'AFTER', 'BEFORE|AFTER']) { const o = document.createElement('option'); o.textContent = m; modeSel.appendChild(o); }
+  modeSel.value = mode;
+  const win = makeWindow(id, title, modeSel);
+  win.body.classList.add('panes');
+  const v = { id, layer, win, mode: modeSel, panes: [], layers: layer ? [layer] : [1, 2] };
+  modeSel.onchange = () => renderView(v);
+  if (!layer) {   // the result: which layers it draws
+    for (const l of [1, 2]) {
+      const lb = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.id = 'show' + l;
+      cb.onchange = () => { v.layers = [1, 2].filter(x => $('show' + x).checked); renderView(v); };
+      lb.append(cb, 'BG' + l); win.header.insertBefore(lb, win.header.lastChild);
+    }
+  }
+  views.push(v); return v;
+}
+const allPanes = () => views.flatMap(v => v.panes);
+const paneVisible = p => p.el.clientWidth > 0 && p.el.clientHeight > 0;
+// Scrolling is shared by moving the others by the same distance (each pane stops where it can). _sl/_st remember the
+// position we gave a pane, so its scroll event tells our moves from the user's.
+function panBy(dx, dy, except) {
+  if (!dx && !dy) return;
+  for (const o of allPanes()) {
+    if (o.el === except || !paneVisible(o)) continue;
+    o.el.scrollLeft += dx; o.el.scrollTop += dy; o.el._sl = o.el.scrollLeft; o.el._st = o.el.scrollTop;
+  }
+}
+function wirePane(v, p) {
+  const el = p.el; el._sl = 0; el._st = 0;
+  el.addEventListener('scroll', () => {
+    if (el.scrollLeft === el._sl && el.scrollTop === el._st) return;
+    const dx = el.scrollLeft - el._sl, dy = el.scrollTop - el._st; el._sl = el.scrollLeft; el._st = el.scrollTop; panBy(dx, dy, el);
+  });
+  el.addEventListener('wheel', ev => {
+    if (!ev.ctrlKey && !ev.metaKey) return;
+    ev.preventDefault(); const r = el.getBoundingClientRect(); zoomTo(zoom + (ev.deltaY < 0 ? 1 : -1), p, ev.clientX - r.left, ev.clientY - r.top);
+  }, { passive: false });
+  el.addEventListener('mousedown', ev => { if (ev.button === 1) ev.preventDefault(); });   // no autoscroll
+  el.addEventListener('pointerdown', ev => {
+    if (!room || (ev.button !== 0 && ev.button !== 1)) return;
+    const r = el.getBoundingClientRect();
+    if (ev.clientX < r.left + el.clientLeft || ev.clientY < r.top + el.clientTop ||
+        ev.clientX >= r.left + el.clientLeft + el.clientWidth || ev.clientY >= r.top + el.clientTop + el.clientHeight) return;   // a border or a scroll bar
+    if (ev.button === 1 || ev.shiftKey) return startPan(ev, p);
+    if (p.empty) return;
+    const c = p.ov.getBoundingClientRect();
+    if (ev.clientX < c.left || ev.clientX >= c.right || ev.clientY < c.top || ev.clientY >= c.bottom) return;
+    startSelect(ev, v, p);
+  });
+  p.ov.addEventListener('pointermove', ev => { if (!dragging) hover(tileAt(ev, p.ov)); });
+}
+function renderView(v) {
+  const old = v.panes[0], keep = old ? [old.el.scrollLeft, old.el.scrollTop] : [0, 0];
+  v.win.body.innerHTML = ''; v.panes = [];
+  if (!room) return;
+  const kinds = v.mode.value === 'BEFORE|AFTER' ? ['before', 'after'] : [v.mode.value.toLowerCase()];
+  const layers = v.layer ? [v.layer] : v.layers;
+  for (const kind of kinds) {
+    const el = document.createElement('div'); el.className = 'pane';
+    const holder = document.createElement('div'); holder.className = 'cvs';
+    const st = document.createElement('div'); st.className = 'stack';
+    const cv = document.createElement('canvas'), ov = document.createElement('canvas'); ov.className = 'ov';
+    if (kinds.length > 1 || kind !== 'real') { const tg = document.createElement('div'); tg.className = 'tag'; tg.textContent = kind.toUpperCase(); st.appendChild(tg); }
+    st.append(cv, ov); holder.appendChild(st); el.appendChild(holder); v.win.body.appendChild(el);
+    const p = { el, cv, ov, kind, v, empty: false };
+    if (v.layer && !room.layer[v.layer]) {
+      cv.width = 220; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 220, 40); c.fillStyle = '#aaa'; c.fillText('BG' + v.layer + ' is not level data (whole-layer rules only)', 8, 24);
+      ov.width = ov.height = 1; p.empty = true;
+    } else paint(cv, kind, v.layer, layers);
+    v.panes.push(p); wirePane(v, p);
+  }
+  applyZoom(v); overlayView(v);
+  for (const p of v.panes) { p.el.scrollLeft = keep[0]; p.el.scrollTop = keep[1]; p.el._sl = p.el.scrollLeft; p.el._st = p.el.scrollTop; }
+}
+function overlayView(v) { for (const p of v.panes) if (!p.empty) paintOverlay(p.ov, v.layer, p.kind); }
+function applyZoom(v) { for (const p of v.panes) if (!p.empty) { p.cv.style.width = p.ov.style.width = p.cv.width * zoom + 'px'; p.cv.style.height = p.ov.style.height = p.cv.height * zoom + 'px'; } }
+function renderAll() { views.forEach(renderView); listFixes(); buildList($('search') ? $('search').value : ''); drawMap(); }
+function overlayAll() { views.forEach(overlayView); }
+// Zoom keeping the point under (cx, cy) of pane `p` (default: its centre) where it is; the other panes follow.
+function zoomTo(z, p, cx, cy) {
+  z = Math.max(1, Math.min(8, z)); if (z === zoom) return;
+  const src = p && paneVisible(p) ? p : allPanes().find(paneVisible), old = zoom, pad = 8;
+  const at = src ? { fx: cx === undefined ? .5 : cx / src.el.clientWidth, fy: cy === undefined ? .5 : cy / src.el.clientHeight } : null;
+  const world = src ? allPanes().map(o => paneVisible(o) ? [(o.el.scrollLeft + at.fx * o.el.clientWidth - pad) / old, (o.el.scrollTop + at.fy * o.el.clientHeight - pad) / old] : null) : [];
+  zoom = z; $('zv').textContent = zoom; views.forEach(applyZoom); overlayAll();
+  allPanes().forEach((o, i) => {
+    if (!world[i]) return;
+    o.el.scrollLeft = world[i][0] * zoom + pad - at.fx * o.el.clientWidth; o.el.scrollTop = world[i][1] * zoom + pad - at.fy * o.el.clientHeight;
+    o.el._sl = o.el.scrollLeft; o.el._st = o.el.scrollTop;
+  });
+}
+
+// ---------- selection ----------
+const rectOf = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+function tileAt(ev, ov) {   // in tile units when selecting tiles, block units otherwise
+  const r = ov.getBoundingClientRect(), u = (tileMode ? 8 : 16) * zoom, n = tileMode ? 2 : 1;
+  const x = Math.floor((ev.clientX - r.left) / u), y = Math.floor((ev.clientY - r.top) / u);
+  return [Math.max(0, Math.min(room.w * n - 1, x)), Math.max(0, Math.min(room.h * n - 1, y))];
+}
+// Shift+drag (or the middle button) moves the picture; a plain drag selects.
+function startPan(ev, p) {
+  const el = p.el; let px = ev.clientX, py = ev.clientY;
+  document.body.classList.add('panning'); ev.preventDefault();
+  const mv = e => {
+    const l0 = el.scrollLeft, t0 = el.scrollTop;
+    el.scrollLeft -= e.clientX - px; el.scrollTop -= e.clientY - py; px = e.clientX; py = e.clientY;
+    el._sl = el.scrollLeft; el._st = el.scrollTop; panBy(el.scrollLeft - l0, el.scrollTop - t0, el);
+  };
+  const up = () => { for (const n of ['pointermove', 'pointerup', 'pointercancel']) window.removeEventListener(n, n === 'pointermove' ? mv : up); document.body.classList.remove('panning'); };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+}
+// The drag is bound to the pane it started in: its corner is read from that pane's own canvas, whatever lies under the pointer.
+function startSelect(ev, v, p) {
+  const t = tileAt(ev, p.ov);
+  dragging = { start: t, cur: t, add: ev.ctrlKey || ev.metaKey, layer: v.layer, pane: p }; paintOverlay(p.ov, v.layer, p.kind); ev.preventDefault();
+}
+window.addEventListener('pointermove', ev => {
+  if (!dragging) return;
+  dragging.cur = tileAt(ev, dragging.pane.ov); paintOverlay(dragging.pane.ov, dragging.layer, dragging.pane.kind);
+});
+function endSelect() {
+  if (!dragging) return;
+  const d = dragging; dragging = null;
+  if (!d.add || sel.scope !== d.layer) sel = { scope: d.layer, set: new Set() };
+  const [x0, y0, x1, y1] = rectOf(d.start, d.cur), single = x0 === x1 && y0 === y1;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const keys = tileMode ? [`${x >> 1},${y >> 1},${(y & 1) * 2 + (x & 1)}`] : [0, 1, 2, 3].map(c => `${x},${y},${c}`);
+    const has = keys.every(k => sel.set.has(k));
+    for (const k of keys) { if (d.add && single && has) sel.set.delete(k); else sel.set.add(k); }
+  }
+  updateSel(); overlayAll();
+}
+window.addEventListener('pointerup', endSelect);
+window.addEventListener('pointercancel', () => { if (dragging) { dragging = null; overlayAll(); } });
+window.addEventListener('keydown', ev => {
+  if (ev.key === 'Shift') document.body.classList.add('shift');
+  if (ev.target.tagName === 'INPUT' && ev.target.type === 'text') return;
+  if (ev.key === 'Escape') { sel = { scope: 0, set: new Set() }; updateSel(); overlayAll(); return; }
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+  if (d && room && sel.set.size) {
+    ev.preventDefault(); const n = new Set(), st = tileMode ? 1 : 2;   // in tile units: a block is two tiles
+    for (const k of sel.set) {
+      const [bx, by, c] = k.split(',').map(Number);
+      let tx = bx * 2 + (c & 1) + d[0] * st, ty = by * 2 + (c >> 1) + d[1] * st;
+      tx = Math.max(0, Math.min(room.w * 2 - 1, tx)); ty = Math.max(0, Math.min(room.h * 2 - 1, ty));
+      n.add(`${tx >> 1},${ty >> 1},${(ty & 1) * 2 + (tx & 1)}`);
+    }
+    sel.set = n; updateSel(); overlayAll();
+  }
+});
+window.addEventListener('keyup', ev => { if (ev.key === 'Shift') document.body.classList.remove('shift'); });
+window.addEventListener('blur', () => document.body.classList.remove('shift'));
+function tileInfo(layer, bx, by, c) {
+  const w = room.layer[layer][by * room.w + bx], e = blockTiles(room, w)[c], pri = e >> 13 & 1;
+  const p = planeOf(layer, bx, by, c, pri, false), q = planeOf(layer, bx, by, c, pri, true);
+  return `BG${layer}: block ${w.toString(16).padStart(4,'0')} index ${w & 0x3ff}${w & 0x400 ? ' hflip' : ''}${w & 0x800 ? ' vflip' : ''} type ${w >> 12} ${TYPES[w >> 12]} | ${CORNER_NAMES[c]} tile char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${pri} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}`;
+}
+function hover(t) {
+  if (!room) return;
+  const bx = tileMode ? t[0] >> 1 : t[0], by = tileMode ? t[1] >> 1 : t[1], c = tileMode ? (t[1] & 1) * 2 + (t[0] & 1) : 0;
+  const lines = [`room ${hex(room.hdr)}  block ${bx},${by}${tileMode ? '  tile ' + CORNER_NAMES[c] : ''}`];
+  for (const l of [1, 2]) lines.push(room.layer[l] ? tileInfo(l, bx, by, c) : `BG${l}: (not level data)`);
+  $('info').textContent = lines.join('\n');
+}
+function updateSel() {
+  const blocks = new Set([...sel.set].map(k => k.split(',').slice(0, 2).join(',')));
+  const s = sel.set.size ? `${sel.set.size} tile${sel.set.size > 1 ? 's' : ''} in ${blocks.size} block${blocks.size > 1 ? 's' : ''}; ${sel.scope ? 'BG' + sel.scope + ' only' : 'every layer'}` : 'nothing selected';
+  if ($('selinfo')) $('selinfo').textContent = s;
+  markFixes(true);
+}
+// The room's fixes that cover a selected tile are highlighted in the list (and the first one is scrolled to).
+function markFixes(scroll) {
+  let first = null;
+  document.querySelectorAll('#fixes > div[data-l]').forEach(d => {
+    const l = +d.dataset.l, on = (!sel.scope || sel.scope === l) && d.dataset.cs.split(',').some(c => sel.set.has(`${d.dataset.bx},${d.dataset.by},${c}`));
+    d.classList.toggle('sel', on); if (on && !first) first = d;
+  });
+  if (scroll && first) first.scrollIntoView({ block: 'nearest' });
+}
+
+// ---------- fixes (.inc) ----------
+function parseFixes(text) {
+  rules = []; tileFixAll = new Map(); const re = /SM_(PLANE_FIX|LAYER_PLANE)\(([^)]*)\)/g; let m;
+  // comments are blanked (same length) so the macros named in the file's own header are not read as entries
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, c => ' '.repeat(c.length));
+  const first = code.search(/SM_(PLANE_FIX|LAYER_PLANE)\(/); fixHead = first < 0 ? text : text.slice(0, first);
+  while ((m = re.exec(code))) {
+    const a = m[2].split(',').map(s => s.trim());
+    if (m[1] === 'LAYER_PLANE') { rules.push({ room: parseInt(a[0]), layer: +a[1], prio: +a[2], plane: PLANE_BY_NAME[a[3]] }); continue; }
+    const rm = parseInt(a[0]), layer = +a[1], bx = +a[2], by = +a[3], block = parseInt(a[4]), mask = parseInt(a[5]), plane = PLANE_BY_NAME[a[6]];
+    for (let c = 0; c < 4; c++) if (mask >> c & 1) tileFixAll.set(`${rm}:${tileKey(layer, bx, by, c)}`, { plane, block, room: rm });
+  }
+}
+function syncRoomFixes() {
+  tileFix = new Map();
+  for (const [k, t] of tileFixAll) if (t.room === room.hdr) tileFix.set(k.split(':')[1], t);
+}
+function fixesText() {
+  const groups = new Map();   // room|layer|bx|by|plane -> {block, mask}
+  for (const [k, t] of tileFixAll) {
+    const [rm, rest] = k.split(':'), [layer, bx, by, c] = rest.split(',').map(Number), g = `${rm}|${layer}|${bx}|${by}|${t.plane}`;
+    const e = groups.get(g) || { rm: +rm, layer, bx, by, plane: t.plane, block: t.block, mask: 0 }; e.mask |= 1 << c; groups.set(g, e);
+  }
+  const fl = [...groups.values()].sort((a, b) => a.rm - b.rm || a.layer - b.layer || a.by - b.by || a.bx - b.bx);
+  const rl = [...rules].sort((a, b) => a.room - b.room || a.layer - b.layer || a.prio - b.prio);
+  let out = fixHead.replace(/\s*$/, '\n') + '\n';
+  for (const f of fl) out += `SM_PLANE_FIX(${hex(f.rm)}, ${f.layer}, ${f.bx}, ${f.by}, ${hex(f.block)}, ${hex(f.mask, 1)}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
+  for (const f of rl) out += `SM_LAYER_PLANE(${hex(f.room)}, ${f.layer}, ${f.prio}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
+  return out;
+}
+function status(s) { $('status').textContent = s; }
+// A tile fix that says what the tile already gets is not a change: it is not stored (and an old one that now says so goes).
+function applyPlane() {
+  if (!room || !sel.set.size) return; let n = 0, same = 0;
+  const layers = sel.scope ? [sel.scope] : [1, 2];
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number);
+    for (const l of layers) {
+      if (!room.layer[l]) continue; const w = room.layer[l][by * room.w + bx], e = blockTiles(room, w)[c];
+      if (!tileHasInk(room, e)) continue;
+      const key = `${room.hdr}:${tileKey(l, bx, by, c)}`, old = tileFixAll.get(key), rule = ruleFor(l, e >> 13 & 1);
+      const base = rule !== null ? rule : DEFAULT_PLANE(l, e >> 13 & 1);   // the plane without a fix of its own
+      if ((old ? old.plane : base) === curPlane) { same++; continue; }
+      if (curPlane === base) tileFixAll.delete(key); else tileFixAll.set(key, { plane: curPlane, block: w, room: room.hdr });
+      n++;
+    }
+  }
+  syncRoomFixes();
+  status((n ? n + ' tile' + (n === 1 ? '' : 's') + ' to ' + PLANES[curPlane][1] + ' (not saved yet)' : 'no change') + (same ? `; ${same} already ${PLANES[curPlane][1]}` : ''));
+  renderAll();
+}
+function clearFixes() {
+  let n = 0; const layers = sel.scope ? [sel.scope] : [1, 2];
+  for (const k of sel.set) { const [bx, by, c] = k.split(',').map(Number); for (const l of layers) if (tileFixAll.delete(`${room.hdr}:${tileKey(l, bx, by, c)}`)) n++; }
+  syncRoomFixes(); status(n + ' removed (not saved yet)'); renderAll();
+}
+function listFixes() {
+  const box = $('fixes'); if (!box) return; box.innerHTML = ''; if (!room) return;
+  const groups = new Map();
+  for (const [k, t] of tileFix) {
+    const [l, bx, by, c] = k.split(',').map(Number), g = `${l},${bx},${by},${t.plane}`;
+    const e = groups.get(g) || { l, bx, by, plane: t.plane, cs: [] }; e.cs.push(c); groups.set(g, e);
+  }
+  for (const e of groups.values()) {
+    const d = document.createElement('div'), c = PLANES[e.plane], cs = e.cs.sort();
+    d.dataset.l = e.l; d.dataset.bx = e.bx; d.dataset.by = e.by; d.dataset.cs = cs.join(',');
+    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>BG${e.l} ${e.bx},${e.by} ${cs.length === 4 ? '' : '[' + cs.map(i => CORNER_NAMES[i]).join(' ') + ']'}</span><span>${c[1]} &times;</span>`;
+    d.onclick = ev => {
+      if (ev.target === d.lastChild) { for (const cc of cs) tileFixAll.delete(`${room.hdr}:${tileKey(e.l, e.bx, e.by, cc)}`); syncRoomFixes(); renderAll(); return; }
+      sel = { scope: e.l, set: new Set(cs.map(cc => `${e.bx},${e.by},${cc}`)) }; updateSel(); overlayAll();
+    };
+    box.appendChild(d);
+  }
+  for (const f of rules.filter(f => f.room === room.hdr)) {
+    const d = document.createElement('div'), c = PLANES[f.plane];
+    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>${LAYER_NAMES[f.layer]} priority ${f.prio} (all)</span><span>${c[1]} &times;</span>`;
+    d.onclick = ev => { if (ev.target === d.lastChild) { rules.splice(rules.indexOf(f), 1); renderAll(); } };
+    box.appendChild(d);
+  }
+  if (!box.children.length) box.innerHTML = '<div class="hint">none</div>';
+  markFixes(false);
+}
+
+// ---------- tools window ----------
+function buildTools() {
+  const w = makeWindow('w-tools', 'Tools'); w.body.classList.add('pad');
+  w.body.innerHTML = `
+    <h3>Send the selection to</h3>
+    <div class="planes" id="planes"></div>
+    <div class="row"><span class="hint">same as</span><span id="sameas" class="row"></span></div>
+    <div class="row"><button id="apply">APPLY</button><button id="clear">CLEAR FIXES</button><button id="copy">COPY INFO</button></div>
+    <div class="hint" id="selinfo">nothing selected</div>
+    <h3>Whole layer of this room</h3>
+    <div class="row"><select id="rl"><option value="1">BG1</option><option value="2">BG2</option><option value="3">BG3</option><option value="4">sprites</option><option value="5">Mode 7</option></select>
+      <select id="rp"><option value="0">priority 0</option><option value="1">priority 1</option><option value="2">priority 2</option><option value="3">priority 3</option></select></div>
+    <div class="row"><select id="rpl"></select><button id="radd">ADD RULE</button></div>
+    <h3>File</h3>
+    <div class="row"><button id="save">SAVE source/sm_plane_fixes.inc</button></div><div id="status"></div>
+    <h3>Defaults</h3>
+    <div class="hint">BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2 prio 0 FAR, BG2 prio 1 PLAY, BG3 prio 0 MID, BG3 prio 1 FRONT, sprites prio 3 PLAY, other sprites OBJ, Mode 7 PLAY. A tile fix (a block, or one 8x8 tile of it) replaces that for those tiles; a whole-layer rule for that layer of the room. "Same as" picks the plane a tile on that layer would get, so a tile put on the wrong layer can be sent to the right one. This changes only the tile's 3D depth: the picture still draws it where the game does. </div>
+    <h3>Fixes of this room</h3><div id="fixes"></div>`;
+  const pb = $('planes'), rpl = $('rpl');
+  PLANES.forEach((p, i) => { const b = document.createElement('button'); b.textContent = p[1]; b.style.background = p[2]; b.onclick = () => setPlane(i); pb.appendChild(b); const o = document.createElement('option'); o.value = i; o.textContent = p[1]; rpl.appendChild(o); });
+  for (const [name, pl] of SAME_AS) { const b = document.createElement('button'); b.textContent = name; b.title = 'the plane a tile on this layer gets: ' + PLANES[pl][1]; b.onclick = () => setPlane(pl); $('sameas').appendChild(b); }
+  setPlane(curPlane); rpl.value = 2;
+  $('apply').onclick = applyPlane; $('clear').onclick = clearFixes;
+  $('radd').onclick = () => {
+    if (!room) return; const layer = +$('rl').value, prio = +$('rp').value, plane = +$('rpl').value;
+    const old = rules.find(f => f.room === room.hdr && f.layer === layer && f.prio === prio);
+    if ((old ? old.plane : defaultPlaneOf(layer, prio)) === plane) return status(`${LAYER_NAMES[layer]} priority ${prio} is already ${PLANES[plane][1]}: no change`);
+    rules = rules.filter(f => f !== old);
+    if (plane !== defaultPlaneOf(layer, prio)) rules.push({ room: room.hdr, layer, prio, plane });
+    status('rule ' + (plane === defaultPlaneOf(layer, prio) ? 'removed' : 'added') + ' (not saved yet)'); renderAll();
+  };
+  $('copy').onclick = () => {
+    if (!room) return; const lines = [`room ${hex(room.hdr)} (${AREAS[room.area]}) ${room.w}x${room.h} blocks, BG2 ${room.layer[2] ? 'is level data' : 'is not level data'}`];
+    for (const k of [...sel.set].slice(0, 60)) { const [bx, by, c] = k.split(',').map(Number); lines.push(`block ${bx},${by} tile ${CORNER_NAMES[c]}`); for (const l of [1, 2]) if (room.layer[l]) lines.push('  ' + tileInfo(l, bx, by, c)); }
+    navigator.clipboard.writeText(lines.join('\n')); status('copied');
+  };
+  $('save').onclick = async () => { const r = await fetch('/api/fixes', { method: 'POST', body: fixesText() }); status(r.ok ? 'saved' : 'save failed'); };
+}
+function setPlane(i) { curPlane = i; document.querySelectorAll('#planes button').forEach((b, j) => b.classList.toggle('on', j === i)); }
+
+// ---------- rooms ----------
+async function loadRoom(i) {
+  const r = rooms[i], buf = await (await fetch('/rooms/' + r.file)).arrayBuffer();
+  room = parseRoom(buf); sel = { scope: 0, set: new Set() }; updateSel(); syncRoomFixes();
+  const on = n => ['BG1','BG2','BG3','BG4','OBJ'].map((nm, b) => (n >> b & 1) ? nm : '').filter(Boolean).join(' ') || '-';
+  $('title').textContent = `${r.area_name} ${hex(r.room)}  ${r.w}x${r.h} blocks${r.bg2 ? '' : '  (BG2 not level data)'}`;
+  $('screens').textContent = `mode ${room.mode}${room.bg3pri ? ', BG3 prio' : ''}   main: ${on(room.main)}   sub: ${on(room.sub)}`;
+  // the layers the game really shows in this room; the others are only data
+  for (const l of [1, 2]) { const cb = $('show' + l); if (cb) cb.checked = !!(room.layer[l] && ((room.main | room.sub) >> (l - 1) & 1)); }
+  const res = views.find(v => !v.layer); if (res) res.layers = [1, 2].filter(x => $('show' + x).checked);
+  openAreas.add(r.area); saveAreas(); mapArea = r.area;
+  renderAll();
+  const cur = document.querySelector('.room.cur'); if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+const openAreas = new Set(JSON.parse(localStorage.getItem('smwb.areas') || '[0]'));
+const saveAreas = () => localStorage.setItem('smwb.areas', JSON.stringify([...openAreas]));
+const fixCount = hdr => rules.filter(x => x.room === hdr).length + [...tileFixAll.values()].filter(x => x.room === hdr).length;
+function buildList(filter = '') {
+  const box = $('list'); if (!box) return; const keep = box.parentNode.scrollTop; box.innerHTML = ''; const f = filter.toLowerCase();
+  const byArea = new Map();
+  rooms.forEach((r, i) => {
+    if (f && !(hex(r.room).toLowerCase().includes(f) || r.area_name.toLowerCase().includes(f))) return;
+    if (!byArea.has(r.area)) byArea.set(r.area, []);
+    byArea.get(r.area).push(i);
+  });
+  for (const [area, idx] of byArea) {   // one folder per area; a search opens every folder it finds something in
+    const d = document.createElement('details'); d.className = 'area'; d.open = !!f || openAreas.has(area);
+    const fx = idx.reduce((n, i) => n + fixCount(rooms[i].room), 0);
+    d.innerHTML = `<summary>${rooms[idx[0]].area_name} <span class="n">${fx ? fx + ' fix · ' : ''}${idx.length}</span></summary>`;
+    d.addEventListener('toggle', () => { if (f) return; if (d.open) openAreas.add(area); else openAreas.delete(area); saveAreas(); });
+    for (const i of idx) {
+      const r = rooms[i], cnt = fixCount(r.room);
+      const e = document.createElement('div'); e.className = 'room' + (room && room.hdr === r.room ? ' cur' : ''); e.dataset.i = i;
+      e.innerHTML = `<span>${hex(r.room)}  <span class="hint">${r.w / 16}x${r.h / 16}</span></span><span class="n">${cnt ? cnt + ' fix' : ''}</span>`;
+      e.onclick = () => loadRoom(i); d.appendChild(e);
+    }
+    box.appendChild(d);
+  }
+  box.parentNode.scrollTop = keep;
+}
+function buildRoomsWindow() {
+  const w = makeWindow('w-rooms', 'Rooms'); w.body.style.background = 'var(--panel)';
+  w.body.innerHTML = '<div style="padding:6px"><input type="text" id="search" placeholder="room (hex) or area" style="width:100%"></div><div id="list"></div>';
+  $('search').oninput = e => buildList(e.target.value);
+}
+
+// ---------- area map ----------
+// Every room is a rectangle of map cells (from the ROM's room headers, see serve.py --rom); click one to open it.
+let mapArea = 0, mapGeom = null, mapLast = null;
+function buildMapWindow() {
+  const sel = document.createElement('select'); sel.id = 'maparea';
+  AREAS.forEach((n, i) => { const o = document.createElement('option'); o.value = i; o.textContent = n; sel.appendChild(o); });
+  sel.onchange = () => { mapArea = +sel.value; drawMap(); };
+  const w = makeWindow('w-map', 'Map', sel);
+  w.body.style.background = 'var(--panel)';
+  w.body.innerHTML = '<div id="mapmsg" class="hint" style="padding:6px"></div><canvas id="mapcv"></canvas>';
+  const cv = $('mapcv');
+  const at = ev => {
+    if (!mapGeom) return null; const r = cv.getBoundingClientRect(), g = mapGeom;
+    const cx = Math.floor((ev.clientX - r.left) / g.cell) + g.minx, cy = Math.floor((ev.clientY - r.top) / g.cell) + g.miny;
+    return { cx, cy, hits: g.rooms.filter(q => cx >= q.map[0] && cx < q.map[0] + q.map[2] && cy >= q.map[1] && cy < q.map[1] + q.map[3])
+      .sort((a, b) => a.map[2] * a.map[3] - b.map[2] * b.map[3]) };
+  };
+  cv.onclick = ev => {
+    const h = at(ev); if (!h || !h.hits.length) return;
+    // cells covered by several rooms: the smallest first, then each further click takes the next one
+    let k = 0; if (mapLast && mapLast.cx === h.cx && mapLast.cy === h.cy) { const j = h.hits.findIndex(q => room && q.room === room.hdr); k = (j + 1) % h.hits.length; }
+    mapLast = { cx: h.cx, cy: h.cy }; loadRoom(rooms.indexOf(h.hits[k]));
+  };
+  cv.onmousemove = ev => {
+    const h = at(ev); if (!h) return;
+    $('info').textContent = h.hits.length ? 'map cell ' + h.cx + ',' + h.cy + ': ' + h.hits.map(q => `${hex(q.room)} (${q.w / 16}x${q.h / 16})`).join('  ') + (h.hits.length > 1 ? '   (click again for the next)' : '') : 'map cell ' + h.cx + ',' + h.cy;
+  };
+  new ResizeObserver(() => drawMap()).observe(w.win);
+}
+function drawMap() {
+  const cv = $('mapcv'); if (!cv) return;
+  const rs = rooms.filter(r => r.area === mapArea && r.map), msg = $('mapmsg'), body = cv.parentNode;
+  $('maparea').value = mapArea;
+  if (!rs.length) {
+    cv.width = cv.height = 1; mapGeom = null;
+    msg.textContent = rooms.some(r => r.map) ? 'no exported rooms in this area' : 'room positions come from the ROM: start with ./run_workbench.sh (or serve.py --rom)';
+    return;
+  }
+  msg.textContent = '';
+  const minx = Math.min(...rs.map(r => r.map[0])), maxx = Math.max(...rs.map(r => r.map[0] + r.map[2]));
+  const miny = Math.min(...rs.map(r => r.map[1])), maxy = Math.max(...rs.map(r => r.map[1] + r.map[3]));
+  const cell = Math.max(3, Math.min(24, Math.floor((body.clientWidth - 2) / (maxx - minx))));
+  cv.width = (maxx - minx) * cell; cv.height = (maxy - miny) * cell; mapGeom = { cell, minx, miny, rooms: rs };
+  const c = cv.getContext('2d'); c.fillStyle = '#05070b'; c.fillRect(0, 0, cv.width, cv.height);
+  c.font = '10px ui-monospace,monospace'; c.textBaseline = 'top';
+  const order = [...rs].sort((a, b) => b.map[2] * b.map[3] - a.map[2] * a.map[3]);   // big ones first: small rooms stay on top
+  for (const r of order) {
+    const x = (r.map[0] - minx) * cell, y = (r.map[1] - miny) * cell, w = r.map[2] * cell, h = r.map[3] * cell, cur = room && room.hdr === r.room;
+    c.fillStyle = cur ? '#8a7a20' : `hsl(${(rooms.indexOf(r) * 47) % 360},35%,${fixCount(r.room) ? 34 : 24}%)`; c.fillRect(x, y, w, h);
+    c.strokeStyle = cur ? '#ffd54a' : '#9fb0d0'; c.lineWidth = cur ? 2 : 1; c.strokeRect(x + .5, y + .5, w - 1, h - 1);
+    if (fixCount(r.room)) { c.fillStyle = '#3cc83c'; c.fillRect(x + w - 6, y + 2, 4, 4); }
+    if (w >= 34 && h >= 12) { c.fillStyle = '#fff'; c.fillText(r.room.toString(16).toUpperCase(), x + 3, y + 3); }
+  }
+}
+
+async function init() {
+  buildRoomsWindow();
+  buildMapWindow();
+  makeView('w-result', 'Result', 0, 'REAL');
+  makeView('w-bg1', 'BG1', 1, 'BEFORE|AFTER');
+  makeView('w-bg2', 'BG2', 2, 'BEFORE|AFTER');
+  buildTools();
+  rooms = (await (await fetch('/api/rooms')).json()).sort((a, b) => a.area - b.area || a.room - b.room);
+  parseFixes(await (await fetch('/api/fixes')).text()); buildList();
+  $('zp').onclick = () => zoomTo(zoom + 1); $('zm').onclick = () => zoomTo(zoom - 1);
+  $('tint').onclick = e => { tintOn = !tintOn; e.target.classList.toggle('on', tintOn); renderAll(); };
+  $('grid').onclick = e => { showGrid = !showGrid; e.target.classList.toggle('on', showGrid); overlayAll(); };
+  $('selBlocks').onclick = () => { tileMode = false; $('selBlocks').classList.add('on'); $('selTiles').classList.remove('on'); };
+  $('selTiles').onclick = () => { tileMode = true; $('selTiles').classList.add('on'); $('selBlocks').classList.remove('on'); };
+  $('relayout').onclick = () => { localStorage.removeItem(layoutKey); location.reload(); };
+  if (rooms.length) loadRoom(0);
+}
+init();
+</script>
+</body>
+</html>

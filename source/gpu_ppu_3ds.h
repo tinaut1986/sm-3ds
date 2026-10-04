@@ -36,9 +36,13 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
 // framebuffer again (when switching back to the CPU renderer).
 void GpuPpu3ds_WaitIdle(void);
 
-// Debug view: every quad is tinted with the colour of its stereo plane (StereoDepth_PlaneColor),
-// blended over its own picture so the scene stays readable.
-void GpuPpu3ds_SetPlaneTint(bool on);
+// Debug views: every quad is tinted, blended over its own picture so the scene stays readable.
+//   kPlaneTintPlanes: the colour of its stereo plane (StereoDepth_PlaneColor)
+//   kPlaneTintOrder:  a one-colour ramp by its drawing order, the compositor level (back dark .. front bright)
+//   kPlaneTintDepth:  the same ramp by its stereoscopic depth, the plane's shift (far dark .. near bright)
+// Where the two ramps differ is what does not fit between how the game draws it and where 3D puts it.
+enum { kPlaneTintOff, kPlaneTintPlanes, kPlaneTintOrder, kPlaneTintDepth, kPlaneTintModes };
+void GpuPpu3ds_SetPlaneTint(int mode);
 
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.

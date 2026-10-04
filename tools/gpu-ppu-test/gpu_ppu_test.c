@@ -28,6 +28,7 @@
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "sm_planes.h"
 #include "stereo_depth.h"
 #include "game_text.h"
 #include "ui_lang.h"
@@ -53,6 +54,7 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
 }
 void GpuBackend_TexFree(GpuTex *t) { free(t->px); t->px = NULL; }
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {}
+void GpuBackend_BeforeTexWrite(void) {}
 
 enum { kPitch = 256 * 4 };
 static uint8_t g_px[kPitch * 240], g_a[kPitch * 240], g_b[kPitch * 240], g_c[kPitch * 240];
@@ -399,6 +401,8 @@ static void TestWide(const char *label) {
 
 // Runs one frame and checks it. `check_capture` also runs it a second time the
 // normal way (from a save state) to compare the capture replay against it.
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
+
 static void TestFrame(const char *label, bool check_capture) {
   if (check_capture) RtlSaveLoad(kSaveLoad_Save, 8);
   if (check_capture) {
@@ -473,6 +477,9 @@ static void TestFrame(const char *label, bool check_capture) {
     printf("%s: CAPTURE REPLAY differs from the normal render: %d px in %d,%d..%d,%d\n", label, n, x0, y0, x1, y1);
   }
   const char *why;
+  // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
+  GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
+  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_SlotPlanes : NULL);
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -540,6 +547,11 @@ static void TestFrame(const char *label, bool check_capture) {
   if (g_frame.quad_count > g_max_quads) g_max_quads = g_frame.quad_count;
   memset(g_c, 0, sizeof(g_c));
   GpuRef_DrawFrame(&g_frame, g_c, kPitch);
+  if (getenv("QUAD_LEVELS") && g_frames == atoi(getenv("QUAD_LEVELS")))
+    for (int q = 0; q < g_frame.quad_count; q++) {
+      const GpuQuad *qd = &g_frame.quads[q];
+      printf("quad %d level %d flags %x x %d y %d w %d h %d\n", q, qd->level, qd->flags, qd->x, qd->y, qd->w, qd->h);
+    }
   // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
   // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
   int sp_a, sp_b;
@@ -552,18 +564,17 @@ static void TestFrame(const char *label, bool check_capture) {
       for (int q = 0; q < g_frame.quad_count; q++) {
         const GpuQuad *qd = &g_frame.quads[q];
         const bool hud = q >= g_frame.hud_first && q < g_frame.hud_first + g_frame.hud_count;
-        const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
-        printf("STEREO_QUAD frame %d %s x %d y %d w %d h %d level %d plane %d\n", g_frames,
+        printf("STEREO_QUAD frame %d %s x %d y %d w %d h %d level %d plane %d%s\n", g_frames,
                qd->flags & kGpuQuadObj ? "obj" : "bg ", qd->x, qd->y, qd->w, qd->h, qd->level,
-               (int)StereoDepth_Plane(&sf, &it));
+               (int)QuadStereoPlane(&sf, qd, hud), qd->plane ? " (set by hand)" : "");
       }
     for (int pl = 0; pl < kStereoPlaneCount; pl++) {
       one = g_frame;
       for (int q = 0; q < one.quad_count; q++) {
         const GpuQuad *qd = &one.quads[q];
         const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
-        const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
-        if (StereoDepth_Plane(&sf, &it) != pl) one.quads[q].w = 0;
+        if (QuadStereoPlane(&sf, qd, hud) != pl) one.quads[q].w = 0;
+        if (getenv("ONLY_LEVEL") && qd->level != atoi(getenv("ONLY_LEVEL"))) one.quads[q].w = 0;
       }
       for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
       memset(img, 0, sizeof(img));
@@ -599,6 +610,13 @@ static void TestFrame(const char *label, bool check_capture) {
     printf("FRAMEHASH %s %016llx\n", label, (unsigned long long)h);
   }
   if (getenv("WIDE")) TestWide(label);
+}
+
+// The stereo plane of a quad: the one set by hand for its layer (sm_planes.c) or the depth function's.
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud) {
+  if (qd->plane && !hud && sf->gameplay) return (StereoPlane)(qd->plane - 1);
+  const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
+  return StereoDepth_Plane(sf, &it);
 }
 
 static int g_music_rooms, g_music_stuck, g_music_wrong;

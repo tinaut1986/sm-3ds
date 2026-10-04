@@ -31,7 +31,6 @@ static bool g_enabled;
 static char g_user[64], g_token[64];
 static RaStatus g_status = kRaOff;
 static char g_message[96];
-static bool g_cheats_used;
 static uint32_t g_version;
 
 static RaAchievement g_list[kMaxAchievements];
@@ -733,7 +732,7 @@ void RetroAch_Update(void) {
 }
 
 void RetroAch_DoFrame(void) {
-  if (!g_client || !g_enabled || g_cheats_used) return;
+  if (!g_client || !g_enabled) return;
   rc_client_do_frame(g_client);
 }
 
@@ -779,14 +778,6 @@ void RetroAch_StateLoaded(int slot) {
   fclose(f);
 }
 
-void RetroAch_NoteCheat(void) {
-  if (g_cheats_used) return;
-  g_cheats_used = true;
-  LogLine("a cheat or the teleport was used: achievements paused until restart");
-  Changed();
-}
-
-bool RetroAch_CheatsUsed(void) { return g_cheats_used; }
 
 bool RetroAch_Enabled(void) { return g_enabled; }
 

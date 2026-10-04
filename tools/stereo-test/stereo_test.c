@@ -44,11 +44,9 @@ static const struct { const char *front, *back; bool needs_thickness; const char
   { "BG1 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 1", false, "low sprites on Samus's plane" },
   { "BG2 prio 0", "OBJ prio 0", false, "low sprites on Samus's plane" },
-  // BG2 priority 1 over the level or over Samus: rare (Spore Spawn's body); P3.3 checks it.
-  { "BG2 prio 1", "OBJ prio 2", false, "BG2 always mid" },
-  { "BG2 prio 1", "BG1 prio 0", false, "BG2 always mid" },
-  { "BG2 prio 1", "OBJ prio 1", false, "BG2 always mid" },
-  { "BG2 prio 1", "OBJ prio 0", false, "BG2 always mid" },
+  // BG3 priority 0 FX (ash, fog) are drawn under everything but meant to read in front of
+  // the room's background; they only show where BG2 is transparent.
+  { "BG2 prio 0", "BG3 prio 0", false, "FX in front of the background" },
 };
 enum { kAcceptedCount = sizeof(kAccepted) / sizeof(kAccepted[0]) };
 
@@ -163,7 +161,40 @@ static void TestDebugView(void) {
   }
 }
 
+// The ramps of the DRAW ORDER and STEREO DEPTH views: monotonic, and the depth follows the planes' shifts.
+static void TestRamps(void) {
+  for (int ramp = 0; ramp < 2; ramp++) {
+    const int shift = ramp == kRampDepth ? 0 : 8;   // the strong channel: blue for depth, green for the order
+    uint32_t prev = StereoDepth_RampColor(0, ramp);
+    for (int i = 1; i <= 100; i++) {
+      const uint32_t c = StereoDepth_RampColor(i / 100.0f, ramp);
+      CHECK((c >> shift & 255) >= (prev >> shift & 255) && (c >> 16 & 255) >= (prev >> 16 & 255),
+            "ramp %d not brightening at %d", ramp, i);
+      prev = c;
+    }
+    CHECK(StereoDepth_RampColor(-1, ramp) == StereoDepth_RampColor(0, ramp) &&
+              StereoDepth_RampColor(2, ramp) == StereoDepth_RampColor(1, ramp),
+          "ramp %d not clamped", ramp);
+  }
+  CHECK(StereoDepth_RampColor(1, kRampOrder) != StereoDepth_RampColor(1, kRampDepth), "both ramps share a colour");
+  for (int t = 0; t < 2; t++) {
+    StereoDepth_SetThickness(t);
+    for (int a = 0; a < kStereoPlaneCount; a++) {
+      const float da = StereoDepth_PlaneDepth((StereoPlane)a);
+      CHECK(da >= 0 && da <= 1, "plane %d depth %f out of 0..1", a, da);
+      for (int b = 0; b < kStereoPlaneCount; b++)
+        CHECK((StereoDepth_PlanePx((StereoPlane)a) < StereoDepth_PlanePx((StereoPlane)b)) ==
+                  (da < StereoDepth_PlaneDepth((StereoPlane)b)),
+              "thickness %d: depth of planes %d and %d out of step with their shifts", t, a, b);
+    }
+    CHECK(StereoDepth_PlaneDepth(kStereoHud) == 1.0f && StereoDepth_PlaneDepth(kStereoFar) == 0.0f,
+          "thickness %d: HUD is not the nearest or FAR the farthest", t);
+  }
+  StereoDepth_SetThickness(true);
+}
+
 int main(void) {
+  TestRamps();
   TestDebugView();
   TestGameplayOrder(true);
   TestGameplayOrder(false);

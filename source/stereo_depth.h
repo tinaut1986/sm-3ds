@@ -15,13 +15,13 @@
 typedef enum {
   kStereoHud,      // the HUD list (HUD rows, escape timer), message boxes, the port's own text
   kStereoFront,    // BG3 priority 1 FX that is not the HUD (water, lava, fog over the room)
-  kStereoPlay,     // BG1 tile priority 1: SM's walls and floors (Samus passes behind them);
+  kStereoPlay,     // BG1 or BG2 tile priority 1: SM's walls and floors (Samus passes behind them);
                    // sprites of OAM priority 3 (drawn over them: wall faces); the mode 7 plane
   kStereoObj,      // the other world sprites: Samus, enemies (OAM priority 0-2)
   kStereoBack,     // BG1 tile priority 0: the level's parts Samus passes in front of (the
                    // save station's glass, background pipes)
-  kStereoMid,      // BG2 (the room's background)
-  kStereoFar,      // BG3 priority 0 FX, the backdrop
+  kStereoMid,      // BG3 priority 0 FX: falling ash, fog, haze (in front of the room's background)
+  kStereoFar,      // BG2 priority 0 (the room's background), the backdrop
   kStereoScreen,   // a non-gameplay screen: flat until P3.4 gives it depth
   kStereoPlaneCount
 } StereoPlane;
@@ -68,4 +68,13 @@ int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye);
 // Debug view (Debug tools -> PLANE TINT): a short name and a flat colour per plane, so each
 // quad can be tinted by the plane it landed on. 0xRRGGBB.
 const char *StereoDepth_PlaneName(StereoPlane plane);
+
+// One-colour ramps for the other two debug views: how far back or forward something is drawn. `t` in
+// 0..1 (back .. front) gives the colour (dark to bright, 0xRRGGBB), green for the drawing order
+// (kRampOrder) and blue for the stereoscopic depth (kRampDepth), so the view shown is told at a glance;
+// StereoDepth_PlaneDepth is the t of a plane by its shift at full slider, from the farthest plane (0) to
+// the nearest (1).
+enum { kRampOrder, kRampDepth };
+uint32_t StereoDepth_RampColor(float t, int ramp);
+float StereoDepth_PlaneDepth(StereoPlane plane);
 uint32_t StereoDepth_PlaneColor(StereoPlane plane);
