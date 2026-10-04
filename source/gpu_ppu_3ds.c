@@ -142,6 +142,23 @@ static void EnvModulate(uint32_t rgba) {
   C3D_TexEnvColor(e, rgba);
 }
 
+// Debug plane tint: the quad's own texel, mixed 78% towards a flat colour in a second stage
+// (constant colour, alpha = the mix); the alpha stays the texel's so the alpha test and the
+// silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
+static bool g_plane_tint;
+void GpuPpu3ds_SetPlaneTint(bool on) { g_plane_tint = on; }
+
+static void EnvPlaneTint(uint32_t rgb) {
+  C3D_TexEnv *e = C3D_GetTexEnv(1);
+  C3D_TexEnvInit(e);
+  C3D_TexEnvSrc(e, C3D_RGB, GPU_CONSTANT, GPU_PREVIOUS, GPU_CONSTANT);
+  C3D_TexEnvOpRgb(e, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_ALPHA);
+  C3D_TexEnvFunc(e, C3D_RGB, GPU_INTERPOLATE);
+  C3D_TexEnvSrc(e, C3D_Alpha, GPU_PREVIOUS, 0, 0);
+  C3D_TexEnvFunc(e, C3D_Alpha, GPU_REPLACE);
+  C3D_TexEnvColor(e, (rgb >> 16 & 0xff) | (rgb & 0xff00) | (rgb & 0xff) << 16 | 200u << 24);   // 0xAABBGGRR
+}
+
 static void BlendOff(void) {
   C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
 }
@@ -153,13 +170,13 @@ static StereoFrame g_stereo_frame;
 
 // The plane of a quad, from what the frame builder put in it: its level and flags
 // (gpu_ppu.c: kBgLevel, sprites at 4 * priority + 2). `hud`: in the HUD list.
-static int QuadDx(const GpuQuad *qd, bool hud) {
+static StereoPlane QuadPlane(const GpuQuad *qd, bool hud) {
   // Without WIDE the HUD stays in its band: SM's HUD is BG3 on the top 32 rows.
   if (g_stereo_frame.gameplay && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) && (qd->level == 15 || qd->level == 1) &&
       qd->y + qd->h <= 32)
     hud = true;
   const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
-  return g_eye_dx[StereoDepth_Plane(&g_stereo_frame, &it)];
+  return StereoDepth_Plane(&g_stereo_frame, &it);
 }
 
 // Depth for a priority level (0 = backdrop .. 15).
@@ -267,6 +284,7 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
   int bound_wrap = -1;   // the texture's wrap mode: 0 repeat, 1 clamp to a transparent border
   float inv_w = 0, inv_h = 0;   // of the bound texture: no divisions per quad
   int state = -1;   // 0 sprites, 1 sprites with math, 2 BG, 3 BG with math
+  int tint = -1;    // the plane the debug tint is set to
   BatchBegin();
   for (; q < first + count; q++) {
     const GpuQuad *qd = &f->quads[q];
@@ -303,7 +321,13 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
         }
       }
     }
-    const int dx = QuadDx(qd, over);
+    const StereoPlane plane = QuadPlane(qd, over);
+    const int dx = g_eye_dx[plane];
+    if (g_plane_tint && (int)plane != tint) {
+      BatchDraw();
+      EnvPlaneTint(StereoDepth_PlaneColor(plane));
+      tint = (int)plane;
+    }
     if (qd->flags & kGpuQuadAffine) {
       PushAffine(qd, dx);
       continue;
@@ -315,6 +339,7 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
     PushQuad(qd->x + dx, qd->y, qd->x + qd->w + dx, qd->y + qd->h, LevelZ(qd->level), u0, v0, u1, v1);
   }
   BatchDraw();
+  if (tint >= 0) C3D_TexEnvInit(C3D_GetTexEnv(1));
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
 }
 

@@ -64,3 +64,8 @@ enum { kStereoMaxPx = 4 };   // the largest |StereoDepth_PlanePx|: columns the e
 // Shift for one eye (left = +1, right = -1) at slider 0..1: whole pixels, rounded once per
 // plane, so a plane moves rigidly and text never lands between pixels.
 int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye);
+
+// Debug view (Debug tools -> PLANE TINT): a short name and a flat colour per plane, so each
+// quad can be tinted by the plane it landed on. 0xRRGGBB.
+const char *StereoDepth_PlaneName(StereoPlane plane);
+uint32_t StereoDepth_PlaneColor(StereoPlane plane);

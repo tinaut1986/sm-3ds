@@ -20,6 +20,8 @@ tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1
 
 **Branches waiting for the owner's check on the console** (merge into the release line
 with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+`feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
+owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
 Everything above was merged into the release line at the owner's request and shipped in the
 `v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
@@ -289,8 +291,8 @@ Lessons from mzm that apply directly:
   CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
   (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
   no option to turn it off besides the slider, second eye's vertices pushed again.
-- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
-  a debug depth tint like mzm's.
+- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors).
+  The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
   (flat or with deliberate depth).
 
@@ -1014,3 +1016,12 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   `feat/item-names`, `feat/ra-cards` merged at the owner's request after they tried the CIA
   on both consoles); the line is now `release/v0.2.1`. The tasks stay unticked until the
   owner checks each one in detail.
+- 2026-10-04: Debug captures made for playtesting (owner's request). (1) PLANE TINT, as mzm's
+  depth tint: the quad's own texel mixed 78% towards its plane's flat colour in a second TEV
+  stage, so the scene stays readable and the offsets still move each colour; names and
+  colours live in `stereo_depth.c` (pure, host-tested). (2) REPORT window before SCREEN DUMP,
+  FRAME DUMP and stopping SCENE REC: the game pauses, a reason or typed text becomes
+  `sm-<kind>-NNNN-note.txt`, CANCEL writes nothing (a recording being stopped has a play button that keeps it running and a cross that discards it). (3) Dumps and
+  recordings no longer rotate: each takes the next number (4 digits), the owner deletes what
+  has been handled (Claude asks after each one, then removes it over FTP). Rotating hid
+  captures: ten slots were gone after a day of notes. The dump is of the frame after the pause.

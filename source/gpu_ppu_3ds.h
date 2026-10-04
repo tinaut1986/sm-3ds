@@ -36,6 +36,10 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
 // framebuffer again (when switching back to the CPU renderer).
 void GpuPpu3ds_WaitIdle(void);
 
+// Debug view: every quad is tinted with the colour of its stereo plane (StereoDepth_PlaneColor),
+// blended over its own picture so the scene stays readable.
+void GpuPpu3ds_SetPlaneTint(bool on);
+
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);

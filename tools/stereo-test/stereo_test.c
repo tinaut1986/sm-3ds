@@ -149,7 +149,22 @@ static void TestOffsets(void) {
   StereoDepth_SetThickness(true);
 }
 
+// The debug tint needs every plane to read apart: a name and a colour of its own.
+static void TestDebugView(void) {
+  for (int a = 0; a < kStereoPlaneCount; a++) {
+    CHECK(StereoDepth_PlaneName((StereoPlane)a)[0] && StereoDepth_PlaneName((StereoPlane)a)[0] != '?',
+          "plane %d has no name", a);
+    for (int b = a + 1; b < kStereoPlaneCount; b++) {
+      CHECK(strcmp(StereoDepth_PlaneName((StereoPlane)a), StereoDepth_PlaneName((StereoPlane)b)) != 0,
+            "planes %d and %d share a name", a, b);
+      CHECK(StereoDepth_PlaneColor((StereoPlane)a) != StereoDepth_PlaneColor((StereoPlane)b),
+            "planes %d and %d share a colour", a, b);
+    }
+  }
+}
+
 int main(void) {
+  TestDebugView();
   TestGameplayOrder(true);
   TestGameplayOrder(false);
   TestPlanes();

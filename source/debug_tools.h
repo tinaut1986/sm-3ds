@@ -57,5 +57,13 @@ const char *Debug_Version(void);
 
 // Slot for a new capture of `kind` ("dump", "rec", ...): the first of `slots` whose
 // marker file (`marker_fmt` with the slot number) does not exist, else the one after
-// the slot this kind wrote last (remembered in debug/sm-<kind>-last.txt).
+// the slot this kind wrote last (remembered in debug/sm-<kind>-last.txt). `slots` 0: no
+// limit, the number after the last one written (dumps and recordings, the owner cleans up).
+//
+// A note ("what is wrong in this one", chosen on the console before the capture) goes with
+// the next dump or recording: Debug_WriteNote(kind, slot) writes debug/sm-<kind>-NNNN-note.txt
+// and forgets it; the capture code calls it once it has its slot. NULL or "" clears it.
 int Debug_NextSlot(const char *kind, const char *marker_fmt, int slots);
+
+void Debug_SetNote(const char *text);
+void Debug_WriteNote(const char *kind, int slot);

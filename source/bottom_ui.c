@@ -16,6 +16,7 @@
 #include "scene_rec.h"
 #include "sm_map.h"
 #include "sm_warp.h"
+#include "stereo_depth.h"
 #include "ui_draw.h"
 #include "ui_lang.h"
 #include "retro_ach.h"
@@ -41,7 +42,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -721,8 +722,126 @@ static void ResetModalTouch(int x, int y) {
 
 // Debug tools: a 2-column grid in a window over the Debug tab, like mzm's.
 #if DEBUG_TOOLS
+
+// ---- Report: say what is wrong before a capture is written ---------------------------
+// SCREEN DUMP, FRAME DUMP and stopping SCENE REC open this window instead of writing at
+// once. The game pauses while it is open (nothing moves under the reason being typed); a
+// reason, or a text typed on the keyboard, becomes the capture's note (debug/sm-<kind>-NNNN-
+// note.txt, Debug_SetNote) and the capture is written; CANCEL writes nothing. A recording
+// being stopped also has RESUME (keep recording); CANCEL throws it away.
+typedef enum { REPORT_DUMP, REPORT_FRAME_DUMP, REPORT_SCENE_REC } ReportKind;
+static ReportKind g_report_kind;
+static bool g_report_was_paused;
+
+static const char *const kReportReasons[] = {
+  "3D DEPTH WRONG", "WIDE VIEW BUG", "SPRITE MISSING", "SPRITE FLASHES",
+  "WRONG COLOURS", "GLITCH OR GARBAGE", "GAME LOGIC", "PERFORMANCE",
+};
+enum { kReportReasonCount = sizeof(kReportReasons) / sizeof(kReportReasons[0]) };
+
+static Rect ReasonRect(int i) { return (Rect){ 16 + (i % 2) * 148, 62 + (i / 2) * 28, 140, 24 }; }
+static Rect CustomRect(void) { return (Rect){ 16, 182, 140, 24 }; }
+// A recording being stopped has two ways out: RESUME (the play triangle) keeps it recording,
+// the cross throws it away. For a dump they are the same, so there is one CANCEL.
+static Rect ReportResumeRect(void) { return (Rect){ 164, 182, 68, 24 }; }
+static Rect ReportCancelRect(void) {
+  return g_report_kind == REPORT_SCENE_REC ? (Rect){ 236, 182, 68, 24 } : (Rect){ 164, 182, 140, 24 };
+}
+
+static void OpenReport(ReportKind kind) {
+  if (g_modal == MODAL_REPORT) return;
+  g_report_kind = kind;
+  g_report_was_paused = g_ui.paused;
+  g_ui.paused = true;
+  g_modal = MODAL_REPORT;
+  g_dirty = 2;
+}
+
+static void DrawReportModal(Surface s) {
+  static const char *const kKind[] = { "SCREEN DUMP", "FRAME DUMP", "SCENE REC" };
+  UiFillRect(s, 10, 26, 300, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 11, 27, 298, 208, COL_MODAL);
+  UiDrawText(s, 20, 33, 1, COL_TITLE, "WHAT IS WRONG?");
+  UiDrawTextf(s, 20, 45, COL_DIM, "%s - THE GAME IS PAUSED", kKind[g_report_kind]);
+  for (int i = 0; i < kReportReasonCount; i++) {
+    const Rect r = ReasonRect(i);
+    UiDrawBoxLabel(s, r, RGB(24, 32, 50), RGB(50, 80, 130), COL_TEXT, Pressed(r), kReportReasons[i]);
+  }
+  UiDrawBoxLabel(s, CustomRect(), RGB(30, 55, 90), RGB(90, 160, 240), RGB(180, 225, 255), Pressed(CustomRect()),
+                 "WRITE IT...");
+  const Rect cancel = ReportCancelRect();
+  if (g_report_kind != REPORT_SCENE_REC) {
+    UiDrawBoxLabel(s, cancel, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(cancel), "CANCEL");
+    UiDrawTextCentered(s, SCREEN_W / 2, 216, COL_FAINT, "CANCEL WRITES NOTHING");
+    return;
+  }
+  const Rect resume = ReportResumeRect();
+  UiDrawBox(s, resume, RGB(22, 44, 30), RGB(60, 150, 90), Pressed(resume));
+  const int rx = resume.x + resume.w / 2 - 2, ry = resume.y + resume.h / 2;
+  for (int dy = -6; dy <= 6; dy++) {   // play triangle: widest in the middle row
+    const int len = 11 - (dy < 0 ? -dy : dy) * 11 / 6;
+    if (len > 0) UiFillRect(s, rx - 4, ry + dy, len, 1, RGB(120, 230, 140));
+  }
+  UiDrawBox(s, cancel, RGB(64, 22, 22), RGB(180, 60, 60), Pressed(cancel));
+  const int cx = cancel.x + cancel.w / 2, cy = cancel.y + cancel.h / 2;
+  for (int d = -5; d <= 5; d++) {   // a cross: both diagonals, 2 px thick
+    UiFillRect(s, cx + d - 1, cy + d - 1, 2, 2, RGB(255, 110, 110));
+    UiFillRect(s, cx + d - 1, cy - d - 1, 2, 2, RGB(255, 110, 110));
+  }
+  UiDrawTextCentered(s, SCREEN_W / 2, 216, COL_FAINT, "PLAY KEEPS RECORDING   X THROWS IT AWAY");
+}
+
+// The reason is chosen: write the capture, and give the pause back as it was. The dumps
+// are taken by the main loop on its next frame, so a game that was paused runs that one
+// frame (g_ui.repause) and pauses again.
+static void ReportDone(const char *reason) {
+  g_modal = MODAL_NONE;
+  g_dirty = 2;
+  if (!reason) {
+    Debug_SetNote(NULL);
+    if (g_report_kind == REPORT_SCENE_REC) SceneRec_Discard();   // stopped and cancelled: no file, no note
+    g_ui.paused = g_report_was_paused;
+    Toast(Debug_LastMessage()[0] && g_report_kind == REPORT_SCENE_REC ? Debug_LastMessage() : "Nothing written");
+    return;
+  }
+  Debug_SetNote(reason);
+  switch (g_report_kind) {
+  case REPORT_DUMP: g_ui.req_dump = true; break;
+  case REPORT_FRAME_DUMP: g_ui.req_frame_dump = true; break;
+  case REPORT_SCENE_REC:
+    SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
+    Toast(Debug_LastMessage());
+    g_ui.paused = g_report_was_paused;
+    return;
+  }
+  g_ui.paused = false;
+  g_ui.repause = g_report_was_paused;
+}
+
+static void ReportTouch(int x, int y) {
+  for (int i = 0; i < kReportReasonCount; i++)
+    if (UiIn(ReasonRect(i), x, y)) {
+      ReportDone(kReportReasons[i]);
+      return;
+    }
+  if (UiIn(CustomRect(), x, y)) {
+    SwkbdState kb;
+    char text[120] = "";
+    swkbdInit(&kb, SWKBD_TYPE_NORMAL, 2, sizeof(text) - 1);
+    swkbdSetHintText(&kb, "What is wrong in this capture?");
+    if (swkbdInputText(&kb, text, sizeof(text)) == SWKBD_BUTTON_CONFIRM && text[0]) ReportDone(text);
+    g_dirty = 2;   // a cancelled or empty text leaves the window open
+  } else if (g_report_kind == REPORT_SCENE_REC && UiIn(ReportResumeRect(), x, y)) {
+    g_modal = MODAL_NONE;   // back to the game, still recording
+    g_ui.paused = g_report_was_paused;
+    g_dirty = 2;
+  } else if (UiIn(ReportCancelRect(), x, y)) {
+    ReportDone(NULL);
+  }
+}
+
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT,
   TOOL_COUNT
 } Tool;
 
@@ -783,6 +902,17 @@ static void DrawToolsModal(Surface s) {
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
                g_ui.gpu_render ? act : COL_FAINT);
+  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.plane_tint ? "ON" : "OFF",
+               !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
+  if (g_ui.plane_tint && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
+    int x = 16;
+    for (int p = 0; p < kStereoPlaneCount - 1; p++) {
+      const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
+      UiFillRect(s, x, 189, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiDrawText(s, x + 8, 188, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
+      x += 8 + (int)strlen(StereoDepth_PlaneName((StereoPlane)p)) * 6 + 6;
+    }
+  }
   UiDrawTextCentered(s, SCREEN_W / 2, 200, COL_WARN, Debug_LastMessage());
   UiDrawBoxLabel(s, CloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(CloseRect()), "CLOSE");
 }
@@ -796,11 +926,8 @@ static void ToolsModalTouch(int x, int y) {
     if (!UiIn(ToolRect(i), x, y)) continue;
     const bool side = UiIn(SideRect(i), x, y);
     switch ((Tool)i) {
-    case TOOL_DUMP: g_ui.req_dump = true; break;
-    case TOOL_FRAME_DUMP:
-      g_ui.req_frame_dump = true;
-      if (g_ui.paused) Toast("Frame dump: waits for unpause");
-      break;
+    case TOOL_DUMP: OpenReport(REPORT_DUMP); break;
+    case TOOL_FRAME_DUMP: OpenReport(REPORT_FRAME_DUMP); break;
     case TOOL_LOG:
       if (side) {
         Debug_LogSetEnabled(!Debug_LogEnabled());
@@ -816,8 +943,12 @@ static void ToolsModalTouch(int x, int y) {
       break;
     case TOOL_SCENE_REC:
       if (side) {
-        SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
-        Toast(Debug_LastMessage());
+        if (SceneRec_Active()) {
+          OpenReport(REPORT_SCENE_REC);   // stopping writes the file: asks what is wrong first
+        } else {
+          SceneRec_Toggle();
+          Toast(Debug_LastMessage());
+        }
       } else if (SceneRec_Active()) {
         Toast("Stop the recorder to change the rate");
       } else {
@@ -830,11 +961,16 @@ static void ToolsModalTouch(int x, int y) {
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.req_gpu_check = true;
       break;
+    case TOOL_PLANE_TINT:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.plane_tint = !g_ui.plane_tint;
+      break;
     default: break;
     }
     return;
   }
 }
+
 
 // ---- Debug tab ------------------------------------------------------------------
 
@@ -1300,6 +1436,12 @@ static void SelectTab(Tab t) {
 static void TouchDownImpl(int x, int y) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+#if DEBUG_TOOLS
+  if (g_modal == MODAL_REPORT) {   // the game is paused until a reason or CANCEL: nothing else works
+    ReportTouch(x, y);
+    return;
+  }
+#endif
   for (int i = 0; i < n; i++) {
     if (UiIn(TabRect(i), x, y)) {
       SelectTab(tabs[i]);
@@ -1371,6 +1513,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
+  case MODAL_REPORT: DrawReportModal(s); break;
 #endif
   default: break;
   }
