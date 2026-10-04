@@ -18,13 +18,14 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `feat/plane-fixes` (which carried `fix/achievements-and-menu`, `feat/layer-workbench`,
-`feat/tint-depth-modes`, `fix/stereo-bg2-play-v021` and `fix/gpu-texture-race`) was merged into `release/v0.2.1` on
-2026-10-04 at the owner's request. Checked on the console by the owner: block fixes in 9AD9 (#33) and no flashing of the
-A66A statues with WIDE (#19). Still unchecked there: RetroAchievements not paused by cheats (#29) and the English
-menu in the first frames of the map (#27), the Fireflea room's depth and the ash (`fix/stereo-bg2-play-v021`), the
-PLANE TINT views (P3.3). The rest of what the earlier merges need from the console is in its task (P3.2, P4.4, P4.6,
-P4.7, P4.8) and in issues #7 and #18.
+**Branches:** none open. `feat/plane-fixes` (2026-10-04) and `fix/stereo-fx-follows-owner` (2026-10-05) were merged into
+`release/v0.2.1` at the owner's request. Checked on the console by the owner: block fixes and render priorities in 9AD9,
+A6A1 and A011 (#33), the ash following what it covers (9CB3), and no flashing of the A66A statues with WIDE (#19). Still
+unchecked there: the fog (BG3 on the main screen with the scene on the subscreen, rooms like 957D, A5ED, A7DE: none found
+yet), the fps after decoding into a shadow (the New 3DS was at 40 fps with the wait; the 2DS has not been tried),
+RetroAchievements not paused by cheats (#29), the English menu in the first frames of the map (#27), the Fireflea room's
+depth (`fix/stereo-bg2-play-v021`) and the PLANE TINT views (P3.3). The rest of what the earlier merges need from the
+console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
