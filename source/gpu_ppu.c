@@ -805,11 +805,21 @@ static int TexIndex(GpuTex *t) {
   return g_out->tex_count++;
 }
 
+static int (*g_plane_rule)(int layer, int prio);
+void GpuPpu_SetPlaneRule(int (*rule)(int layer, int prio)) { g_plane_rule = rule; }
+static uint8_t g_quad_plane;   // GpuQuad.plane of the quads being added
+
+// Sets g_quad_plane from the rule of (layer, prio): the quads added next carry it.
+static void UsePlaneRule(int layer, int prio) {
+  const int p = g_plane_rule ? g_plane_rule(layer, prio) : -1;
+  g_quad_plane = p >= 0 ? (uint8_t)(p + 1) : 0;
+}
+
 static bool AddQuad(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags) {
   const int ti = TexIndex(t);
   if (ti < 0 || g_out->quad_count >= kGpuMaxQuads || h <= 0) return ti >= 0 && h <= 0;
   g_out->quads[g_out->quad_count++] = (GpuQuad){ (int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, (int16_t)sx, (int16_t)sy,
-                                                 (uint8_t)ti, (uint8_t)level, (uint8_t)flags, 0, 0, 0, 0, 0, 0 };
+                                                 (uint8_t)ti, (uint8_t)level, (uint8_t)flags, g_quad_plane, 0, 0, 0, 0, 0, 0 };
   return true;
 }
 
@@ -887,6 +897,7 @@ static bool EmitHudSprite(const Sprite *sp, int y0, int y1) {
 
 static bool EmitSprites(int y0, int y1, bool main) {
   // The HUD list is drawn in order, the last quad on top; among sprites the first wins.
+  g_quad_plane = 0;
   for (int i = g_sprite_count - 1; i >= 0; i--)
     if (main && g_sprites[i].hud && !EmitHudSprite(&g_sprites[i], y0, y1)) return false;
   for (int i = 0; i < g_sprite_count; i++) {
@@ -894,6 +905,7 @@ static bool EmitSprites(int y0, int y1, bool main) {
     if (sp->hud) continue;
     const int flags = kGpuQuadObj | (sp->hflip ? kGpuQuadFlipX : 0) | (sp->vflip ? kGpuQuadFlipY : 0) |
                       (main && sp->math ? kGpuQuadMath : 0);
+    UsePlaneRule(4, (sp->level - 2) / 4);
     for (int top = sp->y; top >= (sp->no_wrap ? sp->y : sp->y - 256); top -= 256) {
       const int r0 = top > y0 ? top : y0, r1 = top + sp->size < y1 ? top + sp->size : y1;
       if (r0 >= r1) continue;
@@ -903,6 +915,7 @@ static bool EmitSprites(int y0, int y1, bool main) {
       if (!AddQuadWin(&g_atlas, sp->x, r0, sp->size, h, sp->ax, sy, sp->level, flags, main ? 0 : 1, 4)) return false;
     }
   }
+  g_quad_plane = 0;
   return true;
 }
 
@@ -939,7 +952,8 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     // and alternating them made the backend switch textures (and end a draw batch) on
     // every quad (Maridia water: ~7 ms of submit on a 2DS). Quads of one layer never
     // overlap and depth orders the levels, so the order does not matter otherwise.
-    for (int prio = 0; prio < 2; prio++)
+    for (int prio = 0; prio < 2; prio++) {
+      UsePlaneRule(layer + 1, prio);
       for (int a = l0; a <= l1;) {
         const BgLayer *bg = &cap->line[a].bgLayer[layer];
         int b = a;
@@ -952,6 +966,8 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
           return "too many quads";
         a = b + 1;
       }
+    }
+    g_quad_plane = 0;
     return NULL;
   }
   const int w = SurfaceW(s) - 1, h = SurfaceH(s) - 1;
@@ -984,10 +1000,13 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   }
   GpuBackend_TexWritten(t[0], l0 - 1, l1);
   GpuBackend_TexWritten(t[1], l0 - 1, l1);
-  for (int prio = 0; prio < 2; prio++)
+  for (int prio = 0; prio < 2; prio++) {
+    UsePlaneRule(layer + 1, prio);
     if (!AddQuadWin(&g_screen_tex[layer][prio], vx0, l0 - 1, view_w, l1 - l0 + 1, 0, l0 - 1, kBgLevel[layer][prio],
                     flags, scr, layer))
       return "too many quads";
+  }
+  g_quad_plane = 0;
   return NULL;
 }
 
@@ -999,7 +1018,7 @@ static inline int64_t FloorDiv64(int64_t a, int64_t b) {   // b > 0
 
 // The mode 7 plane over the band's lines [l0, l1]: one affine row per line, so the
 // matrix may change on every line (perspective) as well as between frames.
-static const char *EmitMode7(const Ppu *ppu, const PpuLineCapture *cap, int l0, int l1, bool math, int scr) {
+static const char *EmitMode7Quads(const Ppu *ppu, const PpuLineCapture *cap, int l0, int l1, bool math, int scr) {
   if (!g_m7_tex.px) {
     if (!GpuBackend_TexCreate(&g_m7_tex, 1024, 1024)) return "out of texture memory";
     g_m7_fresh = true;
@@ -1107,6 +1126,13 @@ static const char *EmitMode7(const Ppu *ppu, const PpuLineCapture *cap, int l0, 
     run_l = l, run_n = 1, run_rdx = run_rdy = 0;
   }
   return NULL;
+}
+
+static const char *EmitMode7(const Ppu *ppu, const PpuLineCapture *cap, int l0, int l1, bool math, int scr) {
+  UsePlaneRule(5, 0);
+  const char *err = EmitMode7Quads(ppu, cap, l0, l1, math, scr);
+  g_quad_plane = 0;
+  return err;
 }
 
 static const char *EmitScreen(const Ppu *ppu, const PpuLineCapture *cap, uint8_t layers, int l0, int l1, bool main,
@@ -1249,6 +1275,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   static PpuLineCapture work;
   const PpuLineCapture *orig = cap;
   memset(&g_stats, 0, sizeof(g_stats));
+  g_quad_plane = 0;
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
   out->hud_first = out->hud_count = g_hud_quad_count = 0;
   g_x0 = -g_margin_l;
