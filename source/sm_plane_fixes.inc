@@ -8,3 +8,16 @@
  * SM_LAYER_PLANE(room, layer, priority, plane)
  *     Every tile of the layer with that tile priority (0 or 1) in the room goes to `plane`.
  */
+
+/* First rules, from the owner's captures of 2026-10-04: tune them in the workbench. */
+
+/* #34: in Ridley's room (Ceres) the floor and walls are BG2, which the depth function takes for the background
+ * and puts behind Samus: the scenery goes to the level's plane, in front of her. */
+SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)  /* -> PLAY */
+SM_LAYER_PLANE(0xE0B5, 2, 1, kStereoPlay)  /* -> PLAY */
+
+/* #34: in the Ceres elevator shaft (Mode 7) Samus is drawn in front of the room but sat behind it. */
+SM_LAYER_PLANE(0xDF45, 4, 2, kStereoFront)  /* -> FRONT */
+
+/* #35: the ash (BG3, behind BG2 on paper, seen over it through colour math) in 9D19. */
+SM_LAYER_PLANE(0x9D19, 3, 0, kStereoFront)  /* -> FRONT */

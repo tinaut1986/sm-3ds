@@ -62,6 +62,7 @@ typedef struct {
   uint8_t tex;          // index into GpuFrame.tex
   uint8_t level;        // priority 1..15, higher wins over lower (the backdrop is 0)
   uint8_t flags;
+  uint8_t plane;        // stereo plane chosen for this quad (StereoPlane + 1, GpuPpu_SetPlaneRule); 0 = by level
   // kGpuQuadAffine: plane position of the quad's top-left pixel, its step per pixel and
   // per row, in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: pixel
   // (x + i, y + r) shows texel ((ax + adx*i + ardx*r) >> 8, (ay + ady*i + ardy*r) >> 8),
@@ -174,6 +175,12 @@ extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
 // Per OAM entry, non-zero: the sprite is part of the HUD and is drawn moved by the HUD's
 // offset (GpuPpu_SetHudX/Y), as the HUD keeps its place when the view leans. NULL = none.
 extern const uint8_t *g_gpu_ppu_obj_hud;
+
+// The stereo plane a layer goes to in the current room, set by hand (source/sm_plane_fixes.inc, the layer
+// workbench): `layer` 1..3 = BG1..BG3, 4 = sprites (`prio` the OAM priority 0..3), 5 = Mode 7; `prio` is the tile
+// priority for the BGs. Returns a StereoPlane, or -1 to leave it to the depth function. Quads built while it says
+// a plane carry it in GpuQuad.plane. NULL = none.
+void GpuPpu_SetPlaneRule(int (*rule)(int layer, int prio));
 
 // Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show
 // sprites, which on the SNES never showed there).

@@ -62,8 +62,12 @@ extensions, 8 solid, 9 door, A spike, B crumble, C shot, E grapple, F bomb). A t
 
 ## What exists, what does not
 
-- Done: the exporter, the viewer with selection and fixes, the server, the `.inc` (empty), this note.
-- Not yet: the renderer reading the `.inc` (blocks to another plane need BG1/BG2 split into one texture per
-  plane, as `1fa4320` did by block type, and that did not work on the console, so the cause is to be found first);
-  sprites (`SM_SPRITE_PLANE` by enemy) and Mode 7; showing the room's enemies and PLMs in the viewer; scene
-  recordings and dumps as extra views (mzm has them).
+- Done: the exporter, the viewer with selection and fixes, the server, the `.inc`, and the renderer reading
+  the **layer rules**: `SM_LAYER_PLANE` for BG1, BG2, BG3, the sprites of a priority (`layer` 4) and Mode 7
+  (`layer` 5) (`source/sm_planes.c`, `GpuPpu_SetPlaneRule`: the quads carry `GpuQuad.plane`, and
+  `QuadPlane` in `gpu_ppu_3ds.c` uses it, never over the HUD or outside gameplay). The debug log says when a
+  room with rules is entered; `tools/gpu-ppu-test` with `STEREO_QUADS=1` marks the quads "(set by hand)".
+- Not yet: block fixes (`SM_PLANE_FIX`): they are read by the viewer and written to the `.inc` but ignored by the
+  renderer, because they need BG1/BG2 split into one texture per plane (as `1fa4320` did by block type, and that
+  did not work on the console, so the cause is to be found first); sprites by enemy (`SM_SPRITE_PLANE`); the
+  room's enemies and PLMs in the viewer; scene recordings and dumps as extra views (mzm has them).

@@ -65,8 +65,8 @@
 
   <h3>Whole layer of this room</h3>
   <div class="row">
-    <select id="rl"><option value="1">BG1</option><option value="2">BG2</option></select>
-    <select id="rp"><option value="0">tiles prio 0</option><option value="1">tiles prio 1</option></select>
+    <select id="rl"><option value="1">BG1</option><option value="2">BG2</option><option value="3">BG3</option><option value="4">sprites</option><option value="5">Mode 7</option></select>
+    <select id="rp"><option value="0">priority 0</option><option value="1">priority 1</option><option value="2">priority 2</option><option value="3">priority 3</option></select>
   </div>
   <div class="row"><select id="rpl"></select><button id="radd">ADD RULE</button></div>
 
@@ -77,7 +77,7 @@
   <div class="row"><button id="save">SAVE source/sm_plane_fixes.inc</button></div>
   <div id="status"></div>
   <h3>Default planes</h3>
-  <div class="hint">BG1 prio 0 = BACK, BG1 prio 1 = PLAY, BG2 = MID. A layer rule replaces that for the room; a block fix replaces both for that block.</div>
+  <div class="hint">BG1 prio 0 = BACK, BG1 prio 1 = PLAY, BG2 = MID, BG3 prio 0 = FAR, BG3 prio 1 = FRONT, sprites prio 3 = PLAY, other sprites = OBJ, Mode 7 = PLAY. A layer rule replaces that for the room (priority = the tiles' bit for the BGs, the OAM priority 0-3 for sprites, 0 for Mode 7); a block fix replaces both for that block. Block fixes are saved but the console does not use them yet.</div>
 </aside>
 
 <script>
@@ -87,6 +87,7 @@ const PLANES = [['kStereoHud','HUD','#ff00ff'],['kStereoFront','FRONT','#00e5ff'
   ['kStereoObj','OBJ','#ffffff'],['kStereoBack','BACK','#ff2828'],['kStereoMid','MID','#3cc83c'],['kStereoFar','FAR','#3c5aff']];
 const PLANE_BY_NAME = Object.fromEntries(PLANES.map((p, i) => [p[0], i]));
 const TYPES = ['air','slope','spike air','special air','shootable air','h-extension','unused','unused','solid','door','spike','crumble','shot block','v-extension','grapple','bomb'];
+const LAYER_NAMES = ['', 'BG1', 'BG2', 'BG3', 'sprites', 'Mode 7'];
 const AREAS = ['Crateria','Brinstar','Norfair','Wrecked Ship','Maridia','Tourian','Ceres'];
 const DEFAULT_PLANE = (layer, prio) => layer === 2 ? 5 : prio ? 2 : 4;
 
@@ -280,7 +281,7 @@ function listFixes() {
   const box = $('fixes'); box.innerHTML = ''; if (!room) return;
   for (const f of fixes.filter(f => f.room === room.hdr)) {
     const d = document.createElement('div'), c = PLANES[f.plane];
-    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>${f.kind === 'fix' ? `BG${f.layer} ${f.bx},${f.by}` : `BG${f.layer} prio ${f.prio} (all)`}</span><span>${c[1]} &times;</span>`;
+    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>${f.kind === 'fix' ? `BG${f.layer} ${f.bx},${f.by}` : `${LAYER_NAMES[f.layer]} prio ${f.prio} (all)`}</span><span>${c[1]} &times;</span>`;
     d.onclick = e => { if (e.target.tagName === 'SPAN' && e.target === d.lastChild) { fixes.splice(fixes.indexOf(f), 1); refresh(); return; } if (f.kind === 'fix') { sel = new Set([f.bx + ',' + f.by]); updateSel(); drawOverlay(); hover([f.bx, f.by]); } };
     box.appendChild(d);
   }

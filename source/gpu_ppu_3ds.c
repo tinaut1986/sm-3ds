@@ -175,6 +175,8 @@ static StereoPlane QuadPlane(const GpuQuad *qd, bool hud) {
   if (g_stereo_frame.gameplay && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) && (qd->level == 15 || qd->level == 1) &&
       qd->y + qd->h <= 32)
     hud = true;
+  // A plane chosen by hand for this layer of this room (sm_planes.c): never over the HUD or outside gameplay.
+  if (qd->plane && !hud && g_stereo_frame.gameplay) return (StereoPlane)(qd->plane - 1);
   const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
   return StereoDepth_Plane(&g_stereo_frame, &it);
 }
