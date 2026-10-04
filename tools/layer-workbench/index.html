@@ -4,81 +4,54 @@
 <meta charset="utf-8">
 <title>Super Metroid 3DS: layer workbench</title>
 <style>
-  :root { --bg:#12161f; --panel:#1b2130; --edge:#33405c; --text:#d5deef; --dim:#8091b0; --accent:#ffd54a; }
+  :root { --bg:#0d1118; --panel:#1b2130; --edge:#33405c; --text:#d5deef; --dim:#8091b0; --accent:#ffd54a; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui,sans-serif; display:flex; height:100vh; overflow:hidden; }
-  aside, main { display:flex; flex-direction:column; min-height:0; }
-  #left { width:230px; background:var(--panel); border-right:1px solid var(--edge); }
-  #right { width:290px; background:var(--panel); border-left:1px solid var(--edge); overflow-y:auto; padding:8px; }
-  main { flex:1; min-width:0; }
-  h3 { margin:10px 0 4px; font-size:12px; color:var(--accent); text-transform:uppercase; letter-spacing:.06em; }
-  #search { margin:6px; padding:4px 6px; background:#0d1118; color:var(--text); border:1px solid var(--edge); }
-  #list { overflow-y:auto; flex:1; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui,sans-serif; height:100vh; overflow:hidden; }
+  button, select, input[type=text] { background:#26304a; color:var(--text); border:1px solid var(--edge); padding:2px 8px; cursor:pointer; font:inherit; }
+  input[type=text] { cursor:text; background:#0d1118; }
+  button:hover { background:#35426a; } button.on { background:#4a5a92; border-color:var(--accent); }
+  #top { position:fixed; left:0; right:0; top:0; height:34px; background:var(--panel); border-bottom:1px solid var(--edge); display:flex; gap:8px; align-items:center; padding:0 10px; z-index:100000; overflow:hidden; white-space:nowrap; }
+  #top b { color:var(--accent); } .hint { color:var(--dim); font-size:12px; }
+  #info { position:fixed; left:0; right:0; bottom:0; height:56px; background:var(--panel); border-top:1px solid var(--edge); padding:3px 10px; color:var(--dim); font:12px/1.35 ui-monospace,monospace; white-space:pre; z-index:100000; overflow:hidden; }
+  #desk { position:fixed; left:0; right:0; top:34px; bottom:56px; overflow:hidden; }
+  .win { position:absolute; background:var(--panel); border:1px solid var(--edge); display:flex; flex-direction:column; resize:both; overflow:hidden; min-width:160px; min-height:60px; box-shadow:0 4px 14px #0008; }
+  .win > header { cursor:move; background:#26304a; padding:2px 6px; display:flex; gap:6px; align-items:center; user-select:none; flex:none; }
+  .win > header .t { flex:1; font-weight:600; color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .win > header button { padding:0 6px; }
+  .win .body { flex:1; min-height:0; overflow:auto; position:relative; background:#05070b; }
+  .win .body.pad { padding:8px; background:var(--panel); }
+  .win.min { resize:none; height:auto !important; min-height:0; } .win.min .body { display:none; }
+  .cvs { display:flex; gap:10px; padding:8px; width:max-content; }
+  .stack { position:relative; flex:none; } .stack canvas { display:block; image-rendering:pixelated; }
+  .stack canvas.ov { position:absolute; left:0; top:0; }
+  .stack .tag { position:absolute; left:2px; top:2px; z-index:2; background:#000a; color:var(--accent); font-size:11px; padding:0 4px; pointer-events:none; }
   .area { padding:3px 8px; background:#232b3f; color:var(--dim); font-weight:600; position:sticky; top:0; }
   .room { padding:2px 8px 2px 14px; cursor:pointer; display:flex; justify-content:space-between; }
-  .room:hover { background:#273049; } .room.cur { background:#34406a; }
-  .room .n { color:var(--accent); font-size:11px; }
-  #bar { display:flex; gap:8px; align-items:center; padding:6px 8px; background:var(--panel); border-bottom:1px solid var(--edge); flex-wrap:wrap; }
-  #bar label { color:var(--dim); } button, select { background:#26304a; color:var(--text); border:1px solid var(--edge); padding:3px 8px; cursor:pointer; }
-  button:hover { background:#35426a; } button.on { background:#4a5a92; border-color:var(--accent); }
-  #stage { flex:1; overflow:auto; position:relative; background:#05070b; }
-  #wrap { position:relative; display:inline-block; margin:12px; }
-  canvas { image-rendering:pixelated; display:block; }
-  #ov { position:absolute; left:0; top:0; }
-  #info { padding:4px 8px; background:var(--panel); border-top:1px solid var(--edge); color:var(--dim); font-family:ui-monospace,monospace; font-size:12px; white-space:pre; min-height:3.2em; }
+  .room:hover { background:#273049; } .room.cur { background:#34406a; } .room .n { color:var(--accent); font-size:11px; }
+  h3 { margin:10px 0 4px; font-size:12px; color:var(--accent); text-transform:uppercase; letter-spacing:.06em; }
+  h3:first-child { margin-top:0; }
   .planes { display:flex; flex-wrap:wrap; gap:4px; }
-  .planes button { min-width:62px; font-weight:600; color:#000; border:2px solid transparent; }
+  .planes button { min-width:58px; font-weight:600; color:#000; border:2px solid transparent; }
   .planes button.on { border-color:#fff; }
-  #fixes div { display:flex; justify-content:space-between; padding:1px 4px; cursor:pointer; font-family:ui-monospace,monospace; font-size:12px; }
+  .row { display:flex; gap:6px; align-items:center; margin:3px 0; flex-wrap:wrap; }
+  #fixes div { display:flex; justify-content:space-between; padding:1px 4px; cursor:pointer; font:12px ui-monospace,monospace; }
   #fixes div:hover { background:#273049; }
   .chip { display:inline-block; width:10px; height:10px; margin-right:5px; vertical-align:middle; }
   #status { color:var(--dim); margin-top:6px; }
-  .row { display:flex; gap:6px; align-items:center; margin:3px 0; }
-  .hint { color:var(--dim); font-size:12px; }
 </style>
 </head>
 <body>
-<aside id="left">
-  <input id="search" placeholder="room (hex) or area">
-  <div id="list"></div>
-</aside>
-<main>
-  <div id="bar">
-    <b id="title">no room</b><span id="screens" class="hint"></span>
-    <label>view</label>
-    <button data-view="result" class="on">RESULT</button><button data-view="planes">PLANES</button>
-    <button data-view="l1">BG1</button><button data-view="l2">BG2</button>
-    <label>zoom</label><button id="zm">-</button><span id="zv">3</span><button id="zp">+</button>
-    <button id="grid" class="on">GRID</button>
-    <label><input type="checkbox" id="show1" checked> BG1</label><label><input type="checkbox" id="show2" checked> BG2</label>
-    <span class="hint">click or drag to select blocks, Ctrl adds, arrows move, Esc clears</span>
-  </div>
-  <div id="stage"><div id="wrap"><canvas id="cv"></canvas><canvas id="ov"></canvas></div></div>
-  <div id="info"></div>
-</main>
-<aside id="right">
-  <h3>Send the selection to</h3>
-  <div class="planes" id="planes"></div>
-  <div class="row"><label>layers</label><label><input type="checkbox" id="pick1" checked> BG1</label><label><input type="checkbox" id="pick2" checked> BG2</label></div>
-  <div class="row"><button id="apply">APPLY</button><button id="clear">CLEAR FIXES</button><button id="copy">COPY INFO</button></div>
-  <div class="hint" id="selinfo">nothing selected</div>
-
-  <h3>Whole layer of this room</h3>
-  <div class="row">
-    <select id="rl"><option value="1">BG1</option><option value="2">BG2</option><option value="3">BG3</option><option value="4">sprites</option><option value="5">Mode 7</option></select>
-    <select id="rp"><option value="0">priority 0</option><option value="1">priority 1</option><option value="2">priority 2</option><option value="3">priority 3</option></select>
-  </div>
-  <div class="row"><select id="rpl"></select><button id="radd">ADD RULE</button></div>
-
-  <h3>Fixes of this room</h3>
-  <div id="fixes"></div>
-
-  <h3>File</h3>
-  <div class="row"><button id="save">SAVE source/sm_plane_fixes.inc</button></div>
-  <div id="status"></div>
-  <h3>Default planes</h3>
-  <div class="hint">BG1 prio 0 = BACK, BG1 prio 1 = PLAY, BG2 = MID, BG3 prio 0 = FAR, BG3 prio 1 = FRONT, sprites prio 3 = PLAY, other sprites = OBJ, Mode 7 = PLAY. A layer rule replaces that for the room (priority = the tiles' bit for the BGs, the OAM priority 0-3 for sprites, 0 for Mode 7); a block fix replaces both for that block. Block fixes are saved but the console does not use them yet.</div>
-</aside>
+<div id="top">
+  <b id="title">no room</b><span id="screens" class="hint"></span>
+  <span class="hint">|</span>
+  <label>select</label><button id="selBlocks" class="on">BLOCKS (16x16)</button><button id="selTiles">TILES (8x8)</button>
+  <label>zoom</label><button id="zm">-</button><span id="zv">3</span><button id="zp">+</button>
+  <button id="grid" class="on">GRID</button>
+  <button id="relayout">RELAYOUT</button>
+  <span class="hint">click or drag to select, Ctrl adds, arrows move, Esc clears</span>
+</div>
+<div id="desk"></div>
+<div id="info"></div>
 
 <script>
 'use strict';
@@ -87,19 +60,28 @@ const PLANES = [['kStereoHud','HUD','#ff00ff'],['kStereoFront','FRONT','#00e5ff'
   ['kStereoObj','OBJ','#ffffff'],['kStereoBack','BACK','#ff2828'],['kStereoMid','MID','#3cc83c'],['kStereoFar','FAR','#3c5aff']];
 const PLANE_BY_NAME = Object.fromEntries(PLANES.map((p, i) => [p[0], i]));
 const TYPES = ['air','slope','spike air','special air','shootable air','h-extension','unused','unused','solid','door','spike','crumble','shot block','v-extension','grapple','bomb'];
-const LAYER_NAMES = ['', 'BG1', 'BG2', 'BG3', 'sprites', 'Mode 7'];
 const AREAS = ['Crateria','Brinstar','Norfair','Wrecked Ship','Maridia','Tourian','Ceres'];
+const LAYER_NAMES = ['', 'BG1', 'BG2', 'BG3', 'sprites', 'Mode 7'];
+const CORNER_NAMES = ['TL','TR','BL','BR'];
+// What the depth function does without a hand-made fix: BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2 MID.
 const DEFAULT_PLANE = (layer, prio) => layer === 2 ? 5 : prio ? 2 : 4;
+// "Same as": the plane a tile would have if it were on that layer.
+const SAME_AS = [['BG1 p0', 4], ['BG1 p1', 2], ['BG2', 5], ['BG3 p0', 6], ['BG3 p1', 1], ['sprites', 3]];
 
-let rooms = [], room = null, fixes = [], fixHead = '', view = 'result', zoom = 3, showGrid = true;
-let sel = new Set(), anchor = null, curPlane = 2, dragging = false, dragStart = null;
+let rooms = [], room = null, rules = [], fixHead = '';
+// Tile fixes of every room: "room:layer,bx,by,corner" -> {plane, block, room}; tileFix is the current room's, "layer,bx,by,corner".
+let tileFixAll = new Map(), tileFix = new Map();
+let zoom = 3, showGrid = true, tileMode = false, curPlane = 2;
+let sel = { scope: 0, set: new Set() };   // keys "bx,by,corner"; scope 0 = every layer (picked on the result), 1/2 = that layer
+let dragging = null, views = [], syncing = false;
 const $ = id => document.getElementById(id);
-const cv = $('cv'), ov = $('ov'), ctx = cv.getContext('2d'), octx = ov.getContext('2d');
+const hex = (v, n = 4) => '0x' + v.toString(16).toUpperCase().padStart(n, '0');
+const tileKey = (layer, bx, by, c) => `${layer},${bx},${by},${c}`;
 
 // ---------- the .room file ----------
-function parseRoom(buf, idx) {
+function parseRoom(buf) {
   const dv = new DataView(buf), u16 = o => dv.getUint16(o, true);
-  const r = { idx, hdr: u16(8), area: dv.getUint8(10), w: u16(12), h: u16(14), l2scroll: u16(16),
+  const r = { hdr: u16(8), area: dv.getUint8(10), w: u16(12), h: u16(14), l2scroll: u16(16),
     main: u16(26), sub: u16(28), mode: u16(30) & 15, bg3pri: u16(30) >> 4 & 1 };
   let o = 34;
   const bank = new Uint8Array(buf, o, 0x10000); o += 0x10000;
@@ -112,8 +94,7 @@ function parseRoom(buf, idx) {
   return r;
 }
 function charPixels(r, n) {
-  let c = r.chars.get(n);
-  if (c) return c;
+  let c = r.chars.get(n); if (c) return c;
   c = new Uint8Array(64);
   const b = r.vram, base = n * 32;
   for (let y = 0; y < 8; y++) {
@@ -130,196 +111,373 @@ function blockTiles(r, word) {   // TL, TR, BL, BR with the block's flips, as th
   if (f === 0xc00) return [a[3]^0xc000, a[2]^0xc000, a[1]^0xc000, a[0]^0xc000];
   return a;
 }
+const tileHasInk = (r, e) => charPixels(r, e & 0x3ff).some(c => c);
 
 // ---------- planes of a tile ----------
-function ruleFor(layer, prio) { const f = fixes.find(x => x.kind === 'layer' && x.room === room.hdr && x.layer === layer && x.prio === prio); return f ? f.plane : null; }
-function blockFix(layer, bx, by) { return fixes.find(x => x.kind === 'fix' && x.room === room.hdr && x.layer === layer && x.bx === bx && x.by === by); }
-function planeOf(layer, bx, by, prio) {
-  const b = blockFix(layer, bx, by); if (b) return b.plane;
-  const r = ruleFor(layer, prio); return r !== null ? r : DEFAULT_PLANE(layer, prio);
+function ruleFor(layer, prio) { const f = rules.find(x => x.room === room.hdr && x.layer === layer && x.prio === prio); return f ? f.plane : null; }
+function planeOf(layer, bx, by, corner, prio, withHand) {
+  if (withHand) {
+    const t = tileFix.get(tileKey(layer, bx, by, corner)); if (t) return t.plane;
+    const r = ruleFor(layer, prio); if (r !== null) return r;
+  }
+  return DEFAULT_PLANE(layer, prio);
 }
 
 // ---------- drawing ----------
-function drawRoom() {
-  if (!room) return;
+// kind: 'real' (the picture), 'before' (tinted by the default planes), 'after' (tinted with the rules and tile fixes)
+function paint(cv, kind, layers) {
   const W = room.w * 16, H = room.h * 16;
-  cv.width = ov.width = W; cv.height = ov.height = H;
-  const img = ctx.createImageData(W, H), px = img.data;
-  const put = (x, y, c, a) => { const o = (y * W + x) * 4; px[o] = c[0]; px[o+1] = c[1]; px[o+2] = c[2]; px[o+3] = a; };
-  px.fill(0); for (let i = 3; i < px.length; i += 4) px[i] = 255;
-  const tint = view === 'planes';
-  // the order the PPU draws: BG2 prio 0, BG1 prio 0, BG2 prio 1, BG1 prio 1
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), px = img.data;
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  const tint = kind !== 'real';
   for (const [layer, prio] of [[2,0],[1,0],[2,1],[1,1]]) {
-    if (view === 'l1' && layer !== 1 || view === 'l2' && layer !== 2 || !$('show' + layer).checked) continue;
+    if (!layers.includes(layer)) continue;
     const words = room.layer[layer]; if (!words) continue;
     for (let by = 0; by < room.h; by++) for (let bx = 0; bx < room.w; bx++) {
       const tiles = blockTiles(room, words[by * room.w + bx]);
       for (let k = 0; k < 4; k++) {
         const e = tiles[k]; if ((e >> 13 & 1) !== prio) continue;
         const px8 = charPixels(room, e & 0x3ff), pal = e >> 10 & 7, hf = e & 0x4000, vf = e & 0x8000;
-        const pc = PLANES[planeOf(layer, bx, by, prio)][2], tc = [parseInt(pc.slice(1,3),16), parseInt(pc.slice(3,5),16), parseInt(pc.slice(5,7),16)];
+        let tc = null;
+        if (tint) { const pc = PLANES[planeOf(layer, bx, by, k, prio, kind === 'after')][2]; tc = [1, 3, 5].map(i => parseInt(pc.slice(i, i + 2), 16)); }
         for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
           const c = px8[(vf ? 7 - y : y) * 8 + (hf ? 7 - x : x)]; if (!c) continue;
           let col = rgb(room, pal * 16 + c);
           if (tint) col = col.map((v, i) => Math.round(v * 0.22 + tc[i] * 0.78));
-          put(bx * 16 + (k & 1) * 8 + x, by * 16 + (k >> 1) * 8 + y, col, 255);
+          const o = ((by * 16 + (k >> 1) * 8 + y) * W + bx * 16 + (k & 1) * 8 + x) * 4;
+          px[o] = col[0]; px[o+1] = col[1]; px[o+2] = col[2];
         }
       }
     }
   }
   ctx.putImageData(img, 0, 0);
-  setZoom(zoom);
-  drawOverlay();
 }
-function drawOverlay() {
-  if (!room) return;
-  octx.clearRect(0, 0, ov.width, ov.height);
+function paintOverlay(ov, layer) {
+  ov.width = room.w * 16; ov.height = room.h * 16;
+  const o = ov.getContext('2d');
   if (showGrid) {
-    octx.strokeStyle = 'rgba(255,255,255,.13)'; octx.lineWidth = 1; octx.beginPath();
-    for (let x = 0; x <= room.w; x++) { octx.moveTo(x*16 + .5, 0); octx.lineTo(x*16 + .5, ov.height); }
-    for (let y = 0; y <= room.h; y++) { octx.moveTo(0, y*16 + .5); octx.lineTo(ov.width, y*16 + .5); }
-    octx.stroke();
+    o.strokeStyle = 'rgba(255,255,255,.13)'; o.lineWidth = 1; o.beginPath();
+    for (let x = 0; x <= room.w; x++) { o.moveTo(x*16 + .5, 0); o.lineTo(x*16 + .5, ov.height); }
+    for (let y = 0; y <= room.h; y++) { o.moveTo(0, y*16 + .5); o.lineTo(ov.width, y*16 + .5); }
+    o.stroke();
   }
-  // blocks that have a fix: a small corner chip in the colour of the plane they go to
-  for (const f of fixes) if (f.kind === 'fix' && f.room === room.hdr) {
-    octx.fillStyle = PLANES[f.plane][2]; octx.fillRect(f.bx*16 + (f.layer === 1 ? 0 : 8), f.by*16, 8, 5);
-    octx.strokeStyle = '#000'; octx.strokeRect(f.bx*16 + (f.layer === 1 ? 0 : 8) + .5, f.by*16 + .5, 7, 4);
+  // tiles with a hand-made fix: a bar in the colour of the plane they go to
+  for (const [key, t] of tileFix) {
+    const [l, bx, by, c] = key.split(',').map(Number);
+    if (layer && l !== layer) continue;
+    o.fillStyle = PLANES[t.plane][2]; o.fillRect(bx*16 + (c & 1) * 8, by*16 + (c >> 1) * 8, 8, 3);
   }
-  octx.lineWidth = 1.5;
-  for (const k of sel) { const [bx, by] = k.split(',').map(Number); octx.strokeStyle = '#fff'; octx.strokeRect(bx*16 + 1, by*16 + 1, 14, 14); octx.strokeStyle = '#000'; octx.strokeRect(bx*16 + 2.5, by*16 + 2.5, 11, 11); }
-  if (dragging && dragStart && anchor) {
-    const [x0, y0, x1, y1] = rect(dragStart, anchor);
-    octx.strokeStyle = '#ffd54a'; octx.setLineDash([4, 3]); octx.strokeRect(x0*16 + .5, y0*16 + .5, (x1-x0+1)*16 - 1, (y1-y0+1)*16 - 1); octx.setLineDash([]);
+  o.lineWidth = 1.5;
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number), x = bx*16 + (c & 1) * 8, y = by*16 + (c >> 1) * 8;
+    o.strokeStyle = '#fff'; o.strokeRect(x + .75, y + .75, 6.5, 6.5); o.strokeStyle = '#000'; o.strokeRect(x + 1.75, y + 1.75, 4.5, 4.5);
+  }
+  if (dragging && dragging.cur) {
+    const [x0, y0, x1, y1] = rectOf(dragging.start, dragging.cur), u = tileMode ? 8 : 16;
+    o.strokeStyle = '#ffd54a'; o.setLineDash([4, 3]); o.strokeRect(x0*u + .5, y0*u + .5, (x1-x0+1)*u - 1, (y1-y0+1)*u - 1); o.setLineDash([]);
   }
 }
-function setZoom(z) { zoom = Math.max(1, Math.min(8, z)); $('zv').textContent = zoom; cv.style.width = ov.style.width = cv.width * zoom + 'px'; cv.style.height = ov.style.height = cv.height * zoom + 'px'; }
+
+// ---------- windows ----------
+const desk = $('desk'); let zTop = 10;
+const layoutKey = 'smwb.layout.v1';
+const saved = JSON.parse(localStorage.getItem(layoutKey) || '{}');
+function saveLayout() {
+  const out = {};
+  document.querySelectorAll('.win').forEach(w => out[w.id] = { x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight, min: w.classList.contains('min') });
+  localStorage.setItem(layoutKey, JSON.stringify(out));
+}
+const DEFAULTS = { 'w-rooms': [8, 8, 190, 560], 'w-result': [208, 8, 560, 420], 'w-bg1': [778, 8, 480, 330], 'w-bg2': [778, 348, 480, 330], 'w-tools': [1268, 8, 330, 700] };
+function makeWindow(id, title, extraHeader) {
+  const w = document.createElement('div'); w.className = 'win'; w.id = id;
+  const h = document.createElement('header'), t = document.createElement('span'); t.className = 't'; t.textContent = title; h.appendChild(t);
+  if (extraHeader) h.appendChild(extraHeader);
+  const mn = document.createElement('button'); mn.textContent = '—'; mn.title = 'minimise'; h.appendChild(mn);
+  const body = document.createElement('div'); body.className = 'body';
+  w.append(h, body); desk.appendChild(w);
+  const d = saved[id] || { x: DEFAULTS[id][0], y: DEFAULTS[id][1], w: DEFAULTS[id][2], h: DEFAULTS[id][3] };
+  w.style.left = d.x + 'px'; w.style.top = d.y + 'px'; w.style.width = d.w + 'px'; w.style.height = d.h + 'px'; if (d.min) w.classList.add('min');
+  w.addEventListener('mousedown', () => { w.style.zIndex = ++zTop; if (zTop > 90000) zTop = 10; });
+  mn.onclick = () => { w.classList.toggle('min'); saveLayout(); };
+  h.addEventListener('mousedown', ev => {
+    if (['BUTTON', 'SELECT', 'INPUT', 'LABEL'].includes(ev.target.tagName)) return;
+    const sx = ev.clientX - w.offsetLeft, sy = ev.clientY - w.offsetTop;
+    const mv = e => { w.style.left = Math.max(-w.offsetWidth + 60, Math.min(desk.clientWidth - 60, e.clientX - sx)) + 'px'; w.style.top = Math.max(0, Math.min(desk.clientHeight - 24, e.clientY - sy)) + 'px'; };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); saveLayout(); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); ev.preventDefault();
+  });
+  new ResizeObserver(() => saveLayout()).observe(w);
+  return { win: w, body, title: t, header: h };
+}
+
+// A view is a window showing the room (one layer, or the result of all) with a mode selector: REAL / BEFORE / AFTER / BEFORE|AFTER.
+function makeView(id, title, layer, mode) {
+  const modeSel = document.createElement('select');
+  for (const m of ['REAL', 'BEFORE', 'AFTER', 'BEFORE|AFTER']) { const o = document.createElement('option'); o.textContent = m; modeSel.appendChild(o); }
+  modeSel.value = mode;
+  const win = makeWindow(id, title, modeSel);
+  const v = { id, layer, win, mode: modeSel, stacks: [], layers: layer ? [layer] : [1, 2] };
+  win.body.addEventListener('scroll', () => {   // every view scrolls together: same pixels at the same zoom
+    if (syncing) return; syncing = true;
+    for (const o of views) if (o !== v) { o.win.body.scrollLeft = win.body.scrollLeft; o.win.body.scrollTop = win.body.scrollTop; }
+    syncing = false;
+  });
+  modeSel.onchange = () => renderView(v);
+  if (!layer) {   // the result: which layers it draws
+    for (const l of [1, 2]) {
+      const lb = document.createElement('label'), cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.id = 'show' + l;
+      cb.onchange = () => { v.layers = [1, 2].filter(x => $('show' + x).checked); renderView(v); };
+      lb.append(cb, 'BG' + l); win.header.insertBefore(lb, win.header.lastChild);
+    }
+  }
+  views.push(v); return v;
+}
+function renderView(v) {
+  v.win.body.querySelectorAll('.cvs').forEach(e => e.remove());
+  v.stacks = [];
+  if (!room) return;
+  const holder = document.createElement('div'); holder.className = 'cvs';
+  const kinds = v.mode.value === 'BEFORE|AFTER' ? ['before', 'after'] : [v.mode.value.toLowerCase()];
+  const layers = v.layer ? [v.layer] : v.layers;
+  for (const kind of kinds) {
+    const st = document.createElement('div'); st.className = 'stack';
+    const cv = document.createElement('canvas'), ov = document.createElement('canvas'); ov.className = 'ov';
+    if (kinds.length > 1 || kind !== 'real') { const tg = document.createElement('div'); tg.className = 'tag'; tg.textContent = kind.toUpperCase(); st.appendChild(tg); }
+    st.append(cv, ov); holder.appendChild(st);
+    if (v.layer && !room.layer[v.layer]) {
+      cv.width = 220; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 220, 40); c.fillStyle = '#aaa'; c.fillText('BG' + v.layer + ' is not level data (whole-layer rules only)', 8, 24);
+      ov.width = ov.height = 1; v.stacks.push({ cv, ov, kind, empty: true }); continue;
+    }
+    paint(cv, kind, layers);
+    v.stacks.push({ cv, ov, kind });
+    ov.addEventListener('mousedown', ev => startSelect(ev, v, ov));
+    ov.addEventListener('mousemove', ev => hover(tileAt(ev, ov)));
+  }
+  v.win.body.appendChild(holder);
+  applyZoom(v); overlayView(v);
+}
+function overlayView(v) { for (const s of v.stacks) if (!s.empty) paintOverlay(s.ov, v.layer); }
+function applyZoom(v) { for (const s of v.stacks) if (!s.empty) { s.cv.style.width = s.ov.style.width = s.cv.width * zoom + 'px'; s.cv.style.height = s.ov.style.height = s.cv.height * zoom + 'px'; } }
+function renderAll() { views.forEach(renderView); listFixes(); buildList($('search') ? $('search').value : ''); }
+function overlayAll() { views.forEach(overlayView); }
 
 // ---------- selection ----------
-const rect = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
-function blockAt(ev) { const r = ov.getBoundingClientRect(); const bx = Math.floor((ev.clientX - r.left) / zoom / 16), by = Math.floor((ev.clientY - r.top) / zoom / 16); return [Math.max(0, Math.min(room.w - 1, bx)), Math.max(0, Math.min(room.h - 1, by))]; }
-ov.addEventListener('mousedown', ev => { if (!room) return; dragging = true; dragStart = blockAt(ev); anchor = dragStart; ev._add = ev.ctrlKey; ov._add = ev.ctrlKey || ev.metaKey; drawOverlay(); });
+const rectOf = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+function tileAt(ev, ov) {   // in tile units when selecting tiles, block units otherwise
+  const r = ov.getBoundingClientRect(), u = (tileMode ? 8 : 16) * zoom, n = tileMode ? 2 : 1;
+  const x = Math.floor((ev.clientX - r.left) / u), y = Math.floor((ev.clientY - r.top) / u);
+  return [Math.max(0, Math.min(room.w * n - 1, x)), Math.max(0, Math.min(room.h * n - 1, y))];
+}
+function startSelect(ev, v, ov) {
+  if (!room) return; const t = tileAt(ev, ov);
+  dragging = { start: t, cur: t, add: ev.ctrlKey || ev.metaKey, layer: v.layer }; overlayAll(); ev.preventDefault();
+}
 window.addEventListener('mousemove', ev => {
-  if (!room) return;
-  const r = ov.getBoundingClientRect();
-  if (ev.clientX >= r.left && ev.clientX < r.right && ev.clientY >= r.top && ev.clientY < r.bottom) { const b = blockAt(ev); if (dragging) { anchor = b; drawOverlay(); } hover(b); }
+  if (!dragging) return;
+  for (const v of views) for (const s of v.stacks) if (!s.empty) {
+    const r = s.ov.getBoundingClientRect();
+    if (ev.clientX >= r.left && ev.clientX < r.right && ev.clientY >= r.top && ev.clientY < r.bottom) { dragging.cur = tileAt(ev, s.ov); overlayAll(); return; }
+  }
 });
 window.addEventListener('mouseup', () => {
-  if (!dragging) return; dragging = false;
-  if (!ov._add) sel = new Set();
-  const [x0, y0, x1, y1] = rect(dragStart, anchor);
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = x + ',' + y; if (ov._add && dragStart[0] === anchor[0] && dragStart[1] === anchor[1] && sel.has(k)) sel.delete(k); else sel.add(k); }
-  dragStart = null; updateSel(); drawOverlay();
+  if (!dragging) return;
+  const d = dragging; dragging = null;
+  if (!d.add || sel.scope !== d.layer) sel = { scope: d.layer, set: new Set() };
+  const [x0, y0, x1, y1] = rectOf(d.start, d.cur), single = x0 === x1 && y0 === y1;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const keys = tileMode ? [`${x >> 1},${y >> 1},${(y & 1) * 2 + (x & 1)}`] : [0, 1, 2, 3].map(c => `${x},${y},${c}`);
+    const has = keys.every(k => sel.set.has(k));
+    for (const k of keys) { if (d.add && single && has) sel.set.delete(k); else sel.set.add(k); }
+  }
+  updateSel(); overlayAll();
 });
 window.addEventListener('keydown', ev => {
   if (ev.target.tagName === 'INPUT' && ev.target.type === 'text') return;
-  if (ev.key === 'Escape') { sel = new Set(); updateSel(); drawOverlay(); return; }
+  if (ev.key === 'Escape') { sel = { scope: 0, set: new Set() }; updateSel(); overlayAll(); return; }
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
-  if (d && room && sel.size) { ev.preventDefault(); const n = new Set(); for (const k of sel) { const [x, y] = k.split(',').map(Number); n.add(Math.max(0, Math.min(room.w-1, x + d[0])) + ',' + Math.max(0, Math.min(room.h-1, y + d[1]))); } sel = n; updateSel(); drawOverlay(); }
+  if (d && room && sel.set.size) {
+    ev.preventDefault(); const n = new Set(), st = tileMode ? 1 : 2;   // in tile units: a block is two tiles
+    for (const k of sel.set) {
+      const [bx, by, c] = k.split(',').map(Number);
+      let tx = bx * 2 + (c & 1) + d[0] * st, ty = by * 2 + (c >> 1) + d[1] * st;
+      tx = Math.max(0, Math.min(room.w * 2 - 1, tx)); ty = Math.max(0, Math.min(room.h * 2 - 1, ty));
+      n.add(`${tx >> 1},${ty >> 1},${(ty & 1) * 2 + (tx & 1)}`);
+    }
+    sel.set = n; updateSel(); overlayAll();
+  }
 });
-function blockInfo(bx, by) {
-  const lines = [];
-  for (const l of [1, 2]) {
-    const words = room.layer[l]; if (!words) { lines.push('BG' + l + ': (not level data)'); continue; }
-    const w = words[by * room.w + bx], t = blockTiles(room, w);
-    const pri = t.map(e => e >> 13 & 1).join('');
-    const p = [0, 1].map(pr => PLANES[planeOf(l, bx, by, pr)][1]).join('/');
-    lines.push(`BG${l}: ${w.toString(16).padStart(4,'0')} index ${w & 0x3ff}${w & 0x400 ? ' hflip' : ''}${w & 0x800 ? ' vflip' : ''} type ${w >> 12} ${TYPES[w >> 12]}  tile prio ${pri}  plane(p0/p1) ${p}`);
-  }
-  return lines;
+function tileInfo(layer, bx, by, c) {
+  const w = room.layer[layer][by * room.w + bx], e = blockTiles(room, w)[c], pri = e >> 13 & 1;
+  const p = planeOf(layer, bx, by, c, pri, false), q = planeOf(layer, bx, by, c, pri, true);
+  return `BG${layer}: block ${w.toString(16).padStart(4,'0')} index ${w & 0x3ff}${w & 0x400 ? ' hflip' : ''}${w & 0x800 ? ' vflip' : ''} type ${w >> 12} ${TYPES[w >> 12]} | ${CORNER_NAMES[c]} tile char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${pri} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}`;
 }
-function hover(b) { $('info').textContent = `room ${room.hdr.toString(16).toUpperCase()}  block ${b[0]},${b[1]}\n` + blockInfo(b[0], b[1]).join('\n'); }
-function updateSel() { $('selinfo').textContent = sel.size ? sel.size + ' block' + (sel.size > 1 ? 's' : '') + ' selected' : 'nothing selected'; }
+function hover(t) {
+  if (!room) return;
+  const bx = tileMode ? t[0] >> 1 : t[0], by = tileMode ? t[1] >> 1 : t[1], c = tileMode ? (t[1] & 1) * 2 + (t[0] & 1) : 0;
+  const lines = [`room ${hex(room.hdr)}  block ${bx},${by}${tileMode ? '  tile ' + CORNER_NAMES[c] : ''}`];
+  for (const l of [1, 2]) lines.push(room.layer[l] ? tileInfo(l, bx, by, c) : `BG${l}: (not level data)`);
+  $('info').textContent = lines.join('\n');
+}
+function updateSel() {
+  const blocks = new Set([...sel.set].map(k => k.split(',').slice(0, 2).join(',')));
+  const s = sel.set.size ? `${sel.set.size} tile${sel.set.size > 1 ? 's' : ''} in ${blocks.size} block${blocks.size > 1 ? 's' : ''}; ${sel.scope ? 'BG' + sel.scope + ' only' : 'every layer'}` : 'nothing selected';
+  if ($('selinfo')) $('selinfo').textContent = s;
+}
 
-// ---------- fixes ----------
-const hex = (v, n = 4) => '0x' + v.toString(16).toUpperCase().padStart(n, '0');
+// ---------- fixes (.inc) ----------
 function parseFixes(text) {
-  fixes = []; const re = /SM_(PLANE_FIX|LAYER_PLANE)\(([^)]*)\)/g; let m;
-  const first = text.search(/SM_(PLANE_FIX|LAYER_PLANE)\(/); fixHead = first < 0 ? text : text.slice(0, first);
-  while ((m = re.exec(text))) {
+  rules = []; tileFixAll = new Map(); const re = /SM_(PLANE_FIX|LAYER_PLANE)\(([^)]*)\)/g; let m;
+  // comments are blanked (same length) so the macros named in the file's own header are not read as entries
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, c => ' '.repeat(c.length));
+  const first = code.search(/SM_(PLANE_FIX|LAYER_PLANE)\(/); fixHead = first < 0 ? text : text.slice(0, first);
+  while ((m = re.exec(code))) {
     const a = m[2].split(',').map(s => s.trim());
-    if (m[1] === 'PLANE_FIX') fixes.push({ kind: 'fix', room: parseInt(a[0]), layer: +a[1], bx: +a[2], by: +a[3], block: parseInt(a[4]), plane: PLANE_BY_NAME[a[5]] });
-    else fixes.push({ kind: 'layer', room: parseInt(a[0]), layer: +a[1], prio: +a[2], plane: PLANE_BY_NAME[a[3]] });
+    if (m[1] === 'LAYER_PLANE') { rules.push({ room: parseInt(a[0]), layer: +a[1], prio: +a[2], plane: PLANE_BY_NAME[a[3]] }); continue; }
+    const rm = parseInt(a[0]), layer = +a[1], bx = +a[2], by = +a[3], block = parseInt(a[4]), mask = parseInt(a[5]), plane = PLANE_BY_NAME[a[6]];
+    for (let c = 0; c < 4; c++) if (mask >> c & 1) tileFixAll.set(`${rm}:${tileKey(layer, bx, by, c)}`, { plane, block, room: rm });
   }
+}
+function syncRoomFixes() {
+  tileFix = new Map();
+  for (const [k, t] of tileFixAll) if (t.room === room.hdr) tileFix.set(k.split(':')[1], t);
 }
 function fixesText() {
-  const sorted = [...fixes].sort((a, b) => a.room - b.room || a.layer - b.layer || (a.kind < b.kind ? -1 : 1) || (a.by - b.by) || (a.bx - b.bx));
+  const groups = new Map();   // room|layer|bx|by|plane -> {block, mask}
+  for (const [k, t] of tileFixAll) {
+    const [rm, rest] = k.split(':'), [layer, bx, by, c] = rest.split(',').map(Number), g = `${rm}|${layer}|${bx}|${by}|${t.plane}`;
+    const e = groups.get(g) || { rm: +rm, layer, bx, by, plane: t.plane, block: t.block, mask: 0 }; e.mask |= 1 << c; groups.set(g, e);
+  }
+  const fl = [...groups.values()].sort((a, b) => a.rm - b.rm || a.layer - b.layer || a.by - b.by || a.bx - b.bx);
+  const rl = [...rules].sort((a, b) => a.room - b.room || a.layer - b.layer || a.prio - b.prio);
   let out = fixHead.replace(/\s*$/, '\n') + '\n';
-  for (const f of sorted) out += f.kind === 'fix'
-    ? `SM_PLANE_FIX(${hex(f.room)}, ${f.layer}, ${f.bx}, ${f.by}, ${hex(f.block)}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`
-    : `SM_LAYER_PLANE(${hex(f.room)}, ${f.layer}, ${f.prio}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
+  for (const f of fl) out += `SM_PLANE_FIX(${hex(f.rm)}, ${f.layer}, ${f.bx}, ${f.by}, ${hex(f.block)}, ${hex(f.mask, 1)}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
+  for (const f of rl) out += `SM_LAYER_PLANE(${hex(f.room)}, ${f.layer}, ${f.prio}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
   return out;
 }
-function hasInk(layer, bx, by) { const t = blockTiles(room, room.layer[layer][by * room.w + bx]); return t.some(e => charPixels(room, e & 0x3ff).some(c => c)); }
-$('apply').onclick = () => {
-  if (!room || !sel.size) return; let n = 0;
-  for (const k of sel) { const [bx, by] = k.split(',').map(Number);
-    for (const l of [1, 2]) { if (!$('pick' + l).checked || !room.layer[l] || !hasInk(l, bx, by)) continue;
-      fixes = fixes.filter(f => !(f.kind === 'fix' && f.room === room.hdr && f.layer === l && f.bx === bx && f.by === by));
-      fixes.push({ kind: 'fix', room: room.hdr, layer: l, bx, by, block: room.layer[l][by * room.w + bx], plane: curPlane }); n++; } }
-  status(n + ' fix' + (n === 1 ? '' : 'es') + ' to ' + PLANES[curPlane][1] + ' (not saved yet)'); refresh();
-};
-$('clear').onclick = () => {
-  const before = fixes.length; fixes = fixes.filter(f => !(f.kind === 'fix' && f.room === room.hdr && sel.has(f.bx + ',' + f.by)));
-  status((before - fixes.length) + ' removed (not saved yet)'); refresh();
-};
-$('radd').onclick = () => {
-  if (!room) return; const layer = +$('rl').value, prio = +$('rp').value, plane = +$('rpl').value;
-  fixes = fixes.filter(f => !(f.kind === 'layer' && f.room === room.hdr && f.layer === layer && f.prio === prio));
-  fixes.push({ kind: 'layer', room: room.hdr, layer, prio, plane }); status('rule added (not saved yet)'); refresh();
-};
-$('copy').onclick = () => {
-  if (!room) return; const lines = [`room ${hex(room.hdr)} (${AREAS[room.area]}) ${room.w}x${room.h} blocks, BG2 ${room.layer[2] ? 'is level data' : 'is not level data'}`];
-  for (const k of [...sel].slice(0, 40)) { const [bx, by] = k.split(',').map(Number); lines.push(`block ${bx},${by}`, ...blockInfo(bx, by).map(s => '  ' + s)); }
-  navigator.clipboard.writeText(lines.join('\n')); status('copied');
-};
-$('save').onclick = async () => {
-  const r = await fetch('/api/fixes', { method: 'POST', body: fixesText() }); status(r.ok ? 'saved: ' + fixes.length + ' entries' : 'save failed');
-};
 function status(s) { $('status').textContent = s; }
-function refresh() { drawRoom(); listFixes(); }
+function applyPlane() {
+  if (!room || !sel.set.size) return; let n = 0;
+  const layers = sel.scope ? [sel.scope] : [1, 2];
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number);
+    for (const l of layers) {
+      if (!room.layer[l]) continue; const w = room.layer[l][by * room.w + bx];
+      if (!tileHasInk(room, blockTiles(room, w)[c])) continue;
+      tileFixAll.set(`${room.hdr}:${tileKey(l, bx, by, c)}`, { plane: curPlane, block: w, room: room.hdr }); n++;
+    }
+  }
+  syncRoomFixes(); status(n + ' tile' + (n === 1 ? '' : 's') + ' to ' + PLANES[curPlane][1] + ' (not saved yet)'); renderAll();
+}
+function clearFixes() {
+  let n = 0; const layers = sel.scope ? [sel.scope] : [1, 2];
+  for (const k of sel.set) { const [bx, by, c] = k.split(',').map(Number); for (const l of layers) if (tileFixAll.delete(`${room.hdr}:${tileKey(l, bx, by, c)}`)) n++; }
+  syncRoomFixes(); status(n + ' removed (not saved yet)'); renderAll();
+}
 function listFixes() {
-  const box = $('fixes'); box.innerHTML = ''; if (!room) return;
-  for (const f of fixes.filter(f => f.room === room.hdr)) {
+  const box = $('fixes'); if (!box) return; box.innerHTML = ''; if (!room) return;
+  const groups = new Map();
+  for (const [k, t] of tileFix) {
+    const [l, bx, by, c] = k.split(',').map(Number), g = `${l},${bx},${by},${t.plane}`;
+    const e = groups.get(g) || { l, bx, by, plane: t.plane, cs: [] }; e.cs.push(c); groups.set(g, e);
+  }
+  for (const e of groups.values()) {
+    const d = document.createElement('div'), c = PLANES[e.plane], cs = e.cs.sort();
+    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>BG${e.l} ${e.bx},${e.by} ${cs.length === 4 ? '' : '[' + cs.map(i => CORNER_NAMES[i]).join(' ') + ']'}</span><span>${c[1]} &times;</span>`;
+    d.onclick = ev => {
+      if (ev.target === d.lastChild) { for (const cc of cs) tileFixAll.delete(`${room.hdr}:${tileKey(e.l, e.bx, e.by, cc)}`); syncRoomFixes(); renderAll(); return; }
+      sel = { scope: e.l, set: new Set(cs.map(cc => `${e.bx},${e.by},${cc}`)) }; updateSel(); overlayAll();
+    };
+    box.appendChild(d);
+  }
+  for (const f of rules.filter(f => f.room === room.hdr)) {
     const d = document.createElement('div'), c = PLANES[f.plane];
-    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>${f.kind === 'fix' ? `BG${f.layer} ${f.bx},${f.by}` : `${LAYER_NAMES[f.layer]} prio ${f.prio} (all)`}</span><span>${c[1]} &times;</span>`;
-    d.onclick = e => { if (e.target.tagName === 'SPAN' && e.target === d.lastChild) { fixes.splice(fixes.indexOf(f), 1); refresh(); return; } if (f.kind === 'fix') { sel = new Set([f.bx + ',' + f.by]); updateSel(); drawOverlay(); hover([f.bx, f.by]); } };
+    d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>${LAYER_NAMES[f.layer]} priority ${f.prio} (all)</span><span>${c[1]} &times;</span>`;
+    d.onclick = ev => { if (ev.target === d.lastChild) { rules.splice(rules.indexOf(f), 1); renderAll(); } };
     box.appendChild(d);
   }
   if (!box.children.length) box.innerHTML = '<div class="hint">none</div>';
 }
 
+// ---------- tools window ----------
+function buildTools() {
+  const w = makeWindow('w-tools', 'Tools'); w.body.classList.add('pad');
+  w.body.innerHTML = `
+    <h3>Send the selection to</h3>
+    <div class="planes" id="planes"></div>
+    <div class="row"><span class="hint">same as</span><span id="sameas" class="row"></span></div>
+    <div class="row"><button id="apply">APPLY</button><button id="clear">CLEAR FIXES</button><button id="copy">COPY INFO</button></div>
+    <div class="hint" id="selinfo">nothing selected</div>
+    <h3>Whole layer of this room</h3>
+    <div class="row"><select id="rl"><option value="1">BG1</option><option value="2">BG2</option><option value="3">BG3</option><option value="4">sprites</option><option value="5">Mode 7</option></select>
+      <select id="rp"><option value="0">priority 0</option><option value="1">priority 1</option><option value="2">priority 2</option><option value="3">priority 3</option></select></div>
+    <div class="row"><select id="rpl"></select><button id="radd">ADD RULE</button></div>
+    <h3>Fixes of this room</h3><div id="fixes"></div>
+    <h3>File</h3>
+    <div class="row"><button id="save">SAVE source/sm_plane_fixes.inc</button></div><div id="status"></div>
+    <h3>Defaults</h3>
+    <div class="hint">BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2 MID, BG3 prio 0 FAR, BG3 prio 1 FRONT, sprites prio 3 PLAY, other sprites OBJ, Mode 7 PLAY. A tile fix (a block, or one 8x8 tile of it) replaces that for those tiles; a whole-layer rule for that layer of the room. "Same as" picks the plane a tile on that layer would get, so a tile put on the wrong layer can be sent to the right one. This changes only the tile's 3D depth: the picture still draws it where the game does. The console does not use tile fixes yet.</div>`;
+  const pb = $('planes'), rpl = $('rpl');
+  PLANES.forEach((p, i) => { const b = document.createElement('button'); b.textContent = p[1]; b.style.background = p[2]; b.onclick = () => setPlane(i); pb.appendChild(b); const o = document.createElement('option'); o.value = i; o.textContent = p[1]; rpl.appendChild(o); });
+  for (const [name, pl] of SAME_AS) { const b = document.createElement('button'); b.textContent = name; b.title = 'the plane a tile on this layer gets: ' + PLANES[pl][1]; b.onclick = () => setPlane(pl); $('sameas').appendChild(b); }
+  setPlane(curPlane); rpl.value = 2;
+  $('apply').onclick = applyPlane; $('clear').onclick = clearFixes;
+  $('radd').onclick = () => {
+    if (!room) return; const layer = +$('rl').value, prio = +$('rp').value, plane = +$('rpl').value;
+    rules = rules.filter(f => !(f.room === room.hdr && f.layer === layer && f.prio === prio)); rules.push({ room: room.hdr, layer, prio, plane }); status('rule added (not saved yet)'); renderAll();
+  };
+  $('copy').onclick = () => {
+    if (!room) return; const lines = [`room ${hex(room.hdr)} (${AREAS[room.area]}) ${room.w}x${room.h} blocks, BG2 ${room.layer[2] ? 'is level data' : 'is not level data'}`];
+    for (const k of [...sel.set].slice(0, 60)) { const [bx, by, c] = k.split(',').map(Number); lines.push(`block ${bx},${by} tile ${CORNER_NAMES[c]}`); for (const l of [1, 2]) if (room.layer[l]) lines.push('  ' + tileInfo(l, bx, by, c)); }
+    navigator.clipboard.writeText(lines.join('\n')); status('copied');
+  };
+  $('save').onclick = async () => { const r = await fetch('/api/fixes', { method: 'POST', body: fixesText() }); status(r.ok ? 'saved' : 'save failed'); };
+}
+function setPlane(i) { curPlane = i; document.querySelectorAll('#planes button').forEach((b, j) => b.classList.toggle('on', j === i)); }
+
 // ---------- rooms ----------
 async function loadRoom(i) {
   const r = rooms[i], buf = await (await fetch('/rooms/' + r.file)).arrayBuffer();
-  room = parseRoom(buf, i); sel = new Set(); updateSel();
-  // The layers the game really shows in this room (main or sub screen); the others are only data.
-  for (const l of [1, 2]) $('show' + l).checked = !!(room.layer[l] && ((room.main | room.sub) >> (l - 1) & 1));
+  room = parseRoom(buf); sel = { scope: 0, set: new Set() }; updateSel(); syncRoomFixes();
   const on = n => ['BG1','BG2','BG3','BG4','OBJ'].map((nm, b) => (n >> b & 1) ? nm : '').filter(Boolean).join(' ') || '-';
   $('title').textContent = `${r.area_name} ${hex(r.room)}  ${r.w}x${r.h} blocks${r.bg2 ? '' : '  (BG2 not level data)'}`;
   $('screens').textContent = `mode ${room.mode}${room.bg3pri ? ', BG3 prio' : ''}   main: ${on(room.main)}   sub: ${on(room.sub)}`;
+  // the layers the game really shows in this room; the others are only data
+  for (const l of [1, 2]) { const cb = $('show' + l); if (cb) cb.checked = !!(room.layer[l] && ((room.main | room.sub) >> (l - 1) & 1)); }
+  const res = views.find(v => !v.layer); if (res) res.layers = [1, 2].filter(x => $('show' + x).checked);
   document.querySelectorAll('.room').forEach(e => e.classList.toggle('cur', +e.dataset.i === i));
-  refresh();
+  renderAll();
 }
 function buildList(filter = '') {
-  const box = $('list'); box.innerHTML = ''; let last = -1; const f = filter.toLowerCase();
+  const box = $('list'); if (!box) return; box.innerHTML = ''; let last = -1; const f = filter.toLowerCase();
   rooms.forEach((r, i) => {
     if (f && !(hex(r.room).toLowerCase().includes(f) || r.area_name.toLowerCase().includes(f))) return;
     if (r.area !== last) { last = r.area; const h = document.createElement('div'); h.className = 'area'; h.textContent = r.area_name; box.appendChild(h); }
-    const n = fixes.filter(x => x.room === r.room).length, d = document.createElement('div');
-    d.className = 'room'; d.dataset.i = i; d.innerHTML = `<span>${hex(r.room)}</span><span class="n">${n ? n + ' fix' : ''}</span>`; d.onclick = () => loadRoom(i); box.appendChild(d);
+    const cnt = rules.filter(x => x.room === r.room).length + [...tileFixAll.values()].filter(x => x.room === r.room).length;
+    const d = document.createElement('div'); d.className = 'room' + (room && room.hdr === r.room ? ' cur' : ''); d.dataset.i = i;
+    d.innerHTML = `<span>${hex(r.room)}</span><span class="n">${cnt ? cnt + ' fix' : ''}</span>`; d.onclick = () => loadRoom(i); box.appendChild(d);
   });
 }
+function buildRoomsWindow() {
+  const w = makeWindow('w-rooms', 'Rooms'); w.body.style.background = 'var(--panel)';
+  w.body.innerHTML = '<div style="padding:6px"><input type="text" id="search" placeholder="room (hex) or area" style="width:100%"></div><div id="list"></div>';
+  $('search').oninput = e => buildList(e.target.value);
+}
+
 async function init() {
-  const pb = $('planes'), rpl = $('rpl');
-  PLANES.forEach((p, i) => { const b = document.createElement('button'); b.textContent = p[1]; b.style.background = p[2]; b.onclick = () => { curPlane = i; [...pb.children].forEach((c, j) => c.classList.toggle('on', j === i)); }; pb.appendChild(b); const o = document.createElement('option'); o.value = i; o.textContent = p[1]; rpl.appendChild(o); });
-  pb.children[curPlane].classList.add('on'); rpl.value = 2;
+  buildRoomsWindow();
+  makeView('w-result', 'Result', 0, 'REAL');
+  makeView('w-bg1', 'BG1', 1, 'BEFORE|AFTER');
+  makeView('w-bg2', 'BG2', 2, 'BEFORE|AFTER');
+  buildTools();
   rooms = (await (await fetch('/api/rooms')).json()).sort((a, b) => a.area - b.area || a.room - b.room);
   parseFixes(await (await fetch('/api/fixes')).text()); buildList();
-  $('search').oninput = e => buildList(e.target.value);
-  document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { view = b.dataset.view; document.querySelectorAll('[data-view]').forEach(x => x.classList.toggle('on', x === b)); drawRoom(); });
-  $('zp').onclick = () => setZoom(zoom + 1); $('zm').onclick = () => setZoom(zoom - 1);
-  $('show1').onchange = $('show2').onchange = () => drawRoom();
-  $('grid').onclick = e => { showGrid = !showGrid; e.target.classList.toggle('on', showGrid); drawOverlay(); };
+  const zoomTo = z => { zoom = Math.max(1, Math.min(8, z)); $('zv').textContent = zoom; views.forEach(applyZoom); overlayAll(); };
+  $('zp').onclick = () => zoomTo(zoom + 1); $('zm').onclick = () => zoomTo(zoom - 1);
+  $('grid').onclick = e => { showGrid = !showGrid; e.target.classList.toggle('on', showGrid); overlayAll(); };
+  $('selBlocks').onclick = () => { tileMode = false; $('selBlocks').classList.add('on'); $('selTiles').classList.remove('on'); };
+  $('selTiles').onclick = () => { tileMode = true; $('selTiles').classList.add('on'); $('selBlocks').classList.remove('on'); };
+  $('relayout').onclick = () => { localStorage.removeItem(layoutKey); location.reload(); };
   if (rooms.length) loadRoom(0);
 }
 init();

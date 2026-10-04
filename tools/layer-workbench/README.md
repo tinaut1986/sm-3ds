@@ -21,29 +21,36 @@ warps into every room with `source/sm_warp.c` (as `tools/warp-test` does) and wr
 room. The viewer only reads those files: it does not emulate anything, so it can be left open while the
 `.inc` is edited. `serve.py ROOMS_DIR --port N --no-browser` change where it reads from and how it starts.
 
-- **Left:** the rooms by area (search by hex or area). A number shows how many fixes a room already has.
-- **Centre:** the room. `RESULT` draws it as the game does (BG2 prio 0, BG1 prio 0, BG2 prio 1, BG1 prio 1);
-  `PLANES` tints every tile with the colour of the plane it goes to (the same colours as PLANE TINT on the
-  console); `BG1` and `BG2` show one layer. The BG1 / BG2 boxes hide a layer: they start from what the game
-  really shows in that room (the top bar says which layers are on the main and the sub screen; Ceres' `E0B5`
-  has level data in BG1 that is never drawn). Hovering a block prints its words, type and the plane each
-  priority gets.
-- **Select** by clicking or dragging a rectangle; `Ctrl` adds (or removes a block that is already selected),
-  the arrows move the selection, `Esc` clears it.
-- **Right:** pick a plane and `APPLY`: every selected block of the ticked layers that has something to draw
-  gets a `SM_PLANE_FIX`. `CLEAR FIXES` removes those of the selected blocks. **Whole layer of this room**
-  adds a `SM_LAYER_PLANE`: all the tiles of a layer with a given tile priority go to a plane. `COPY INFO`
-  puts the selection's data on the clipboard, to reason about a case without the tool. `SAVE` writes the
-  `.inc` (the whole file, sorted).
+The page is a desk of floating windows (drag by the title, resize from the corner, minimise with the dash; the
+layout is kept in the browser, `RELAYOUT` resets it):
+
+- **Rooms:** the rooms by area (search by hex or area). A number shows how many fixes a room already has.
+- **Result:** the room as the game draws it (BG2 prio 0, BG1 prio 0, BG2 prio 1, BG1 prio 1). The BG1 / BG2 boxes
+  in its title hide a layer; they start from what the game really shows in that room (the top bar says which
+  layers are on the main and the sub screen; Ceres' `E0B5` has level data in BG1 that is never drawn).
+- **BG1 and BG2:** one window per layer, each with a selector: `REAL` (the picture), `BEFORE` (every tile tinted
+  by the plane the depth function gives it, the colours of PLANE TINT), `AFTER` (the same with the fixes and
+  rules applied) or `BEFORE|AFTER` side by side. All windows scroll and zoom together, and the selection is drawn in
+  all of them. A layer that is not level data (BG2 in most rooms) says so; whole-layer rules still apply to it.
+- **Tools:** the plane buttons, `same as` (the plane a tile on that layer would get: BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2
+  MID, BG3 prio 0 FAR, BG3 prio 1 FRONT, sprites OBJ), `APPLY`, `CLEAR FIXES`, `COPY INFO`, the whole-layer rules,
+  the room's fixes (click to select, `x` to remove) and `SAVE`.
+- **Select** with the top bar's `BLOCKS (16x16)` or `TILES (8x8)`: click or drag a rectangle; `Ctrl` adds (or removes what
+  is already selected), the arrows move the selection, `Esc` clears it. What a selection covers depends on where it
+  was made: in the Result it covers every layer, in a layer window only that layer (the Tools window says which).
+  Moving a tile "to another layer" means sending it to that layer's plane with `same as`: only its 3D depth changes,
+  the picture still draws it where the game does. Hovering prints the block's words, type, the tile's own data and the
+  plane it has before and after.
 
 ## The `.inc`
 
 ```
-SM_PLANE_FIX(0xE0B5, 2, 3, 12, 0x001F, kStereoPlay)    /* room, layer, bx, by, block word, plane */
+SM_PLANE_FIX(0xE0B5, 2, 3, 12, 0x001F, 0x3, kStereoPlay)    /* room, layer, bx, by, block word, corners, plane */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)              /* room, layer, tile priority, plane */
 ```
 
-`room` is the room header pointer (as `SmRoom.header`); `layer` 1 is BG1, 2 is BG2; `(bx, by)` is the block in
+`corners` is a mask of the block's four 8x8 tiles (1 top left, 2 top right, 4 bottom left, 8 bottom right, `0xF` all of it,
+corners of the block as drawn, flips applied), so a single wrong tile can be moved. `room` is the room header pointer (as `SmRoom.header`); `layer` 1 is BG1, 2 is BG2; `(bx, by)` is the block in
 the room's level data (not a screen or tilemap position: rooms are larger than the tilemap, which wraps); `block`
 is that block's 16-bit word in the level data, a checksum: if the data changes, the fix no longer applies and
 says so (it never moves another block). A block fix beats a layer rule, which beats the default of

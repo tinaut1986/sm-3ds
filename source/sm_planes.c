@@ -13,7 +13,7 @@ typedef struct {
 
 // source/sm_plane_fixes.inc: SM_LAYER_PLANE is a rule; SM_PLANE_FIX (one block) is for the renderer's tile
 // split, not wired yet.
-#define SM_PLANE_FIX(room, layer, bx, by, block, plane)
+#define SM_PLANE_FIX(room, layer, bx, by, block, corners, plane)
 #define SM_LAYER_PLANE(room, layer, prio, plane) { room, layer, prio, plane },
 static const LayerRule kRules[] = {
 #include "sm_plane_fixes.inc"
