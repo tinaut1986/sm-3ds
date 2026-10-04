@@ -401,8 +401,12 @@ static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const u
 // One texture holds the priority-0 tiles, the other the priority-1 tiles; each is
 // transparent where the other has its tile. Sized like the tilemap (256 or 512 px
 // each way), so GPU_REPEAT wrapping is the SNES's own wrap-around.
+// Tiles the owner sent to another stereo plane (GpuPpu_SetSlotPlanes) leave those two and
+// go to a texture of that plane (and priority), created when a tile first needs it.
 
-enum { kSurfaces = 8 };
+enum { kSurfaces = 8, kGpuXPlanes = 8 };
+static int (*g_slot_planes)(int layer, int tw, int th, uint8_t *grid);
+void GpuPpu_SetSlotPlanes(int (*slot_planes)(int layer, int tw, int th, uint8_t *grid)) { g_slot_planes = slot_planes; }
 
 typedef struct {
   bool used;
@@ -413,6 +417,9 @@ typedef struct {
   bool wider, higher;
   int bpp;
   GpuTex tex[2];           // [0] priority 0, [1] priority 1
+  GpuTex xtex[kGpuXPlanes][2];   // [StereoPlane + 1 - 1][priority]: tiles sent to that plane; px NULL = not created
+  int xcount;              // how many of xtex exist
+  uint8_t slot_plane[64 * 64];   // the plane (StereoPlane + 1, 0 = none) each tile was decoded for
   uint16_t map[64 * 64];   // tilemap entries the textures were decoded from
 } Surface;
 
@@ -434,10 +441,30 @@ static uint16_t MapAddr(const Surface *s, int tx, int ty) {
   return (uint16_t)(a & 0x7fff);
 }
 
+static void FreeExtras(Surface *s) {
+  for (int p = 0; p < kGpuXPlanes; p++)
+    for (int i = 0; i < 2; i++)
+      if (s->xtex[p][i].px) GpuBackend_TexFree(&s->xtex[p][i]);
+  memset(s->xtex, 0, sizeof(s->xtex));
+  memset(s->slot_plane, 0, sizeof(s->slot_plane));
+  s->xcount = 0;
+}
+
 static void FreeSurface(Surface *s) {
   for (int i = 0; i < 2; i++)
     if (s->tex[i].px) GpuBackend_TexFree(&s->tex[i]);
+  FreeExtras(s);
   memset(s, 0, sizeof(*s));
+}
+
+// The texture of plane `pl` (StereoPlane + 1) and priority, made the first time; NULL if there is no memory.
+static GpuTex *ExtraTex(Surface *s, int pl, int prio) {
+  GpuTex *t = &s->xtex[pl - 1][prio];
+  if (!t->px) {
+    if (!GpuBackend_TexCreate(t, SurfaceW(s), SurfaceH(s))) return NULL;
+    s->xcount++;
+  }
+  return t;
 }
 
 static Surface *GetSurface(const BgLayer *bg, int bpp) {
@@ -482,11 +509,20 @@ static bool PalDirty(const Surface *s, uint16_t entry) {
 
 // One 8x8 tile into its block of the priority texture; the same block of the other
 // texture is cleared.
-static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e) {
+static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int plane) {
   const int w = SurfaceW(s);
   const int block = ((ty * (w >> 3)) + tx) << 6;
-  uint16_t *dst = s->tex[(e & 0x2000) ? 1 : 0].px + block;
-  memset(s->tex[(e & 0x2000) ? 0 : 1].px + block, 0, 64 * sizeof(uint16_t));
+  const int prio = (e & 0x2000) ? 1 : 0;
+  GpuTex *to = plane ? ExtraTex(s, plane, prio) : NULL;
+  if (!to) to = &s->tex[prio];
+  uint16_t *dst = to->px + block;
+  // The tile is in this texture only: every other one the surface has is clear there.
+  for (int i = 0; i < 2; i++)
+    if (&s->tex[i] != to) memset(s->tex[i].px + block, 0, 64 * sizeof(uint16_t));
+  if (s->xcount)
+    for (int p = 0; p < kGpuXPlanes; p++)
+      for (int i = 0; i < 2; i++)
+        if (s->xtex[p][i].px && &s->xtex[p][i] != to) memset(s->xtex[p][i].px + block, 0, 64 * sizeof(uint16_t));
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
   DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000);
@@ -500,10 +536,18 @@ static bool RangeDirty(int a, int n) {
   return false;
 }
 
-static void SyncSurface(Surface *s, const Ppu *ppu) {
+// `layer` is the BG (0 or 1 = BG1, BG2) the surface is drawn for: the tile fixes are asked for it.
+static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
   if (s->last_frame == g_frame_no && !s->fresh) return;   // already synced this frame
   const int tw = SurfaceW(s) >> 3, th = SurfaceH(s) >> 3;
-  if (!s->fresh) {
+  uint8_t grid[64 * 64];
+  bool fixes = false;
+  if (g_slot_planes && layer < 2) fixes = g_slot_planes(layer + 1, tw, th, grid) > 0;
+  if (!fixes && s->xcount) {   // the room has none now: the tiles go back to the layer's own textures
+    FreeExtras(s);
+    s->fresh = true;
+  }
+  if (!s->fresh && !(fixes && memcmp(grid, s->slot_plane, (size_t)th * 64))) {
     // Nothing it reads changed: its tilemap, any of its 1024 chars, its palettes.
     bool pal = false;
     for (int i = 0; i < 8; i++) pal |= s->bpp == 4 ? g_pal4_dirty[i] : g_pal2_dirty[i];
@@ -517,9 +561,11 @@ static void SyncSurface(Surface *s, const Ppu *ppu) {
     for (int tx = 0; tx < tw; tx++) {
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
       uint16_t *m = &s->map[ty * 64 + tx];
-      if (!s->fresh && e == *m && !CharDirty(s, e) && !PalDirty(s, e)) continue;
+      const uint8_t pl = fixes ? grid[ty * 64 + tx] : 0;
+      if (!s->fresh && e == *m && pl == s->slot_plane[ty * 64 + tx] && !CharDirty(s, e) && !PalDirty(s, e)) continue;
       *m = e;
-      DecodeBgTile(s, ppu, tx, ty, e);
+      s->slot_plane[ty * 64 + tx] = pl;
+      DecodeBgTile(s, ppu, tx, ty, e, pl);
       if (ty < y0) y0 = ty;
       y1 = ty;
     }
@@ -527,6 +573,9 @@ static void SyncSurface(Surface *s, const Ppu *ppu) {
   if (y1 >= 0) {
     GpuBackend_TexWritten(&s->tex[0], y0 * 8, (y1 + 1) * 8);
     GpuBackend_TexWritten(&s->tex[1], y0 * 8, (y1 + 1) * 8);
+    for (int p = 0; p < kGpuXPlanes && s->xcount; p++)
+      for (int i = 0; i < 2; i++)
+        if (s->xtex[p][i].px) GpuBackend_TexWritten(&s->xtex[p][i], y0 * 8, (y1 + 1) * 8);
   }
   s->fresh = false;
   s->last_frame = g_frame_no;
@@ -934,7 +983,7 @@ static uint32_t g_composed[3][kPpuCaptureLines];   // frame number each screen-t
 static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, int l0, int l1, bool math, int scr) {
   Surface *s = GetSurface(&cap->line[l0].bgLayer[layer], layer < 2 ? 4 : 2);
   if (!s) return "out of texture memory";
-  SyncSurface(s, ppu);
+  SyncSurface(s, ppu, layer);
   // Columns this layer covers (the band's last output row is l1-1).
   const bool narrow = layer == 2 && NarrowBg3(cap, l0, l1);
   const int vx0 = narrow ? g_hud_x : g_x0, vx1 = narrow ? g_hud_x + 256 : g_x1;
@@ -947,29 +996,41 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     const BgLayer *a = &cap->line[l - 1].bgLayer[layer], *b = &cap->line[l].bgLayer[layer];
     runs += a->hScroll != b->hScroll || a->vScroll != b->vScroll;
   }
-  if (g_out->quad_count + runs * 2 <= kGpuMaxQuads - kQuadReserve) {
+  if (g_out->quad_count + runs * (2 + s->xcount) <= kGpuMaxQuads - kQuadReserve) {
     // All priority-0 runs, then all priority-1 runs: each priority is its own texture,
     // and alternating them made the backend switch textures (and end a draw batch) on
     // every quad (Maridia water: ~7 ms of submit on a 2DS). Quads of one layer never
     // overlap and depth orders the levels, so the order does not matter otherwise.
+    // Then, per priority, the layer's own texture (its plane rule) and those of the tiles sent to
+    // another plane (that plane): the same quads over another texture, at the same level.
     for (int prio = 0; prio < 2; prio++) {
-      UsePlaneRule(layer + 1, prio);
-      for (int a = l0; a <= l1;) {
-        const BgLayer *bg = &cap->line[a].bgLayer[layer];
-        int b = a;
-        while (b + 1 <= l1 && cap->line[b + 1].bgLayer[layer].hScroll == bg->hScroll &&
-               cap->line[b + 1].bgLayer[layer].vScroll == bg->vScroll)
-          b++;
-        // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
-        if (!AddQuadWin(&s->tex[prio], vx0, a - 1, vx1 - vx0, b - a + 1, bg->hScroll + sx0, a + bg->vScroll,
-                        kBgLevel[layer][prio], flags, scr, layer))
-          return "too many quads";
-        a = b + 1;
+      for (int v = -1; v < kGpuXPlanes; v++) {
+        GpuTex *tex = &s->tex[prio];
+        if (v < 0) {
+          UsePlaneRule(layer + 1, prio);
+        } else {
+          if (!s->xtex[v][prio].px) continue;
+          tex = &s->xtex[v][prio];
+          g_quad_plane = (uint8_t)(v + 1);
+        }
+        for (int a = l0; a <= l1;) {
+          const BgLayer *bg = &cap->line[a].bgLayer[layer];
+          int b = a;
+          while (b + 1 <= l1 && cap->line[b + 1].bgLayer[layer].hScroll == bg->hScroll &&
+                 cap->line[b + 1].bgLayer[layer].vScroll == bg->vScroll)
+            b++;
+          // Output row a-1 shows tilemap row a + vScroll (the PPU draws line a there).
+          if (!AddQuadWin(tex, vx0, a - 1, vx1 - vx0, b - a + 1, bg->hScroll + sx0, a + bg->vScroll,
+                          kBgLevel[layer][prio], flags, scr, layer))
+            return "too many quads";
+          a = b + 1;
+        }
       }
     }
     g_quad_plane = 0;
     return NULL;
   }
+  if (s->xcount) return "too many quads for tile fixes";   // the composed rows below only know the layer's own textures
   const int w = SurfaceW(s) - 1, h = SurfaceH(s) - 1;
   // Screen column x (from vx0) is texture column x - vx0.
   const int view_w = vx1 - vx0;

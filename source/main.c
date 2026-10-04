@@ -770,6 +770,7 @@ int main(int argc, char** argv) {
         // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
         const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();
         GpuPpu_SetPlaneRule(by_hand ? SmPlanes_LayerRule : NULL);
+        GpuPpu_SetSlotPlanes(by_hand ? SmPlanes_SlotPlanes : NULL);
         static bool was_by_hand;
         if (by_hand != was_by_hand) {   // for the debug log: a room that has planes set by hand
           was_by_hand = by_hand;

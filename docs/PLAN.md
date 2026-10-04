@@ -296,8 +296,8 @@ Lessons from mzm that apply directly:
   no option to turn it off besides the slider, second eye's vertices pushed again.
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
   (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter, viewer and the layer rules
-  (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are
-  saved but not read yet. First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
+  (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are read too
+  (`GpuPpu_SetSlotPlanes`: the fixed tiles go to a texture per plane, host-checked, not yet on the console). First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
   The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
   (flat or with deliberate depth).
@@ -1034,6 +1034,13 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
   only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
   restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: Block fixes (`SM_PLANE_FIX`) reach the renderer (#33, `feat/plane-fixes`). The dropped attempt (#28) was
+  not a failure of the mechanism: its rule was wrong (the plane by the block type under each tile). A fix names a block
+  of the level by hand, and a block is found in the tilemap at `(2*bx + i, 2*by + j)` modulo the tilemap's size, the
+  one nearest the camera when several share a slot: checked against WRAM and VRAM of rooms with BG1 and BG2 as level
+  data, every visible tile matching. The workbench had stale defaults (BG2 MID, BG3 FAR), from before the BG2
+  priority 1 and BG3 changes of v0.2.1: fixed to `StereoDepth_Plane`'s, so fixes saved before may be redundant or
+  point at the wrong plane.
 - 2026-10-04: Tried and dropped, never merged: a rule sending BG1 priority 0 to a plane by the type of the
   block under each tile (#28, #24). On the console `sm-dump-0004` (`9C5E`) showed all the scenery behind
   Samus, although the block lookup was right on that dump's WRAM and VRAM (checked offline) and GPU and

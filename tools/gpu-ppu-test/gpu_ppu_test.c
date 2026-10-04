@@ -478,6 +478,7 @@ static void TestFrame(const char *label, bool check_capture) {
   const char *why;
   // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
   GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
+  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_SlotPlanes : NULL);
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
