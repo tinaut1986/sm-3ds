@@ -227,7 +227,6 @@ static void MapTouch(int x, int y) {
 #if DEBUG_TOOLS
   const SmRoom *room = SelectedRoom(area);
   if (room && UiIn(WarpRect(), x, y)) {
-    RetroAch_NoteCheat();
     Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
   } else if (room && UiIn(DoorRect(), x, y)) {
     const int n = SmWarp_DoorCount(room);
@@ -414,12 +413,6 @@ static void DrawStatus(Surface s) {
 
 static void StatusTouch(int x, int y) {
 #if DEBUG_TOOLS
-  // Everything here edits the game: achievements stop counting (RetroAch_NoteCheat).
-  bool cheat = UiIn(GodRect(), x, y) || UiIn(MaxRect(), x, y) || UiIn(AllRect(), x, y);
-  for (int i = 0; i < kSmItemCount; i++) cheat |= UiIn(ItemRect(i), x, y);
-  for (int i = 0; i < kSmBeamCount; i++) cheat |= UiIn(BeamRect(i), x, y);
-  for (int i = 0; i < 6; i++) cheat |= UiIn(StationRect(i), x, y);
-  if (cheat) RetroAch_NoteCheat();
   if (UiIn(GodRect(), x, y)) {
     g_cheats.invincible = !g_cheats.invincible;
     return;
@@ -1173,13 +1166,10 @@ static void DrawCard(Surface s, int y, const RaAchievement *a) {
 static void DrawAchievements(Surface s) {
   UiDrawText(s, 8, 28, 1, COL_TITLE, "RETROACHIEVEMENTS");
   UiDrawText(s, SCREEN_W - 8 - UiTextWidth("SOFTCORE", 1), 28, 1, COL_DIM, "SOFTCORE");
-  // One line: a cheat or the server's last word beat the connection state.
+  // One line: the server's last word beats the connection state.
   char buf[96];
   uint32_t col = COL_DIM;
-  if (RetroAch_CheatsUsed()) {
-    snprintf(buf, sizeof(buf), "%s", Tr(kStrRaCheats));
-    col = COL_BAD;
-  } else if (RetroAch_Message()[0]) {
+  if (RetroAch_Message()[0]) {
     ClipText(buf, sizeof(buf), RetroAch_Message(), 50);
     col = COL_WARN;
   } else {

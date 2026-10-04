@@ -19,7 +19,9 @@ boxes below. History: `git log` and the decisions log.
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+with `--no-ff` only after they confirm, closing the issues that turned out fine):
+`fix/achievements-and-menu`: RetroAchievements no longer paused by cheats (#29) and an unverified change for
+the English menu in the first frames of the map (#27). Not merged.
 `feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
 owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
 Everything above was merged into the release line at the owner's request and shipped in the
@@ -309,8 +311,8 @@ Lessons from mzm that apply directly:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
   The existing SNES set runs as is: rcheevos' "System RAM" is `g_ram` (same layout as the
   SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
-  Progress goes with save states (`saves/saveN.rap`); a cheat or the teleport pauses it
-  until restart. Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
+  Progress goes with save states (`saves/saveN.rap`). Cheats and the teleport do not pause
+  it (see the decisions log, 2026-10-04). Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
   notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
   game's audio), the list's order and direction. A response may grow to 4 MB (the set is
   over 64 KB: the first build cut it there, "Invalid JSON" on the console).
@@ -1025,3 +1027,12 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   recordings no longer rotate: each takes the next number (4 digits), the owner deletes what
   has been handled (Claude asks after each one, then removes it over FTP). Rotating hid
   captures: ten slots were gone after a day of notes. The dump is of the frame after the pause.
+- 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
+  only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
+  restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: Tried and dropped, never merged: a rule sending BG1 priority 0 to a plane by the type of the
+  block under each tile (#28, #24). On the console `sm-dump-0004` (`9C5E`) showed all the scenery behind
+  Samus, although the block lookup was right on that dump's WRAM and VRAM (checked offline) and GPU and
+  CPU frames were identical on the host in every room: the cause was never found. Per-room and per-tile
+  depth is chosen by hand instead, with a layer workbench like mzm's and a `.inc` (#33); PLANE TINT is the
+  way to see the result on the console.

@@ -1424,10 +1424,23 @@ static void HudScreen(void) {
 
 static void Hook(void) {
   if (!ThePpu()) return;
+  // The map after a chosen file (state 5) starts by clearing only the menu's BG2 and fading its own
+  // palettes in (FileSelectMap_0, _1): BG1 still holds the menu that was left (options, state 2, or the
+  // file select, state 4) until the map's tilemap arrives (_2), and it showed in English for those
+  // frames (issue #27, sm-rec-0003).
+  static int menu_state;
+  if (game_state == 2 || game_state == 4) menu_state = game_state;
+  else if (game_state != 5) menu_state = 0;
   if (g_ui_lang != kLangEn) {
     switch (game_state) {
     case 2: OptionsScreen(); break;
     case 4: FileSelectScreen(); break;
+    case 5:
+      if (menu_index < 2) {
+        if (menu_state == 2) OptionsScreen();
+        else if (menu_state == 4) FileSelectScreen();
+      }
+      break;
     case 0x1e: IntroScreen(); break;
     case 12: case 13: case 14: case 15: case 16: case 17: case 18: PauseScreen(); HudScreen(); break;
     case 7: case 8: case 9: case 10: case 11: case 19: case 27: HudScreen(); break;

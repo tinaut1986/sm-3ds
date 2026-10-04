@@ -4,8 +4,8 @@
 // The game keeps its state in g_ram with the SNES layout (that is how snesrev checks it
 // against the ROM), so the existing Super Metroid set runs unchanged: rcheevos reads
 // "System RAM" from g_ram and "Cartridge RAM" from g_sram. Softcore only: RA does not
-// sanction unofficial ports. Once a cheat or the teleport has been used (DEBUG_TOOLS
-// builds) nothing more is evaluated until the app restarts.
+// sanction unofficial ports. Softcore allows cheats, save states and the teleport, so none
+// of them stops the set.
 //
 // Every rc_client call is made from the main thread; HTTP runs on a worker thread and
 // its responses are handed back in RetroAch_Update. Login: the system keyboard asks for
@@ -58,9 +58,6 @@ void RetroAch_DoFrame(void);
 void RetroAch_GameReset(void);
 void RetroAch_StateSaved(int slot);
 void RetroAch_StateLoaded(int slot);
-// A cheat or the teleport changed the game: stop evaluating until the app restarts.
-void RetroAch_NoteCheat(void);
-bool RetroAch_CheatsUsed(void);
 
 bool RetroAch_Enabled(void);
 void RetroAch_SetEnabled(bool on);
