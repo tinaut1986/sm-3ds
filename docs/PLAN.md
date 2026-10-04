@@ -18,17 +18,12 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine):
-`fix/achievements-and-menu`: RetroAchievements no longer paused by cheats (#29) and an unverified change for
-the English menu in the first frames of the map (#27). Not merged.
-`feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
-owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
-`fix/stereo-bg2-play-v021` (the Fireflea room's flat 3D, BG2 priority 1 on the play plane; CIA on the console at .132) waits too.
-`feat/plane-fixes` (workbench, block fixes in the renderer #33, and `fix/gpu-texture-race` #19, confirmed on the console on 2026-10-04: the A66A
-statues no longer flash) holds all of the above; the block fixes wait for the owner's look at 9AD9 before it goes into the release line.
-Everything above was merged into the release line at the owner's request and shipped in the
-`v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
+**Branches:** none open. `feat/plane-fixes` (which carried `fix/achievements-and-menu`, `feat/layer-workbench`,
+`feat/tint-depth-modes`, `fix/stereo-bg2-play-v021` and `fix/gpu-texture-race`) was merged into `release/v0.2.1` on
+2026-10-04 at the owner's request. Checked on the console by the owner: block fixes in 9AD9 (#33) and no flashing of the
+A66A statues with WIDE (#19). Still unchecked there: RetroAchievements not paused by cheats (#29) and the English
+menu in the first frames of the map (#27), the Fireflea room's depth and the ash (`fix/stereo-bg2-play-v021`), the
+PLANE TINT views (P3.3). The rest of what the earlier merges need from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
