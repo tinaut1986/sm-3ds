@@ -98,7 +98,9 @@ function parseRoom(buf) {
   const bank = new Uint8Array(buf, o, 0x10000); o += 0x10000;
   r.table = new Uint16Array(buf.slice(o, o + 0x2000)); o += 0x2000;
   r.cgram = new Uint16Array(buf.slice(o, o + 512)); o += 512;
-  r.vram = new Uint8Array(buf, o, 0x10000);
+  r.vram = new Uint8Array(buf, o, 0x10000); o += 0x10000;
+  // BG3, the effects layer (files from before it was exported end here): tilemap, tiles, size, scroll
+  r.bg3 = buf.byteLength >= o + 8 ? { map: u16(o), tiles: u16(o + 2), size: u16(o + 4) } : null;
   const n = r.w * r.h, words = at => { const a = new Uint16Array(n); for (let i = 0; i < n; i++) a[i] = bank[at + i*2] | bank[at + i*2 + 1] << 8; return a; };
   r.layer = [null, words(2), (r.l2scroll & 1) === 0 ? words(0x9602) : null];
   r.chars = new Map();
@@ -206,6 +208,57 @@ function paintOverlay(ov, pane, kind) {
   }
 }
 
+// ---------- BG3 ----------
+// The effects layer (ash, fog, water, the HUD): a 2 bpp tilemap, not level data, so it is drawn whole as the game left it in
+// VRAM (without its scroll), tile by tile. Only whole-layer rules apply to it: by tile priority.
+const BG3_DEFAULT = prio => prio ? 1 : 5;   // FRONT, MID (StereoDepth_Plane)
+function bg3Plane(prio, withRule) { if (withRule) { const r = ruleFor(3, prio); if (r !== null) return r; } return BG3_DEFAULT(prio); }
+function bg3Size() { const b = room.bg3; return [b.size & 1 ? 64 : 32, b.size & 2 ? 64 : 32]; }
+function bg3Entry(tx, ty) {   // the tilemap word at tile (tx, ty), screens of 32x32 laid out as the PPU does
+  const b = room.bg3, [tw] = bg3Size();
+  let a = b.map + (ty & 31) * 32 + (tx & 31);
+  if (tx & 32) a += 0x400;
+  if (ty & 32) a += tw === 64 ? 0x800 : 0x400;
+  a &= 0x7fff; return room.vram[a * 2] | room.vram[a * 2 + 1] << 8;
+}
+function paintBg3(cv, kind) {
+  const [tw, th] = bg3Size(), W = tw * 8, H = th * 8, b = room.bg3;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), px = img.data, v = room.vram;
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  const tint = kind !== 'real' && tintOn;
+  for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) {
+    const e = bg3Entry(tx, ty), prio = e >> 13 & 1, pal = e >> 10 & 7, hf = e & 0x4000, vf = e & 0x8000;
+    let tc = null;
+    if (tint) { const pc = PLANES[bg3Plane(prio, kind === 'after')][2]; tc = [1, 3, 5].map(i => parseInt(pc.slice(i, i + 2), 16)); }
+    const base = (b.tiles + (e & 0x3ff) * 8) & 0x7fff;
+    for (let y = 0; y < 8; y++) {
+      const a = (base + (vf ? 7 - y : y)) & 0x7fff, lo = v[a * 2], hi = v[a * 2 + 1];
+      for (let x = 0; x < 8; x++) {
+        const sh = hf ? x : 7 - x, c = (lo >> sh & 1) | (hi >> sh & 1) << 1; if (!c) continue;
+        let col = rgb(room, pal * 4 + c);
+        if (tint) col = col.map((q, i) => Math.round(q * 0.22 + tc[i] * 0.78));
+        const o = ((ty * 8 + y) * W + tx * 8 + x) * 4; px[o] = col[0]; px[o+1] = col[1]; px[o+2] = col[2];
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function paintOverlay3(ov) {
+  const [tw, th] = bg3Size(); ov.width = tw * 8; ov.height = th * 8;
+  if (!showGrid) return;
+  const o = ov.getContext('2d'); o.strokeStyle = 'rgba(255,255,255,.13)'; o.beginPath();
+  for (let x = 0; x <= tw; x++) { o.moveTo(x*8 + .5, 0); o.lineTo(x*8 + .5, th*8); }
+  for (let y = 0; y <= th; y++) { o.moveTo(0, y*8 + .5); o.lineTo(tw*8, y*8 + .5); }
+  o.stroke();
+}
+function hoverBg3(ev, ov) {
+  const r = ov.getBoundingClientRect(), [tw, th] = bg3Size();
+  const tx = Math.max(0, Math.min(tw - 1, Math.floor((ev.clientX - r.left) / (8 * zoom)))), ty = Math.max(0, Math.min(th - 1, Math.floor((ev.clientY - r.top) / (8 * zoom))));
+  const e = bg3Entry(tx, ty), prio = e >> 13 & 1, p = bg3Plane(prio, false), q = bg3Plane(prio, true);
+  $('info').textContent = `room ${hex(room.hdr)}  BG3 tile ${tx},${ty}\nentry ${e.toString(16).padStart(4,'0')} char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${prio}${e & 0x4000 ? ' hflip' : ''}${e & 0x8000 ? ' vflip' : ''} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}   (a whole-layer rule moves every tile of that priority)`;
+}
+
 // ---------- windows ----------
 const desk = $('desk'); let zTop = 10;
 const layoutKey = 'smwb.layout.v2';
@@ -215,7 +268,7 @@ function saveLayout() {
   document.querySelectorAll('.win').forEach(w => out[w.id] = { x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight, min: w.classList.contains('min') });
   localStorage.setItem(layoutKey, JSON.stringify(out));
 }
-const DEFAULTS = { 'w-rooms': [8, 8, 230, 330], 'w-map': [8, 346, 230, 300], 'w-result': [248, 8, 540, 420], 'w-bg1': [798, 8, 460, 330], 'w-bg2': [798, 348, 460, 330], 'w-tools': [1268, 8, 330, 700] };
+const DEFAULTS = { 'w-rooms': [8, 8, 230, 330], 'w-map': [8, 346, 230, 300], 'w-result': [248, 8, 540, 420], 'w-bg3': [248, 438, 540, 250], 'w-bg1': [798, 8, 460, 330], 'w-bg2': [798, 348, 460, 330], 'w-tools': [1268, 8, 330, 700] };
 function makeWindow(id, title, extraHeader) {
   const w = document.createElement('div'); w.className = 'win'; w.id = id;
   const h = document.createElement('header'), t = document.createElement('span'); t.className = 't'; t.textContent = title; h.appendChild(t);
@@ -285,12 +338,12 @@ function wirePane(v, p) {
     if (ev.clientX < r.left + el.clientLeft || ev.clientY < r.top + el.clientTop ||
         ev.clientX >= r.left + el.clientLeft + el.clientWidth || ev.clientY >= r.top + el.clientTop + el.clientHeight) return;   // a border or a scroll bar
     if (ev.button === 1 || ev.shiftKey) return startPan(ev, p);
-    if (p.empty) return;
+    if (p.empty || p.noSelect) return;
     const c = p.ov.getBoundingClientRect();
     if (ev.clientX < c.left || ev.clientX >= c.right || ev.clientY < c.top || ev.clientY >= c.bottom) return;
     startSelect(ev, v, p);
   });
-  p.ov.addEventListener('pointermove', ev => { if (!dragging) hover(tileAt(ev, p.ov)); });
+  p.ov.addEventListener('pointermove', ev => { if (dragging) return; if (p.noSelect) hoverBg3(ev, p.ov); else hover(tileAt(ev, p.ov)); });
 }
 function renderView(v) {
   const old = v.panes[0], keep = old ? [old.el.scrollLeft, old.el.scrollTop] : [0, 0];
@@ -306,7 +359,11 @@ function renderView(v) {
     if (kinds.length > 1 || kind !== 'real') { const tg = document.createElement('div'); tg.className = 'tag'; tg.textContent = kind.toUpperCase(); st.appendChild(tg); }
     st.append(cv, ov); holder.appendChild(st); el.appendChild(holder); v.win.body.appendChild(el);
     const p = { el, cv, ov, kind, v, empty: false };
-    if (v.layer && !room.layer[v.layer]) {
+    if (v.layer === 3 && !room.bg3) {
+      cv.width = 330; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 330, 40); c.fillStyle = '#aaa'; c.fillText('this room file has no BG3: export again (EXPORT=1 ./run_workbench.sh)', 8, 24);
+      ov.width = ov.height = 1; p.empty = true;
+    } else if (v.layer === 3) { paintBg3(cv, kind); p.noSelect = true; }
+    else if (v.layer && !room.layer[v.layer]) {
       cv.width = 220; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 220, 40); c.fillStyle = '#aaa'; c.fillText('BG' + v.layer + ' is not level data (whole-layer rules only)', 8, 24);
       ov.width = ov.height = 1; p.empty = true;
     } else paint(cv, kind, v.layer, layers);
@@ -315,7 +372,7 @@ function renderView(v) {
   applyZoom(v); overlayView(v);
   for (const p of v.panes) { p.el.scrollLeft = keep[0]; p.el.scrollTop = keep[1]; p.el._sl = p.el.scrollLeft; p.el._st = p.el.scrollTop; }
 }
-function overlayView(v) { for (const p of v.panes) if (!p.empty) paintOverlay(p.ov, v.layer, p.kind); }
+function overlayView(v) { for (const p of v.panes) if (!p.empty) { if (p.noSelect) paintOverlay3(p.ov); else paintOverlay(p.ov, v.layer, p.kind); } }
 function applyZoom(v) { for (const p of v.panes) if (!p.empty) { p.cv.style.width = p.ov.style.width = p.cv.width * zoom + 'px'; p.cv.style.height = p.ov.style.height = p.cv.height * zoom + 'px'; } }
 function renderAll() { views.forEach(renderView); listFixes(); buildList($('search') ? $('search').value : ''); drawMap(); }
 function overlayAll() { views.forEach(overlayView); }
@@ -651,6 +708,7 @@ async function init() {
   makeView('w-result', 'Result', 0, 'REAL');
   makeView('w-bg1', 'BG1', 1, 'BEFORE|AFTER');
   makeView('w-bg2', 'BG2', 2, 'BEFORE|AFTER');
+  makeView('w-bg3', 'BG3 (effects)', 3, 'BEFORE|AFTER');
   buildTools();
   rooms = (await (await fetch('/api/rooms')).json()).sort((a, b) => a.area - b.area || a.room - b.room);
   parseFixes(await (await fetch('/api/fixes')).text()); buildList();

@@ -1031,6 +1031,12 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
   only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
   restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: BG3 effects follow what they cover (`fix/stereo-fx-follows-owner`): they reach the screen by colour math, either
+  as the subscreen added over the scene (ash: the effect takes the depth of the pixels it is added to) or as the main BG3
+  with the scene on the subscreen (fog, water: BG3 goes on `FRONT`), so a plane fixed by layer put them in front of
+  what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
+  GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
+  rooms exported again).
 - 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
   `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
   block fixes' texture clears, which write texels earlier than `DecodeTile`.

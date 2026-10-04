@@ -44,6 +44,11 @@ layout is kept in the browser, `RELAYOUT` resets it):
   see the real colours (a bar in the plane's colour still marks the tiles with a fix). In AFTER a tile belongs to
   the window of the layer its plane puts it on (BACK and PLAY are BG1's, MID is BG2's): a BG2 tile sent to PLAY leaves
   BG2's AFTER and shows in BG1's, on top of what is there.
+- **BG3 (effects):** the effects layer as the game left it in VRAM (2 bpp, whole tilemap, without its scroll), by tile
+  priority: tinted by its plane (BEFORE) and with the whole-layer rule applied (AFTER). It has no blocks to select:
+  only whole-layer rules apply (Tools -> Whole layer: BG3, priority 0 or 1). Needs room files exported after this was
+  added (`EXPORT=1 ./run_workbench.sh`); older ones say so in the window. In rooms where BG3 is on the subscreen the
+  game adds it over the scene, and the renderer gives it the depth of what it covers unless a rule here sets its plane.
 - **Tools:** the plane buttons, `same as` (the plane a tile on that layer would get: BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2
   MID, BG3 prio 0 FAR, BG3 prio 1 FRONT, sprites OBJ), `APPLY`, `CLEAR FIXES`, `COPY INFO`, the whole-layer rules,
   the room's fixes (click to select, `x` to remove) and `SAVE`.
@@ -84,7 +89,7 @@ extensions, 8 solid, 9 door, A spike, B crumble, C shot, E grapple, F bomb). A t
 ## What exists, what does not
 
 - Done: the exporter, the viewer with selection and fixes, the server, the `.inc`, and the renderer reading it:
-  - the **layer rules** `SM_LAYER_PLANE` for BG1, BG2, BG3, the sprites of a priority (`layer` 4) and Mode 7 (`layer` 5)
+  - the **layer rules** `SM_LAYER_PLANE` for BG1, BG2, BG3 (an effects layer on the subscreen only with a rule: it follows what it covers otherwise), the sprites of a priority (`layer` 4) and Mode 7 (`layer` 5)
     (`source/sm_planes.c`, `GpuPpu_SetPlaneRule`: the quads carry `GpuQuad.plane`, and `QuadPlane` in `gpu_ppu_3ds.c`
     uses it, never over the HUD or outside gameplay);
   - the **block fixes** `SM_PLANE_FIX` for BG1 and BG2 (`GpuPpu_SetSlotPlanes`): a tile of a fixed block is decoded into a

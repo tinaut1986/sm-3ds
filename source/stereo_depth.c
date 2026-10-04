@@ -49,11 +49,15 @@ int StereoDepth_PlanePx(StereoPlane plane) {
   return kPlanePx[plane];
 }
 
-int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye) {
+int StereoDepth_EyeOffsetPx(int px, float slider, int eye) {
   if (slider <= 0) return 0;
   if (slider > 1) slider = 1;
-  const float v = (float)eye * slider * (float)StereoDepth_PlanePx(plane);
+  const float v = (float)eye * slider * (float)px;
   return (int)(v < 0 ? v - 0.5f : v + 0.5f);   // round half away from zero: symmetric eyes
+}
+
+int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye) {
+  return StereoDepth_EyeOffsetPx(StereoDepth_PlanePx(plane), slider, eye);
 }
 
 static const char *const kPlaneName[kStereoPlaneCount] = {

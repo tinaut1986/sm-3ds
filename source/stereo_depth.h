@@ -63,6 +63,8 @@ enum { kStereoMaxPx = 4 };   // the largest |StereoDepth_PlanePx|: columns the e
 
 // Shift for one eye (left = +1, right = -1) at slider 0..1: whole pixels, rounded once per
 // plane, so a plane moves rigidly and text never lands between pixels.
+// Shift of an eye for a depth of `px` SNES pixels (what a plane's StereoDepth_PlanePx is), at the slider's position.
+int StereoDepth_EyeOffsetPx(int px, float slider, int eye);
 int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye);
 
 // Debug view (Debug tools -> PLANE TINT): a short name and a flat colour per plane, so each

@@ -52,6 +52,7 @@ static void Step(int in) {
 //   u16 tile_table[1024][4]   top-left, top-right, bottom-left, bottom-right (SNES tilemap words)
 //   u16 cgram[256]
 //   u16 vram[32768]
+//   u16 bg3_tilemap, bg3_tiles, bg3_size (bit 0 wider, bit 1 higher), reserved   (optional: older files end at the VRAM)
 typedef struct __attribute__((packed)) {
   char magic[8];
   uint16_t room_hdr;
@@ -80,6 +81,11 @@ static void WriteRoom(const char *dir, const SmRoom *r) {
   fwrite(g_ram + 0xA000, 1, 0x2000, f);
   fwrite(p->cgram, 2, 256, f);
   fwrite(p->vram, 2, 0x8000, f);
+  // After the VRAM (files without it have no BG3 view): BG3's tilemap and tile data (VRAM word addresses), its size (bit 0
+  // wider, bit 1 higher) and its scroll, which is moving in rooms with effects.
+  const BgLayer *b3 = &p->bgLayer[2];
+  const uint16_t bg3[4] = { b3->tilemapAdr, b3->tileAdr, (uint16_t)(b3->tilemapWider | b3->tilemapHigher << 1), 0 };
+  fwrite(bg3, 2, 4, f);
   fclose(f);
 }
 
