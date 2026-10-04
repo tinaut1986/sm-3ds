@@ -548,6 +548,15 @@ static void TestFrame(const char *label, bool check_capture) {
     static GpuFrame one;
     static uint8_t img[kPitch * 240];
     const StereoFrame sf = { SmWide_Gameplay() };
+    if (getenv("STEREO_QUADS"))   // each quad's place, compositor level and plane
+      for (int q = 0; q < g_frame.quad_count; q++) {
+        const GpuQuad *qd = &g_frame.quads[q];
+        const bool hud = q >= g_frame.hud_first && q < g_frame.hud_first + g_frame.hud_count;
+        const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
+        printf("STEREO_QUAD frame %d %s x %d y %d w %d h %d level %d plane %d\n", g_frames,
+               qd->flags & kGpuQuadObj ? "obj" : "bg ", qd->x, qd->y, qd->w, qd->h, qd->level,
+               (int)StereoDepth_Plane(&sf, &it));
+      }
     for (int pl = 0; pl < kStereoPlaneCount; pl++) {
       one = g_frame;
       for (int q = 0; q < one.quad_count; q++) {

@@ -1,5 +1,5 @@
 // Host frame capture: load a save state from the console, run a few frames and write
-// the same dump set the Debug tab's FRAME DUMP writes (debug/sm-dump-NN-*), so the
+// the same dump set the Debug tab's FRAME DUMP writes (debug/sm-dump-NNNN-*), so the
 // per-scanline PPU writes of a scene can be studied on the PC.
 #include <stdio.h>
 #include <stdlib.h>

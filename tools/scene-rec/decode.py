@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decodes a scene recording (debug/sm-rec-NN.bin, debug tools -> SCENE RECORDER).
+"""Decodes a scene recording (debug/sm-rec-NNNN.bin, debug tools -> SCENE RECORDER).
 
 Usage: decode.py REC.bin [OUTDIR] [--crop] [--mp4] [--scale N]
   OUTDIR   default: REC name without .bin. Gets frame-NNNN.png and frames.csv.

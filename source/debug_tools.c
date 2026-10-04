@@ -16,7 +16,7 @@
 
 #define DEBUG_DIR "debug"
 #define LOG_SLOTS 10
-#define DUMP_SLOTS 10
+#define DUMP_SLOTS 0   // no limit: every dump gets the next number (Debug_NextSlot)
 #define PERF_SLOTS 10
 #define PERF_MAX_FRAMES 3600
 
@@ -37,27 +37,53 @@ static uint32_t g_frame;     // frames seen by the perf hook, used to stamp log 
 int Debug_NextSlot(const char *kind, const char *marker_fmt, int slots) {
   char path[96];
   int slot = -1;
-  for (int i = 0; i < slots && slot < 0; i++) {
-    snprintf(path, sizeof(path), marker_fmt, i);
-    struct stat st;
-    if (stat(path, &st) != 0) slot = i;
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-%s-last.txt", kind);
+  int last = -1;
+  FILE *f = fopen(path, "r");
+  if (f) {
+    if (fscanf(f, "%d", &last) != 1) last = -1;
+    fclose(f);
+  }
+  if (slots > 0) {
+    for (int i = 0; i < slots && slot < 0; i++) {
+      snprintf(path, sizeof(path), marker_fmt, i);
+      struct stat st;
+      if (stat(path, &st) != 0) slot = i;
+    }
+    if (slot < 0) slot = last >= 0 ? (last + 1) % slots : 0;
+  } else {
+    // No limit: the number after the last one written, or the first free one when the
+    // note is missing. A set is never overwritten.
+    slot = last >= 0 ? last + 1 : 0;
+    for (; slot < 9999; slot++) {
+      snprintf(path, sizeof(path), marker_fmt, slot);
+      struct stat st;
+      if (stat(path, &st) != 0) break;
+    }
   }
   snprintf(path, sizeof(path), DEBUG_DIR "/sm-%s-last.txt", kind);
-  if (slot < 0) {
-    int last = -1;
-    FILE *f = fopen(path, "r");
-    if (f) {
-      if (fscanf(f, "%d", &last) != 1) last = -1;
-      fclose(f);
-    }
-    slot = last >= 0 ? (last + 1) % slots : 0;
-  }
-  FILE *f = fopen(path, "w");
+  f = fopen(path, "w");
   if (f) {
     fprintf(f, "%d\n", slot);
     fclose(f);
   }
   return slot;
+}
+
+static char g_note[160];
+void Debug_SetNote(const char *text) { snprintf(g_note, sizeof(g_note), "%s", text ? text : ""); }
+
+void Debug_WriteNote(const char *kind, int slot) {
+  if (!g_note[0]) return;
+  char path[96];
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-%s-%04d-note.txt", kind, slot);
+  FILE *f = fopen(path, "w");
+  if (f) {
+    fprintf(f, "%s\n", g_note);
+    fclose(f);
+  }
+  Debug_Log("%s %04d note: %s", kind, slot, g_note);
+  g_note[0] = 0;
 }
 
 static FILE *OpenSlotFile(const char *fmt, int slot, const char *mode) {
@@ -229,37 +255,41 @@ static bool WriteRgb(const char *fmt, int slot, const uint8_t *bgra) {
 
 void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra) {
   char fmt[64];
-  snprintf(fmt, sizeof(fmt), DEBUG_DIR "/sm-dump-%%02d-%s.rgb", suffix);
+  snprintf(fmt, sizeof(fmt), DEBUG_DIR "/sm-dump-%%04d-%s.rgb", suffix);
   WriteRgb(fmt, slot, bgra);
 }
 
 int Debug_DumpScreen(const uint8_t *bgra) {
   mkdir(DEBUG_DIR, 0777);
-  int slot = Debug_NextSlot("dump", DEBUG_DIR "/sm-dump-%02d-top.rgb", DUMP_SLOTS);
-  if (!WriteRgb(DEBUG_DIR "/sm-dump-%02d-top.rgb", slot, bgra)) {
+  int slot = Debug_NextSlot("dump", DEBUG_DIR "/sm-dump-%04d-top.rgb", DUMP_SLOTS);
+  if (!WriteRgb(DEBUG_DIR "/sm-dump-%04d-top.rgb", slot, bgra)) {
     Debug_SetMessage("Dump: cannot write debug/");
     return -1;
   }
   const Ppu *p = g_snes->ppu;
-  WriteBin(DEBUG_DIR "/sm-dump-%02d-vram.bin", slot, p->vram, sizeof(p->vram));
-  WriteBin(DEBUG_DIR "/sm-dump-%02d-cgram.bin", slot, p->cgram, sizeof(p->cgram));
-  WriteBin(DEBUG_DIR "/sm-dump-%02d-oam.bin", slot, p->oam, sizeof(p->oam));
-  WriteBin(DEBUG_DIR "/sm-dump-%02d-highoam.bin", slot, p->highOam, sizeof(p->highOam));
-  WriteBin(DEBUG_DIR "/sm-dump-%02d-wram.bin", slot, g_ram, 0x20000);
+  WriteBin(DEBUG_DIR "/sm-dump-%04d-vram.bin", slot, p->vram, sizeof(p->vram));
+  WriteBin(DEBUG_DIR "/sm-dump-%04d-cgram.bin", slot, p->cgram, sizeof(p->cgram));
+  WriteBin(DEBUG_DIR "/sm-dump-%04d-oam.bin", slot, p->oam, sizeof(p->oam));
+  WriteBin(DEBUG_DIR "/sm-dump-%04d-highoam.bin", slot, p->highOam, sizeof(p->highOam));
+  WriteBin(DEBUG_DIR "/sm-dump-%04d-wram.bin", slot, g_ram, 0x20000);
 
-  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-ppu.txt", slot, "w");
+  FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%04d-ppu.txt", slot, "w");
   if (f) { WritePpuText(f, p); fclose(f); }
-  f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-game.txt", slot, "w");
+  f = OpenSlotFile(DEBUG_DIR "/sm-dump-%04d-game.txt", slot, "w");
   if (f) { WriteGameText(f); fclose(f); }
   // Files left in this slot by an older set would pass for this set's.
   char path[96];
-  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-frame.txt", slot);
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%04d-frame.txt", slot);
   remove(path);
-  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%02d-gpu.rgb", slot);
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%04d-gpu.rgb", slot);
   remove(path);
 
-  Debug_Log("screen dump -> set %02d", slot);
-  Debug_SetMessage("Dump set %02d saved", slot);
+  // A note left by an older set in this slot would pass for this set's.
+  snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%04d-note.txt", slot);
+  remove(path);
+  Debug_WriteNote("dump", slot);
+  Debug_Log("screen dump -> set %04d", slot);
+  Debug_SetMessage("Dump set %04d saved", slot);
   return slot;
 }
 
@@ -328,7 +358,7 @@ bool Debug_FrameCaptureBegin(void) {
 static const char *RegName(uint8_t reg) { return reg < 0x34 ? kPpuRegNames[reg] : "?"; }
 
 static void WriteFrameText(FILE *f, int slot) {
-  fprintf(f, "# Super Metroid 3DS %s, frame capture, dump set %02d\n", g_version, slot);
+  fprintf(f, "# Super Metroid 3DS %s, frame capture, dump set %04d\n", g_version, slot);
   fprintf(f, "# game_state=%02X area=%u room=%u room_ptr=%04X\n", (unsigned)game_state, (unsigned)area_index,
           (unsigned)room_index, (unsigned)room_ptr);
   fprintf(f, "# %d entries%s. line -1 = game logic (vblank); HDMA at line N applies from N+1.\n", g_fw_count,
@@ -378,12 +408,12 @@ int Debug_FrameCaptureEnd(const uint8_t *bgra) {
   if (!g_fw) return -1;
   int slot = Debug_DumpScreen(bgra);
   if (slot >= 0) {
-    FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%02d-frame.txt", slot, "w");
+    FILE *f = OpenSlotFile(DEBUG_DIR "/sm-dump-%04d-frame.txt", slot, "w");
     if (f) {
       WriteFrameText(f, slot);
       fclose(f);
-      Debug_Log("frame capture -> set %02d, %d writes", slot, g_fw_count);
-      Debug_SetMessage("Frame dump set %02d (%d writes)", slot, g_fw_count);
+      Debug_Log("frame capture -> set %04d, %d writes", slot, g_fw_count);
+      Debug_SetMessage("Frame dump set %04d (%d writes)", slot, g_fw_count);
     } else {
       Debug_SetMessage("Frame dump: cannot write debug/");
     }

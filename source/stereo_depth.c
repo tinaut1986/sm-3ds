@@ -55,3 +55,22 @@ int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye) {
   const float v = (float)eye * slider * (float)StereoDepth_PlanePx(plane);
   return (int)(v < 0 ? v - 0.5f : v + 0.5f);   // round half away from zero: symmetric eyes
 }
+
+static const char *const kPlaneName[kStereoPlaneCount] = {
+  [kStereoHud] = "HUD", [kStereoFront] = "FRONT", [kStereoPlay] = "PLAY", [kStereoObj] = "OBJ",
+  [kStereoBack] = "BACK", [kStereoMid] = "MID", [kStereoFar] = "FAR", [kStereoScreen] = "FLAT",
+};
+
+// Warm colours for the near planes, cool ones for the far ones, white for the sprites.
+static const uint32_t kPlaneColor[kStereoPlaneCount] = {
+  [kStereoHud] = 0xFF00FF, [kStereoFront] = 0x00E5FF, [kStereoPlay] = 0xFF9600, [kStereoObj] = 0xFFFFFF,
+  [kStereoBack] = 0xFF2828, [kStereoMid] = 0x3CC83C, [kStereoFar] = 0x3C5AFF, [kStereoScreen] = 0xA0A0A0,
+};
+
+const char *StereoDepth_PlaneName(StereoPlane plane) {
+  return plane >= 0 && plane < kStereoPlaneCount ? kPlaneName[plane] : "?";
+}
+
+uint32_t StereoDepth_PlaneColor(StereoPlane plane) {
+  return plane >= 0 && plane < kStereoPlaneCount ? kPlaneColor[plane] : 0;
+}

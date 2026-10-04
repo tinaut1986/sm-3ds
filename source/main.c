@@ -214,10 +214,10 @@ static void GpuCheck(void) {
   }
   const int slot = Debug_DumpScreen(g_pixels);
   if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
-  Debug_Log("GPU check -> set %02d: %d px differ, %d by more than 8; %s", slot, differ, far,
+  Debug_Log("GPU check -> set %04d: %d px differ, %d by more than 8; %s", slot, differ, far,
             GpuPpu3ds_CalibrationText());
   char msg[48];
-  snprintf(msg, sizeof(msg), "GPU check %02d: %d px off, %d >8", slot, differ, far);
+  snprintf(msg, sizeof(msg), "GPU check %04d: %d px off, %d >8", slot, differ, far);
   BottomUi_Toast(msg);
 }
 
@@ -738,6 +738,7 @@ int main(int argc, char** argv) {
         Debug_DumpScreen(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
+      if (g_ui.repause) g_ui.paused = true, g_ui.repause = false;   // the report's frame has been taken
       Cheats_AfterFrame();
       SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
@@ -773,6 +774,7 @@ int main(int argc, char** argv) {
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
+          GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);

@@ -113,6 +113,17 @@ int main(int argc, char **argv) {
   Shot("debug");
   Tap(160, 210);
   Shot("debug tools window");
+  Tap(16 + 5, 44 + 5);               // SCREEN DUMP: asks what is wrong first
+  Shot("report window (screen dump)");
+  Tap(164 + 5, 182 + 5);             // CANCEL
+  Shot("after cancel: nothing written, back to the debug tab");
+  Tap(160, 210);
+  Tap(16 + 5, 44 + 4 * 29 + 5);      // PLANE TINT (renderer is CPU in the preview: says so)
+  Shot("debug tools window, plane tint on a CPU renderer");
+  Tap(16 + 140 - 16, 44 + 2 * 29 + 13);   // SCENE REC: start
+  Tap(16 + 140 - 16, 44 + 2 * 29 + 13);   // and stop: the report window, with RESUME and the cross
+  Shot("report window (stopping a scene recording)");
+  Tap(236 + 5, 182 + 5);             // the cross: discard
   Tap(160, 220);                     // close
 #endif
   TapTab(kStates);
