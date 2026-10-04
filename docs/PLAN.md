@@ -18,13 +18,14 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `feat/plane-fixes` (which carried `fix/achievements-and-menu`, `feat/layer-workbench`,
-`feat/tint-depth-modes`, `fix/stereo-bg2-play-v021` and `fix/gpu-texture-race`) was merged into `release/v0.2.1` on
-2026-10-04 at the owner's request. Checked on the console by the owner: block fixes in 9AD9 (#33) and no flashing of the
-A66A statues with WIDE (#19). Still unchecked there: RetroAchievements not paused by cheats (#29) and the English
-menu in the first frames of the map (#27), the Fireflea room's depth and the ash (`fix/stereo-bg2-play-v021`), the
-PLANE TINT views (P3.3). The rest of what the earlier merges need from the console is in its task (P3.2, P4.4, P4.6,
-P4.7, P4.8) and in issues #7 and #18.
+**Branches:** none open. `feat/plane-fixes` (2026-10-04) and `fix/stereo-fx-follows-owner` (2026-10-05) were merged into
+`release/v0.2.1` at the owner's request. Checked on the console by the owner: block fixes and render priorities in 9AD9,
+A6A1 and A011 (#33), the ash following what it covers (9CB3), and no flashing of the A66A statues with WIDE (#19). Still
+unchecked there: the fog (BG3 on the main screen with the scene on the subscreen, rooms like 957D, A5ED, A7DE: none found
+yet), the fps after decoding into a shadow (the New 3DS was at 40 fps with the wait; the 2DS has not been tried),
+RetroAchievements not paused by cheats (#29), the English menu in the first frames of the map (#27), the Fireflea room's
+depth (`fix/stereo-bg2-play-v021`) and the PLANE TINT views (P3.3). The rest of what the earlier merges need from the
+console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
 P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
@@ -1031,6 +1032,28 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
   only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
   restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: BG3 effects follow what they cover (`fix/stereo-fx-follows-owner`): they reach the screen by colour math, either
+  as the subscreen added over the scene (ash: the effect takes the depth of the pixels it is added to) or as the main BG3
+  with the scene on the subscreen (fog, water: BG3 goes on `FRONT`), so a plane fixed by layer put them in front of
+  what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
+  GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
+  rooms exported again).
+- 2026-10-04: `SM_TILE_PRIO` (workbench: "Draw the selection with priority"): a tile fix only moved a tile's depth, and a wall the game
+  draws at priority 0 was still crossed by Samus's weapon (A6A1: 3D in front, drawn behind the sprite). It sets the priority a tile is
+  drawn with (the texture, and compositor level, it goes to); GPU renderer only, and the host test compares without it
+  (`PRIO_FIXES=1` keeps it). Ash on the subscreen now takes one plane in front of the sprites too, not each pixel's owner's:
+  it jumped in front of Samus only while she crossed the layer it was on.
+- 2026-10-04: Block fixes were placed by `2*bx` in the tilemap, which only holds when the room's scroll offset
+  (`bg1_x_offset`, `bg2_x_scroll`) is a multiple of the tilemap's size: after a door it is the screen the room was
+  entered at (256 in B1E5), and the fixes landed on other tiles (A6A1 on the console). The game, and SmWide's `FillLayer`,
+  put block bx at tilemap block `vx0 + bx - lx0` (vx0 from position + offset): checked against WRAM and VRAM (B1E5 from 0 to
+  896 of 896 tiles). The rule `SM_LAYER_PLANE(0x9D19, 3, 0, FRONT)` (#35) was removed: it set the plane of an effect
+  that now follows what it covers.
+- 2026-10-04: The wait before texel writes (#19) cost a whole GPU frame on every frame that decoded anything (sprites' atlas,
+  animated tiles: "build 18.5, wait for GPU 16.4 ms", the New 3DS at 40 fps in every room, from the owner's perf). Texels
+  are now decoded into a copy in ordinary memory and the changed rows are copied to the GPU's texture after
+  `C3D_FrameBegin` has waited, so the CPU builds the frame while the GPU draws the last one and the GPU never samples a
+  texture being written. Costs the textures' size again in the heap (~4 MB, more with mode 7).
 - 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
   `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
   block fixes' texture clears, which write texels earlier than `DecodeTile`.

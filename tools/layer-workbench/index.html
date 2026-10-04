@@ -82,6 +82,8 @@ const SAME_AS = [['BG1 p0', 4], ['BG1 p1 / BG2 p1', 2], ['BG2 p0', 6], ['BG3 p0'
 let rooms = [], room = null, rules = [], fixHead = '';
 // Tile fixes of every room: "room:layer,bx,by,corner" -> {plane, block, room}; tileFix is the current room's, "layer,bx,by,corner".
 let tileFixAll = new Map(), tileFix = new Map();
+// Render-priority fixes (what priority the tile is drawn with: over or under the sprites), same keys: -> {prio, block, room}.
+let prioFixAll = new Map(), prioFix = new Map();
 let zoom = 3, showGrid = true, tileMode = false, curPlane = 2;
 let sel = { scope: 0, set: new Set() };   // keys "bx,by,corner"; scope 0 = every layer (picked on the result), 1/2 = that layer
 let dragging = null, views = [], tintOn = true;
@@ -98,7 +100,9 @@ function parseRoom(buf) {
   const bank = new Uint8Array(buf, o, 0x10000); o += 0x10000;
   r.table = new Uint16Array(buf.slice(o, o + 0x2000)); o += 0x2000;
   r.cgram = new Uint16Array(buf.slice(o, o + 512)); o += 512;
-  r.vram = new Uint8Array(buf, o, 0x10000);
+  r.vram = new Uint8Array(buf, o, 0x10000); o += 0x10000;
+  // BG3, the effects layer (files from before it was exported end here): tilemap, tiles, size, scroll
+  r.bg3 = buf.byteLength >= o + 8 ? { map: u16(o), tiles: u16(o + 2), size: u16(o + 4) } : null;
   const n = r.w * r.h, words = at => { const a = new Uint16Array(n); for (let i = 0; i < n; i++) a[i] = bank[at + i*2] | bank[at + i*2 + 1] << 8; return a; };
   r.layer = [null, words(2), (r.l2scroll & 1) === 0 ? words(0x9602) : null];
   r.chars = new Map();
@@ -126,6 +130,11 @@ const tileHasInk = (r, e) => charPixels(r, e & 0x3ff).some(c => c);
 
 // ---------- planes of a tile ----------
 function ruleFor(layer, prio) { const f = rules.find(x => x.room === room.hdr && x.layer === layer && x.prio === prio); return f ? f.plane : null; }
+// The priority a tile is drawn with: its own bit, or the one a fix sets (not in BEFORE).
+function prioOf(layer, bx, by, corner, e, withHand) {
+  if (withHand) { const t = prioFix.get(tileKey(layer, bx, by, corner)); if (t) return t.prio; }
+  return e >> 13 & 1;
+}
 function planeOf(layer, bx, by, corner, prio, withHand) {
   if (withHand) {
     const t = tileFix.get(tileKey(layer, bx, by, corner)); if (t) return t.plane;
@@ -159,7 +168,7 @@ function paint(cv, kind, pane, layers) {
     for (let by = 0; by < room.h; by++) for (let bx = 0; bx < room.w; bx++) {
       const tiles = blockTiles(room, words[by * room.w + bx]);
       for (let k = 0; k < 4; k++) {
-        const e = tiles[k]; if ((e >> 13 & 1) !== prio) continue;
+        const e = tiles[k]; if (prioOf(layer, bx, by, k, e, kind !== 'before') !== prio) continue;
         if (pane && ownerOf(layer, bx, by, k, prio, kind) !== pane) continue;
         const px8 = charPixels(room, e & 0x3ff), pal = e >> 10 & 7, hf = e & 0x4000, vf = e & 0x8000;
         let tc = null;
@@ -190,10 +199,17 @@ function paintOverlay(ov, pane, kind) {
     const [l, bx, by, c] = key.split(',').map(Number);
     if (pane) {
       const words = room.layer[l], e = words && blockTiles(room, words[by * room.w + bx])[c];
-      if (!e || ownerOf(l, bx, by, c, e >> 13 & 1, kind) !== pane) continue;
+      if (!e || ownerOf(l, bx, by, c, prioOf(l, bx, by, c, e, kind !== 'before'), kind) !== pane) continue;
     }
     o.fillStyle = PLANES[t.plane][2]; o.fillRect(bx*16 + (c & 1) * 8, by*16 + (c >> 1) * 8, 8, 4);
     o.strokeStyle = '#000'; o.lineWidth = 1; o.strokeRect(bx*16 + (c & 1) * 8 + .5, by*16 + (c >> 1) * 8 + .5, 7, 3);
+  }
+  // tiles drawn with another priority: a bar along the bottom (yellow: over the sprites, light blue: under them)
+  for (const [key, t] of prioFix) {
+    const [l, bx, by, c] = key.split(',').map(Number);
+    if (pane && pane !== l) continue;
+    o.fillStyle = t.prio ? '#ffd54a' : '#8be9fd'; o.fillRect(bx*16 + (c & 1) * 8, by*16 + (c >> 1) * 8 + 5, 8, 3);
+    o.strokeStyle = '#000'; o.lineWidth = 1; o.strokeRect(bx*16 + (c & 1) * 8 + .5, by*16 + (c >> 1) * 8 + 5.5, 7, 2);
   }
   o.lineWidth = 1.5;
   for (const k of sel.set) {
@@ -206,6 +222,57 @@ function paintOverlay(ov, pane, kind) {
   }
 }
 
+// ---------- BG3 ----------
+// The effects layer (ash, fog, water, the HUD): a 2 bpp tilemap, not level data, so it is drawn whole as the game left it in
+// VRAM (without its scroll), tile by tile. Only whole-layer rules apply to it: by tile priority.
+const BG3_DEFAULT = prio => prio ? 1 : 5;   // FRONT, MID (StereoDepth_Plane)
+function bg3Plane(prio, withRule) { if (withRule) { const r = ruleFor(3, prio); if (r !== null) return r; } return BG3_DEFAULT(prio); }
+function bg3Size() { const b = room.bg3; return [b.size & 1 ? 64 : 32, b.size & 2 ? 64 : 32]; }
+function bg3Entry(tx, ty) {   // the tilemap word at tile (tx, ty), screens of 32x32 laid out as the PPU does
+  const b = room.bg3, [tw] = bg3Size();
+  let a = b.map + (ty & 31) * 32 + (tx & 31);
+  if (tx & 32) a += 0x400;
+  if (ty & 32) a += tw === 64 ? 0x800 : 0x400;
+  a &= 0x7fff; return room.vram[a * 2] | room.vram[a * 2 + 1] << 8;
+}
+function paintBg3(cv, kind) {
+  const [tw, th] = bg3Size(), W = tw * 8, H = th * 8, b = room.bg3;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H), px = img.data, v = room.vram;
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  const tint = kind !== 'real' && tintOn;
+  for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) {
+    const e = bg3Entry(tx, ty), prio = e >> 13 & 1, pal = e >> 10 & 7, hf = e & 0x4000, vf = e & 0x8000;
+    let tc = null;
+    if (tint) { const pc = PLANES[bg3Plane(prio, kind === 'after')][2]; tc = [1, 3, 5].map(i => parseInt(pc.slice(i, i + 2), 16)); }
+    const base = (b.tiles + (e & 0x3ff) * 8) & 0x7fff;
+    for (let y = 0; y < 8; y++) {
+      const a = (base + (vf ? 7 - y : y)) & 0x7fff, lo = v[a * 2], hi = v[a * 2 + 1];
+      for (let x = 0; x < 8; x++) {
+        const sh = hf ? x : 7 - x, c = (lo >> sh & 1) | (hi >> sh & 1) << 1; if (!c) continue;
+        let col = rgb(room, pal * 4 + c);
+        if (tint) col = col.map((q, i) => Math.round(q * 0.22 + tc[i] * 0.78));
+        const o = ((ty * 8 + y) * W + tx * 8 + x) * 4; px[o] = col[0]; px[o+1] = col[1]; px[o+2] = col[2];
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function paintOverlay3(ov) {
+  const [tw, th] = bg3Size(); ov.width = tw * 8; ov.height = th * 8;
+  if (!showGrid) return;
+  const o = ov.getContext('2d'); o.strokeStyle = 'rgba(255,255,255,.13)'; o.beginPath();
+  for (let x = 0; x <= tw; x++) { o.moveTo(x*8 + .5, 0); o.lineTo(x*8 + .5, th*8); }
+  for (let y = 0; y <= th; y++) { o.moveTo(0, y*8 + .5); o.lineTo(tw*8, y*8 + .5); }
+  o.stroke();
+}
+function hoverBg3(ev, ov) {
+  const r = ov.getBoundingClientRect(), [tw, th] = bg3Size();
+  const tx = Math.max(0, Math.min(tw - 1, Math.floor((ev.clientX - r.left) / (8 * zoom)))), ty = Math.max(0, Math.min(th - 1, Math.floor((ev.clientY - r.top) / (8 * zoom))));
+  const e = bg3Entry(tx, ty), prio = e >> 13 & 1, p = bg3Plane(prio, false), q = bg3Plane(prio, true);
+  $('info').textContent = `room ${hex(room.hdr)}  BG3 tile ${tx},${ty}\nentry ${e.toString(16).padStart(4,'0')} char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${prio}${e & 0x4000 ? ' hflip' : ''}${e & 0x8000 ? ' vflip' : ''} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}   (a whole-layer rule moves every tile of that priority)`;
+}
+
 // ---------- windows ----------
 const desk = $('desk'); let zTop = 10;
 const layoutKey = 'smwb.layout.v2';
@@ -215,7 +282,7 @@ function saveLayout() {
   document.querySelectorAll('.win').forEach(w => out[w.id] = { x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight, min: w.classList.contains('min') });
   localStorage.setItem(layoutKey, JSON.stringify(out));
 }
-const DEFAULTS = { 'w-rooms': [8, 8, 230, 330], 'w-map': [8, 346, 230, 300], 'w-result': [248, 8, 540, 420], 'w-bg1': [798, 8, 460, 330], 'w-bg2': [798, 348, 460, 330], 'w-tools': [1268, 8, 330, 700] };
+const DEFAULTS = { 'w-rooms': [8, 8, 230, 330], 'w-map': [8, 346, 230, 300], 'w-result': [248, 8, 540, 420], 'w-bg3': [248, 438, 540, 250], 'w-bg1': [798, 8, 460, 330], 'w-bg2': [798, 348, 460, 330], 'w-tools': [1268, 8, 330, 700] };
 function makeWindow(id, title, extraHeader) {
   const w = document.createElement('div'); w.className = 'win'; w.id = id;
   const h = document.createElement('header'), t = document.createElement('span'); t.className = 't'; t.textContent = title; h.appendChild(t);
@@ -285,12 +352,12 @@ function wirePane(v, p) {
     if (ev.clientX < r.left + el.clientLeft || ev.clientY < r.top + el.clientTop ||
         ev.clientX >= r.left + el.clientLeft + el.clientWidth || ev.clientY >= r.top + el.clientTop + el.clientHeight) return;   // a border or a scroll bar
     if (ev.button === 1 || ev.shiftKey) return startPan(ev, p);
-    if (p.empty) return;
+    if (p.empty || p.noSelect) return;
     const c = p.ov.getBoundingClientRect();
     if (ev.clientX < c.left || ev.clientX >= c.right || ev.clientY < c.top || ev.clientY >= c.bottom) return;
     startSelect(ev, v, p);
   });
-  p.ov.addEventListener('pointermove', ev => { if (!dragging) hover(tileAt(ev, p.ov)); });
+  p.ov.addEventListener('pointermove', ev => { if (dragging) return; if (p.noSelect) hoverBg3(ev, p.ov); else hover(tileAt(ev, p.ov)); });
 }
 function renderView(v) {
   const old = v.panes[0], keep = old ? [old.el.scrollLeft, old.el.scrollTop] : [0, 0];
@@ -306,7 +373,11 @@ function renderView(v) {
     if (kinds.length > 1 || kind !== 'real') { const tg = document.createElement('div'); tg.className = 'tag'; tg.textContent = kind.toUpperCase(); st.appendChild(tg); }
     st.append(cv, ov); holder.appendChild(st); el.appendChild(holder); v.win.body.appendChild(el);
     const p = { el, cv, ov, kind, v, empty: false };
-    if (v.layer && !room.layer[v.layer]) {
+    if (v.layer === 3 && !room.bg3) {
+      cv.width = 330; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 330, 40); c.fillStyle = '#aaa'; c.fillText('this room file has no BG3: export again (EXPORT=1 ./run_workbench.sh)', 8, 24);
+      ov.width = ov.height = 1; p.empty = true;
+    } else if (v.layer === 3) { paintBg3(cv, kind); p.noSelect = true; }
+    else if (v.layer && !room.layer[v.layer]) {
       cv.width = 220; cv.height = 40; const c = cv.getContext('2d'); c.fillStyle = '#222'; c.fillRect(0, 0, 220, 40); c.fillStyle = '#aaa'; c.fillText('BG' + v.layer + ' is not level data (whole-layer rules only)', 8, 24);
       ov.width = ov.height = 1; p.empty = true;
     } else paint(cv, kind, v.layer, layers);
@@ -315,7 +386,7 @@ function renderView(v) {
   applyZoom(v); overlayView(v);
   for (const p of v.panes) { p.el.scrollLeft = keep[0]; p.el.scrollTop = keep[1]; p.el._sl = p.el.scrollLeft; p.el._st = p.el.scrollTop; }
 }
-function overlayView(v) { for (const p of v.panes) if (!p.empty) paintOverlay(p.ov, v.layer, p.kind); }
+function overlayView(v) { for (const p of v.panes) if (!p.empty) { if (p.noSelect) paintOverlay3(p.ov); else paintOverlay(p.ov, v.layer, p.kind); } }
 function applyZoom(v) { for (const p of v.panes) if (!p.empty) { p.cv.style.width = p.ov.style.width = p.cv.width * zoom + 'px'; p.cv.style.height = p.ov.style.height = p.cv.height * zoom + 'px'; } }
 function renderAll() { views.forEach(renderView); listFixes(); buildList($('search') ? $('search').value : ''); drawMap(); }
 function overlayAll() { views.forEach(overlayView); }
@@ -394,9 +465,9 @@ window.addEventListener('keydown', ev => {
 window.addEventListener('keyup', ev => { if (ev.key === 'Shift') document.body.classList.remove('shift'); });
 window.addEventListener('blur', () => document.body.classList.remove('shift'));
 function tileInfo(layer, bx, by, c) {
-  const w = room.layer[layer][by * room.w + bx], e = blockTiles(room, w)[c], pri = e >> 13 & 1;
-  const p = planeOf(layer, bx, by, c, pri, false), q = planeOf(layer, bx, by, c, pri, true);
-  return `BG${layer}: block ${w.toString(16).padStart(4,'0')} index ${w & 0x3ff}${w & 0x400 ? ' hflip' : ''}${w & 0x800 ? ' vflip' : ''} type ${w >> 12} ${TYPES[w >> 12]} | ${CORNER_NAMES[c]} tile char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${pri} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}`;
+  const w = room.layer[layer][by * room.w + bx], e = blockTiles(room, w)[c], pri = e >> 13 & 1, pe = prioOf(layer, bx, by, c, e, true);
+  const p = planeOf(layer, bx, by, c, pri, false), q = planeOf(layer, bx, by, c, pe, true);
+  return `BG${layer}: block ${w.toString(16).padStart(4,'0')} index ${w & 0x3ff}${w & 0x400 ? ' hflip' : ''}${w & 0x800 ? ' vflip' : ''} type ${w >> 12} ${TYPES[w >> 12]} | ${CORNER_NAMES[c]} tile char ${(e & 0x3ff).toString(16)} pal ${e >> 10 & 7} prio ${pri}${pe !== pri ? ' -> ' + pe : ''} | plane ${PLANES[p][1]}${q !== p ? ' -> ' + PLANES[q][1] : ''}`;
 }
 function hover(t) {
   if (!room) return;
@@ -423,20 +494,24 @@ function markFixes(scroll) {
 
 // ---------- fixes (.inc) ----------
 function parseFixes(text) {
-  rules = []; tileFixAll = new Map(); const re = /SM_(PLANE_FIX|LAYER_PLANE)\(([^)]*)\)/g; let m;
+  rules = []; tileFixAll = new Map(); prioFixAll = new Map(); const re = /SM_(PLANE_FIX|LAYER_PLANE|TILE_PRIO)\(([^)]*)\)/g; let m;
   // comments are blanked (same length) so the macros named in the file's own header are not read as entries
   const code = text.replace(/\/\*[\s\S]*?\*\//g, c => ' '.repeat(c.length));
-  const first = code.search(/SM_(PLANE_FIX|LAYER_PLANE)\(/); fixHead = first < 0 ? text : text.slice(0, first);
+  const first = code.search(/SM_(PLANE_FIX|LAYER_PLANE|TILE_PRIO)\(/); fixHead = first < 0 ? text : text.slice(0, first);
   while ((m = re.exec(code))) {
     const a = m[2].split(',').map(s => s.trim());
     if (m[1] === 'LAYER_PLANE') { rules.push({ room: parseInt(a[0]), layer: +a[1], prio: +a[2], plane: PLANE_BY_NAME[a[3]] }); continue; }
-    const rm = parseInt(a[0]), layer = +a[1], bx = +a[2], by = +a[3], block = parseInt(a[4]), mask = parseInt(a[5]), plane = PLANE_BY_NAME[a[6]];
+    const rm = parseInt(a[0]), layer = +a[1], bx = +a[2], by = +a[3], block = parseInt(a[4]), mask = parseInt(a[5]);
+    if (m[1] === 'TILE_PRIO') { for (let c = 0; c < 4; c++) if (mask >> c & 1) prioFixAll.set(`${rm}:${tileKey(layer, bx, by, c)}`, { prio: +a[6], block, room: rm }); continue; }
+    const plane = PLANE_BY_NAME[a[6]];
     for (let c = 0; c < 4; c++) if (mask >> c & 1) tileFixAll.set(`${rm}:${tileKey(layer, bx, by, c)}`, { plane, block, room: rm });
   }
 }
 function syncRoomFixes() {
   tileFix = new Map();
   for (const [k, t] of tileFixAll) if (t.room === room.hdr) tileFix.set(k.split(':')[1], t);
+  prioFix = new Map();
+  for (const [k, t] of prioFixAll) if (t.room === room.hdr) prioFix.set(k.split(':')[1], t);
 }
 function fixesText() {
   const groups = new Map();   // room|layer|bx|by|plane -> {block, mask}
@@ -448,6 +523,13 @@ function fixesText() {
   const rl = [...rules].sort((a, b) => a.room - b.room || a.layer - b.layer || a.prio - b.prio);
   let out = fixHead.replace(/\s*$/, '\n') + '\n';
   for (const f of fl) out += `SM_PLANE_FIX(${hex(f.rm)}, ${f.layer}, ${f.bx}, ${f.by}, ${hex(f.block)}, ${hex(f.mask, 1)}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
+  const pg = new Map();
+  for (const [k, t] of prioFixAll) {
+    const [rm, rest] = k.split(':'), [layer, bx, by, c] = rest.split(',').map(Number), g = `${rm}|${layer}|${bx}|${by}|${t.prio}`;
+    const e = pg.get(g) || { rm: +rm, layer, bx, by, prio: t.prio, block: t.block, mask: 0 }; e.mask |= 1 << c; pg.set(g, e);
+  }
+  for (const f of [...pg.values()].sort((a, b) => a.rm - b.rm || a.layer - b.layer || a.by - b.by || a.bx - b.bx))
+    out += `SM_TILE_PRIO(${hex(f.rm)}, ${f.layer}, ${f.bx}, ${f.by}, ${hex(f.block)}, ${hex(f.mask, 1)}, ${f.prio})  /* drawn with priority ${f.prio} */\n`;
   for (const f of rl) out += `SM_LAYER_PLANE(${hex(f.room)}, ${f.layer}, ${f.prio}, ${PLANES[f.plane][0]})  /* -> ${PLANES[f.plane][1]} */\n`;
   return out;
 }
@@ -461,8 +543,8 @@ function applyPlane() {
     for (const l of layers) {
       if (!room.layer[l]) continue; const w = room.layer[l][by * room.w + bx], e = blockTiles(room, w)[c];
       if (!tileHasInk(room, e)) continue;
-      const key = `${room.hdr}:${tileKey(l, bx, by, c)}`, old = tileFixAll.get(key), rule = ruleFor(l, e >> 13 & 1);
-      const base = rule !== null ? rule : DEFAULT_PLANE(l, e >> 13 & 1);   // the plane without a fix of its own
+      const key = `${room.hdr}:${tileKey(l, bx, by, c)}`, old = tileFixAll.get(key), pe = prioOf(l, bx, by, c, e, true), rule = ruleFor(l, pe);
+      const base = rule !== null ? rule : DEFAULT_PLANE(l, pe);   // the plane without a fix of its own
       if ((old ? old.plane : base) === curPlane) { same++; continue; }
       if (curPlane === base) tileFixAll.delete(key); else tileFixAll.set(key, { plane: curPlane, block: w, room: room.hdr });
       n++;
@@ -472,9 +554,31 @@ function applyPlane() {
   status((n ? n + ' tile' + (n === 1 ? '' : 's') + ' to ' + PLANES[curPlane][1] + ' (not saved yet)' : 'no change') + (same ? `; ${same} already ${PLANES[curPlane][1]}` : ''));
   renderAll();
 }
+// Sets the priority the selected tiles are drawn with (0: under the sprites, 1: over them), or gives them back their own (null).
+function applyPrio(v) {
+  if (!room || !sel.set.size) return; let n = 0, same = 0, back = 0;
+  const layers = sel.scope ? [sel.scope] : [1, 2];
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number);
+    for (const l of layers) {
+      if (!room.layer[l]) continue; const w = room.layer[l][by * room.w + bx], e = blockTiles(room, w)[c];
+      if (!tileHasInk(room, e)) continue;
+      const key = `${room.hdr}:${tileKey(l, bx, by, c)}`, old = prioFixAll.get(key), own = e >> 13 & 1;
+      if (v === null || v === own) { if (old) { prioFixAll.delete(key); n++; back++; } else same++; continue; }   // the tile's own priority is not a change
+      if (old && old.prio === v) { same++; continue; }
+      prioFixAll.set(key, { prio: v, block: w, room: room.hdr }); n++;
+    }
+  }
+  syncRoomFixes();
+  status((n ? n + ' tile' + (n === 1 ? '' : 's') + (back === n ? ' back to their own priority' : ' drawn with priority ' + v) + ' (not saved yet)' : 'no change') + (same ? `; ${same} already so` : ''));
+  renderAll();
+}
 function clearFixes() {
   let n = 0; const layers = sel.scope ? [sel.scope] : [1, 2];
-  for (const k of sel.set) { const [bx, by, c] = k.split(',').map(Number); for (const l of layers) if (tileFixAll.delete(`${room.hdr}:${tileKey(l, bx, by, c)}`)) n++; }
+  for (const k of sel.set) {
+    const [bx, by, c] = k.split(',').map(Number);
+    for (const l of layers) { const key = `${room.hdr}:${tileKey(l, bx, by, c)}`; if (tileFixAll.delete(key)) n++; if (prioFixAll.delete(key)) n++; }
+  }
   syncRoomFixes(); status(n + ' removed (not saved yet)'); renderAll();
 }
 function listFixes() {
@@ -490,6 +594,21 @@ function listFixes() {
     d.innerHTML = `<span><i class="chip" style="background:${c[2]}"></i>BG${e.l} ${e.bx},${e.by} ${cs.length === 4 ? '' : '[' + cs.map(i => CORNER_NAMES[i]).join(' ') + ']'}</span><span>${c[1]} &times;</span>`;
     d.onclick = ev => {
       if (ev.target === d.lastChild) { for (const cc of cs) tileFixAll.delete(`${room.hdr}:${tileKey(e.l, e.bx, e.by, cc)}`); syncRoomFixes(); renderAll(); return; }
+      sel = { scope: e.l, set: new Set(cs.map(cc => `${e.bx},${e.by},${cc}`)) }; updateSel(); overlayAll();
+    };
+    box.appendChild(d);
+  }
+  const pgroups = new Map();
+  for (const [k, t] of prioFix) {
+    const [l, bx, by, c] = k.split(',').map(Number), g = `${l},${bx},${by},${t.prio}`;
+    const e = pgroups.get(g) || { l, bx, by, prio: t.prio, cs: [] }; e.cs.push(c); pgroups.set(g, e);
+  }
+  for (const e of pgroups.values()) {
+    const d = document.createElement('div'), cs = e.cs.sort();
+    d.dataset.l = e.l; d.dataset.bx = e.bx; d.dataset.by = e.by; d.dataset.cs = cs.join(',');
+    d.innerHTML = `<span><i class="chip" style="background:${e.prio ? '#ffd54a' : '#8be9fd'}"></i>BG${e.l} ${e.bx},${e.by} ${cs.length === 4 ? '' : '[' + cs.map(i => CORNER_NAMES[i]).join(' ') + ']'}</span><span>priority ${e.prio} &times;</span>`;
+    d.onclick = ev => {
+      if (ev.target === d.lastChild) { for (const cc of cs) prioFixAll.delete(`${room.hdr}:${tileKey(e.l, e.bx, e.by, cc)}`); syncRoomFixes(); renderAll(); return; }
       sel = { scope: e.l, set: new Set(cs.map(cc => `${e.bx},${e.by},${cc}`)) }; updateSel(); overlayAll();
     };
     box.appendChild(d);
@@ -513,6 +632,9 @@ function buildTools() {
     <div class="row"><span class="hint">same as</span><span id="sameas" class="row"></span></div>
     <div class="row"><button id="apply">APPLY</button><button id="clear">CLEAR FIXES</button><button id="copy">COPY INFO</button></div>
     <div class="hint" id="selinfo">nothing selected</div>
+    <h3>Draw the selection with priority</h3>
+    <div class="row"><button id="pr0" title="drawn under the sprites">0 (under sprites)</button><button id="pr1" title="drawn over the sprites of priority 0-2, Samus's weapon among them">1 (over sprites)</button><button id="prk">OWN</button></div>
+    <div class="hint">What the game really draws over what, not only the 3D depth: a wall marked PLAY that Samus's weapon still crosses is a priority 0 tile; priority 1 draws it over her (and BG1's priority 1 plane is PLAY by default). A bar along the bottom of a tile marks it: yellow over sprites, light blue under them.</div>
     <h3>Whole layer of this room</h3>
     <div class="row"><select id="rl"><option value="1">BG1</option><option value="2">BG2</option><option value="3">BG3</option><option value="4">sprites</option><option value="5">Mode 7</option></select>
       <select id="rp"><option value="0">priority 0</option><option value="1">priority 1</option><option value="2">priority 2</option><option value="3">priority 3</option></select></div>
@@ -527,6 +649,7 @@ function buildTools() {
   for (const [name, pl] of SAME_AS) { const b = document.createElement('button'); b.textContent = name; b.title = 'the plane a tile on this layer gets: ' + PLANES[pl][1]; b.onclick = () => setPlane(pl); $('sameas').appendChild(b); }
   setPlane(curPlane); rpl.value = 2;
   $('apply').onclick = applyPlane; $('clear').onclick = clearFixes;
+  $('pr0').onclick = () => applyPrio(0); $('pr1').onclick = () => applyPrio(1); $('prk').onclick = () => applyPrio(null);
   $('radd').onclick = () => {
     if (!room) return; const layer = +$('rl').value, prio = +$('rp').value, plane = +$('rpl').value;
     const old = rules.find(f => f.room === room.hdr && f.layer === layer && f.prio === prio);
@@ -560,7 +683,7 @@ async function loadRoom(i) {
 }
 const openAreas = new Set(JSON.parse(localStorage.getItem('smwb.areas') || '[0]'));
 const saveAreas = () => localStorage.setItem('smwb.areas', JSON.stringify([...openAreas]));
-const fixCount = hdr => rules.filter(x => x.room === hdr).length + [...tileFixAll.values()].filter(x => x.room === hdr).length;
+const fixCount = hdr => rules.filter(x => x.room === hdr).length + [...tileFixAll.values()].filter(x => x.room === hdr).length + [...prioFixAll.values()].filter(x => x.room === hdr).length;
 function buildList(filter = '') {
   const box = $('list'); if (!box) return; const keep = box.parentNode.scrollTop; box.innerHTML = ''; const f = filter.toLowerCase();
   const byArea = new Map();
@@ -651,6 +774,7 @@ async function init() {
   makeView('w-result', 'Result', 0, 'REAL');
   makeView('w-bg1', 'BG1', 1, 'BEFORE|AFTER');
   makeView('w-bg2', 'BG2', 2, 'BEFORE|AFTER');
+  makeView('w-bg3', 'BG3 (effects)', 3, 'BEFORE|AFTER');
   buildTools();
   rooms = (await (await fetch('/api/rooms')).json()).sort((a, b) => a.area - b.area || a.room - b.room);
   parseFixes(await (await fetch('/api/fixes')).text()); buildList();

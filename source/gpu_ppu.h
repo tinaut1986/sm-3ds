@@ -187,9 +187,11 @@ extern const uint8_t *g_gpu_ppu_obj_hud;
 void GpuPpu_SetPlaneRule(int (*rule)(int layer, int prio));
 
 // Tiles of BG1 and BG2 that go to another stereo plane than their layer (source/sm_plane_fixes.inc, SM_PLANE_FIX). For
-// the tilemap surface of `layer` (1 = BG1, 2 = BG2), `tw` x `th` tiles, the hook fills `grid` (th rows of 64): 0 for a
-// tile that stays, StereoPlane + 1 for one sent to that plane; it returns how many are set (0 = none). Those tiles are
-// drawn from a texture of their own per plane and carry the plane in GpuQuad.plane, over the layer's own rule.
+// the tilemap surface of `layer` (1 = BG1, 2 = BG2), `tw` x `th` tiles, the hook fills `grid` (th rows of 64): per tile, bits 0-3 are 0 for a
+// tile that stays or StereoPlane + 1 for one sent to that plane, bits 4-7 are 0 or the tile priority it is drawn with + 1 (the
+// tile's own priority bit is replaced: it goes to the texture, and so the compositor level, of that priority). It returns how
+// many are set (0 = none). Tiles sent to a plane are drawn from a texture of their own per plane and carry the plane in
+// GpuQuad.plane, over the layer's own rule.
 // NULL = none.
 void GpuPpu_SetSlotPlanes(int (*slot_planes)(int layer, int tw, int th, uint8_t *grid));
 

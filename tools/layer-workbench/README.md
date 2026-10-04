@@ -44,6 +44,11 @@ layout is kept in the browser, `RELAYOUT` resets it):
   see the real colours (a bar in the plane's colour still marks the tiles with a fix). In AFTER a tile belongs to
   the window of the layer its plane puts it on (BACK and PLAY are BG1's, MID is BG2's): a BG2 tile sent to PLAY leaves
   BG2's AFTER and shows in BG1's, on top of what is there.
+- **BG3 (effects):** the effects layer as the game left it in VRAM (2 bpp, whole tilemap, without its scroll), by tile
+  priority: tinted by its plane (BEFORE) and with the whole-layer rule applied (AFTER). It has no blocks to select:
+  only whole-layer rules apply (Tools -> Whole layer: BG3, priority 0 or 1). Needs room files exported after this was
+  added (`EXPORT=1 ./run_workbench.sh`); older ones say so in the window. In rooms where BG3 is on the subscreen the
+  game adds it over the scene, and the renderer gives it the depth of what it covers unless a rule here sets its plane.
 - **Tools:** the plane buttons, `same as` (the plane a tile on that layer would get: BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2
   MID, BG3 prio 0 FAR, BG3 prio 1 FRONT, sprites OBJ), `APPLY`, `CLEAR FIXES`, `COPY INFO`, the whole-layer rules,
   the room's fixes (click to select, `x` to remove) and `SAVE`.
@@ -61,13 +66,18 @@ layout is kept in the browser, `RELAYOUT` resets it):
 ```
 SM_PLANE_FIX(0xE0B5, 2, 3, 12, 0x001F, 0x3, kStereoPlay)    /* room, layer, bx, by, block word, corners, plane */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)              /* room, layer, tile priority, plane */
+SM_TILE_PRIO(0xA6A1, 1, 34, 3, 0x8194, 0xF, 1)          /* room, layer, bx, by, block word, corners, priority */
 ```
 
 `corners` is a mask of the block's four 8x8 tiles (1 top left, 2 top right, 4 bottom left, 8 bottom right, `0xF` all of it,
 corners of the block as drawn, flips applied), so a single wrong tile can be moved. `room` is the room header pointer (as `SmRoom.header`); `layer` 1 is BG1, 2 is BG2; `(bx, by)` is the block in
 the room's level data (not a screen or tilemap position: rooms are larger than the tilemap, which wraps); `block`
 is that block's 16-bit word in the level data, a checksum: if the data changes, the fix no longer applies and
-says so (it never moves another block). A block fix beats a layer rule, which beats the default of
+says so (it never moves another block). `SM_TILE_PRIO` changes the priority a block's tiles are *drawn* with, not only their depth: priority 1 draws them over the
+sprites of priority 0-2 (Samus's weapon), 0 under them, and a tile drawn with priority 1 goes to PLAY by default. Use it when a
+wall marked PLAY is still crossed by a sprite: the game has the tile at priority 0. It is the GPU renderer's (the picture changes
+there only), and the Result and the BG windows show it (AFTER; BEFORE keeps the tile's own priority).
+A block fix beats a layer rule, which beats the default of
 `StereoDepth_Plane` (BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2 MID). Planes are the `StereoPlane` names of
 `source/stereo_depth.h`.
 
@@ -84,7 +94,7 @@ extensions, 8 solid, 9 door, A spike, B crumble, C shot, E grapple, F bomb). A t
 ## What exists, what does not
 
 - Done: the exporter, the viewer with selection and fixes, the server, the `.inc`, and the renderer reading it:
-  - the **layer rules** `SM_LAYER_PLANE` for BG1, BG2, BG3, the sprites of a priority (`layer` 4) and Mode 7 (`layer` 5)
+  - the **layer rules** `SM_LAYER_PLANE` for BG1, BG2, BG3 (an effects layer on the subscreen only with a rule: it follows what it covers otherwise), the sprites of a priority (`layer` 4) and Mode 7 (`layer` 5)
     (`source/sm_planes.c`, `GpuPpu_SetPlaneRule`: the quads carry `GpuQuad.plane`, and `QuadPlane` in `gpu_ppu_3ds.c`
     uses it, never over the HUD or outside gameplay);
   - the **block fixes** `SM_PLANE_FIX` for BG1 and BG2 (`GpuPpu_SetSlotPlanes`): a tile of a fixed block is decoded into a

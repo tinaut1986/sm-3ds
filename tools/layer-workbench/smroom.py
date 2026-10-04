@@ -22,6 +22,9 @@ class Room:
         self.cgram = struct.unpack_from('<256H', raw, o)
         o += 512
         self.vram = raw[o:o + 0x10000]
+        o += 0x10000
+        # BG3 (the effects layer): optional, after the VRAM; (tilemap, tiles, size, _) in VRAM words
+        self.bg3 = struct.unpack_from('<4H', raw, o) if len(raw) >= o + 8 else None
         w, h = self.width, self.height
         self.layer1 = struct.unpack_from('<%dH' % (w * h), self.bank7f, 2)
         # BG2's own block map exists only when it scrolls with the level data (bit 0 clear).

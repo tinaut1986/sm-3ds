@@ -91,6 +91,26 @@ Why these (revised 2026-10-03 after the first console test):
   Samus, so it is a wall and goes on `PLAY` like BG1 priority 1. Some rooms keep their
   whole level on it: the Fireflea room (9C5E) has BG1 empty, and with BG2 all on a far plane the
   floors sat 3 px behind Samus and level with the background (found with the scene recorder).
+- BG3 effects (ash, fog, water) reach the screen by colour math, in one of two ways (found by listing the bands of
+  every room: `STEREO_BANDS_EVERY` in `tools/gpu-ppu-test`), and neither is a layer with a plane of its own:
+  - **Effect on the subscreen** (ash; ~80 rooms): the scene is on the main screen and BG3 is added only over the
+    pixels whose layer has math on (in 9CB3: BG2, some sprites, the backdrop; not BG1 or Samus). The effect is drawn
+    unshifted and the math pass adds it shifted by the plane of the pixel's owner (the stencil's bits 2-4 keep it): when
+    what it covers is on one side of what it does not cover, one plane a pixel in front of all it covers (never past what
+    it is not added to); otherwise each pixel a pixel in front of its own owner. So it is in front of what it is drawn
+    on and behind what it is not drawn on, whatever the room.
+  - **Scene on the subscreen** (fog, water, lava; ~25 rooms): BG3 is on the main screen with math and the game adds the
+    whole scene to it, so BG3 is drawn over everything whatever its tile priority. The scene keeps its planes and BG3
+    goes on `FRONT` (a plane set by hand wins). Before, BG3 priority 0 sat on `MID`, behind the scene it covered.
+  A layer rule set by hand (`SM_LAYER_PLANE`) for BG3 keeps its plane in both. The planes of BG3 above (`MID`, `FRONT`)
+  only matter for the HUD and the rooms where BG3 is a plain layer.
+- Ash on the subscreen takes **one** plane, a pixel in front of every plane it is added to and of the sprites' (so it is
+  always in front of Samus), but a pixel behind a layer the game does not add it to that stands at or in front of those planes
+  (BG1's walls hide it; at the same depth nothing would explain why the wall covers it) Following each pixel's owner put it in front of
+  Samus only while she crossed the layer it was on; one plane a pixel past everything hid it behind the scenery it showed in front of.
+- A wall the game draws with tile priority 0 but that stands in front of Samus (A6A1) is on `PLAY` and still crossed by her
+  weapon (sprites of priority 2 are drawn over BG1 priority 0): the plane is only the depth, the order is the priority.
+  `SM_TILE_PRIO` (workbench) draws such tiles with priority 1.
 - `HUD` and every other plane move in whole pixels (point 3).
 - The mode 7 plane goes on `PLAY`: in the Ceres elevator it is the room Samus stands
   in, in Ridley's room it is Ridley flying at her.

@@ -59,6 +59,15 @@ void GpuBackend_BeforeTexWrite(void) {}
 enum { kPitch = 256 * 4 };
 static uint8_t g_px[kPitch * 240], g_a[kPitch * 240], g_b[kPitch * 240], g_c[kPitch * 240];
 static PpuLineCapture g_cap;
+// The tile fixes as the renderer takes them, but without the priorities (SM_TILE_PRIO) unless PRIO_FIXES=1: those change the picture on
+// purpose (a wall drawn over a sprite), which the CPU renderer this test compares against does not know.
+static int TestSlotPlanes(int layer, int tw, int th, uint8_t *grid) {
+  int n = SmPlanes_SlotPlanes(layer, tw, th, grid);
+  if (n <= 0 || getenv("PRIO_FIXES")) return n;   // (grid is only filled when it returns tiles)
+  n = 0;
+  for (int i = 0; i < th * 64; i++) n += (grid[i] &= 15) != 0;
+  return n;
+}
 static int g_input;   // controller bits for TestFrame's frames
 static GpuFrame g_frame;
 static int g_frames, g_capture_bad, g_gpu_bad, g_refused, g_dumped;
@@ -479,7 +488,7 @@ static void TestFrame(const char *label, bool check_capture) {
   const char *why;
   // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
   GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
-  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_SlotPlanes : NULL);
+  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? TestSlotPlanes : NULL);
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -552,6 +561,20 @@ static void TestFrame(const char *label, bool check_capture) {
       const GpuQuad *qd = &g_frame.quads[q];
       printf("quad %d level %d flags %x x %d y %d w %d h %d\n", q, qd->level, qd->flags, qd->x, qd->y, qd->w, qd->h);
     }
+  // STEREO_BANDS_EVERY=n: every n-th tested frame, the room and each band's colour math (which main quads it applies to, which
+  // quads are the subscreen): L = a layer, o = a sprite, + = math applies, then its level. To find the rooms with effects.
+  if (getenv("STEREO_BANDS_EVERY") && g_frames % atoi(getenv("STEREO_BANDS_EVERY")) == 0)
+    for (int b = 0; b < g_frame.band_count; b++) {
+      const GpuBand *bd = &g_frame.bands[b];
+      if (!bd->math && !bd->sub_count) continue;
+      printf("BANDS room %04X frame %d rows %d-%d add_sub %d; main:", room_ptr, g_frames, bd->y0, bd->y1, bd->add_subscreen);
+      for (int q = bd->main_first; q < bd->main_first + bd->main_count; q++)
+        printf(" %s%d%s", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level, g_frame.quads[q].flags & kGpuQuadMath ? "+" : "");
+      printf("; sub:");
+      for (int q = bd->sub_first; q < bd->sub_first + bd->sub_count; q++)
+        printf(" %s%d", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level);
+      printf("\n");
+    }
   // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
   // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
   int sp_a, sp_b;
@@ -567,6 +590,18 @@ static void TestFrame(const char *label, bool check_capture) {
         printf("STEREO_QUAD frame %d %s x %d y %d w %d h %d level %d plane %d%s\n", g_frames,
                qd->flags & kGpuQuadObj ? "obj" : "bg ", qd->x, qd->y, qd->w, qd->h, qd->level,
                (int)QuadStereoPlane(&sf, qd, hud), qd->plane ? " (set by hand)" : "");
+      }
+    if (getenv("STEREO_BANDS"))   // colour math per band: which main quads it applies to, which quads are the subscreen
+      for (int b = 0; b < g_frame.band_count; b++) {
+        const GpuBand *bd = &g_frame.bands[b];
+        printf("STEREO_BAND frame %d rows %d-%d math %d add_sub %d half %d subtract %d backdrop_math %d; main:", g_frames, bd->y0, bd->y1,
+               bd->math, bd->add_subscreen, bd->half, bd->subtract, bd->backdrop_math);
+        for (int q = bd->main_first; q < bd->main_first + bd->main_count; q++)
+          printf(" %s%d%s", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level, g_frame.quads[q].flags & kGpuQuadMath ? "+" : "");
+        printf("; sub:");
+        for (int q = bd->sub_first; q < bd->sub_first + bd->sub_count; q++)
+          printf(" %s%d", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level);
+        printf("\n");
       }
     for (int pl = 0; pl < kStereoPlaneCount; pl++) {
       one = g_frame;

@@ -18,6 +18,8 @@
 //   depth   = priority level; BG quads pass where theirs is greater
 //   stencil = bit 0: a sprite already owns the pixel (first in OAM order wins)
 //             bit 1: colour math applies to the pixel's current owner
+//             bits 2-4: the stereo plane of that owner (only kept while bit 1 is set): the subscreen,
+//                       added to it, takes that plane's shift, so an effect drawn over a thing is at its depth
 // then colour math as blended passes where stencil bit 1 is set, and the result is
 // drawn scaled to the top screen with the brightness as a constant multiply.
 //
@@ -64,53 +66,101 @@ static uint32_t *g_readback;      // 256x256 linear RGBA8
 
 // ---- Textures (GpuBackend_*) --------------------------------------------------------------
 
+// The renderer decodes texels into a copy in ordinary memory (GpuTex.px, the "shadow"); the rows it changed are copied to
+// the texture the GPU samples only once the previous frame is done (GpuPpu3ds_DrawAndPresent: C3D_FrameBegin has waited by
+// then). Writing the texture in place had the GPU sampling half-rewritten tiles (the A66A statues, #19), and waiting for
+// the GPU before the first write cost a whole GPU frame on every frame that decoded anything.
+typedef struct {
+  C3D_Tex tex;       // first, so (C3D_Tex *)GpuTex.impl works
+  uint16_t *px;      // the shadow
+  int w;
+  int b0, b1;        // 8-row blocks written since the last copy: [b0, b1)
+  bool queued;
+} TexImpl;
+
+enum { kMaxDirtyTex = 1024 };
+static TexImpl *g_dirty[kMaxDirtyTex];
+static int g_dirty_n;
+
+static void CopyDirty(TexImpl *im) {
+  if (im->b1 > im->b0) {
+    const size_t off = (size_t)im->b0 * 8 * im->w, n = (size_t)(im->b1 - im->b0) * 8 * im->w;
+    memcpy((uint16_t *)im->tex.data + off, im->px + off, n * 2);
+    GSPGPU_FlushDataCache((uint16_t *)im->tex.data + off, (u32)(n * 2));
+  }
+  im->b0 = im->b1 = 0;
+  im->queued = false;
+}
+
 bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
-  C3D_Tex *tex = (C3D_Tex *)calloc(1, sizeof(C3D_Tex));
-  if (!tex) return false;
-  // Linear memory (not VRAM): the CPU writes the texels in place.
-  if (!C3D_TexInit(tex, w, h, GPU_RGBA5551)) {
-    free(tex);
+  TexImpl *im = (TexImpl *)calloc(1, sizeof(TexImpl));
+  uint16_t *shadow = (uint16_t *)calloc((size_t)w * h, 2);
+  if (!im || !shadow) {
+    free(im);
+    free(shadow);
     return false;
   }
-  C3D_TexSetFilter(tex, GPU_NEAREST, GPU_NEAREST);
-  C3D_TexSetWrap(tex, GPU_REPEAT, GPU_REPEAT);
-  memset(tex->data, 0, (size_t)w * h * 2);
-  GSPGPU_FlushDataCache(tex->data, (u32)w * h * 2);
-  t->px = (uint16_t *)tex->data;
+  // Linear memory (not VRAM): the CPU copies the rows into it.
+  if (!C3D_TexInit(&im->tex, w, h, GPU_RGBA5551)) {
+    free(im);
+    free(shadow);
+    return false;
+  }
+  C3D_TexSetFilter(&im->tex, GPU_NEAREST, GPU_NEAREST);
+  C3D_TexSetWrap(&im->tex, GPU_REPEAT, GPU_REPEAT);
+  memset(im->tex.data, 0, (size_t)w * h * 2);
+  GSPGPU_FlushDataCache(im->tex.data, (u32)w * h * 2);
+  im->px = shadow;
+  im->w = w;
+  t->px = shadow;
   t->w = w;
   t->h = h;
-  t->impl = tex;
+  t->impl = im;
   return true;
 }
-
 void GpuBackend_TexFree(GpuTex *t) {
   if (t->impl) {
-    C3D_TexDelete((C3D_Tex *)t->impl);
-    free(t->impl);
+    TexImpl *im = (TexImpl *)t->impl;
+    for (int i = 0; i < g_dirty_n; i++)
+      if (g_dirty[i] == im) g_dirty[i] = g_dirty[--g_dirty_n];
+    C3D_TexDelete(&im->tex);
+    free(im);
   }
+  free(t->px);
   memset(t, 0, sizeof(*t));
 }
-
+static void WaitGpu(void);
+static bool g_any_frame;
+static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU" (a copy forced out of turn)
+// Copies every changed row to the textures the GPU samples: only when the GPU is not drawing (after C3D_FrameBegin).
+static void FlushTextures(void) {
+  for (int i = 0; i < g_dirty_n; i++) CopyDirty(g_dirty[i]);
+  g_dirty_n = 0;
+}
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   if (y0 < 0) y0 = 0;
   if (y1 > t->h) y1 = t->h;
-  if (y1 <= y0) return;
+  if (y1 <= y0 || !t->impl) return;
   // Texels are stored by 8-row blocks of the whole width.
+  TexImpl *im = (TexImpl *)t->impl;
   const int b0 = y0 >> 3, b1 = (y1 + 7) >> 3;
-  GSPGPU_FlushDataCache(t->px + b0 * 8 * t->w, (u32)(b1 - b0) * 8 * t->w * 2);
+  if (im->queued) {
+    if (b0 < im->b0) im->b0 = b0;
+    if (b1 > im->b1) im->b1 = b1;
+    return;
+  }
+  im->b0 = b0, im->b1 = b1;
+  if (g_dirty_n >= kMaxDirtyTex) {   // not reachable with the renderer's few dozen textures: be safe anyway
+    WaitGpu();
+    CopyDirty(im);
+    return;
+  }
+  im->queued = true;
+  g_dirty[g_dirty_n++] = im;
+  im->b0 = b0, im->b1 = b1;
 }
+void GpuBackend_BeforeTexWrite(void) {}   // nothing to wait for: the texels go to the shadow
 
-static void WaitGpu(void);
-static bool g_any_frame;
-
-static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU"
-
-void GpuBackend_BeforeTexWrite(void) {
-  if (!g_ready || !g_any_frame) return;
-  const u64 t0 = svcGetSystemTick();
-  WaitGpu();   // the previous frame may still sample these texels
-  g_tex_wait_ticks += svcGetSystemTick() - t0;
-}
 
 // ---- Drawing helpers ------------------------------------------------------------------------
 
@@ -178,6 +228,8 @@ static void BlendOff(void) {
 // Stereo: the eye being drawn, each plane's shift for it in SNES pixels (whole pixels,
 // StereoDepth_EyeOffset), and whether the frame is gameplay (StereoFrame).
 static int g_eye_dx[kStereoPlaneCount];
+static float g_slider;   // the 3D slider while two eyes are drawn, else 0
+static int g_eye_sign;   // +1 left eye, -1 right
 static StereoFrame g_stereo_frame;
 
 // The plane of a quad, from what the frame builder put in it: its level and flags
@@ -288,6 +340,9 @@ static void SetTarget(C3D_RenderTarget *rt, const C3D_Mtx *proj) {
 
 // Draws the band's quads [first, first+count) over what is already there.
 // `over`: plain painting over what is there, no depth or stencil (GpuFrame's HUD list).
+static bool g_fx_front;   // drawing a band whose scene is on the subscreen: its main BG3 is the fog added over it
+static bool g_flat_sub;   // drawing the subscreen: its quads take no shift, the colour math gives it its owner's
+
 static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, bool over) {
   // Sprites: the first one on a pixel wins (stencil bit 0), they take the pixel from
   // anything below whatever their level, as the CPU renderer writes them first.
@@ -298,6 +353,7 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
   int bound_wrap = -1;   // the texture's wrap mode: 0 repeat, 1 clamp to a transparent border
   float inv_w = 0, inv_h = 0;   // of the bound texture: no divisions per quad
   int state = -1;   // 0 sprites, 1 sprites with math, 2 BG, 3 BG with math
+  int state_plane = -1;   // the owner plane the stencil is set to for quads with math
   int tint = -1;    // the plane the debug tint is set to
   BatchBegin();
   for (; q < first + count; q++) {
@@ -306,7 +362,14 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
     const bool obj = qd->flags & kGpuQuadObj, math = track_math && (qd->flags & kGpuQuadMath);
     const int st = (obj ? 0 : 2) + math;
     const int wrap = (qd->flags & kGpuQuadBorder) ? 1 : 0;
-    if (t != bound || st != state || wrap != bound_wrap) {
+    StereoPlane plane = QuadPlane(qd, over);
+    // The scene on the subscreen and BG3 on the main screen with math: the game adds the scene to the fog, so the fog is
+    // drawn over all of it whatever its priority; its plane must be in front of all the scene too (a plane set by hand wins).
+    if (g_fx_front && !over && (qd->flags & kGpuQuadMath) && !(qd->flags & (kGpuQuadObj | kGpuQuadAffine)) &&
+        (qd->level == 1 || qd->level == 15) && !qd->plane && g_stereo_frame.gameplay)
+      plane = kStereoFront;
+    const int mplane = math ? (int)plane : 0;
+    if (t != bound || st != state || mplane != state_plane || wrap != bound_wrap) {
       BatchDraw();
       if (t != bound || wrap != bound_wrap) {
         C3D_Tex *tex = (C3D_Tex *)t->impl;
@@ -319,24 +382,24 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
         inv_w = 1.0f / t->w;
         inv_h = 1.0f / t->h;
       }
-      if (st != state) {
+      if (st != state || mplane != state_plane) {
         state = st;
+        state_plane = mplane;
         if (over) {
           C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
           C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
         } else if (obj) {
           C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
-          C3D_StencilTest(true, GPU_NOTEQUAL, 1 | (math ? 2 : 0), 1, 3);
+          C3D_StencilTest(true, GPU_NOTEQUAL, 1 | (math ? 2 | mplane << 2 : 0), 1, math ? 0x1f : 3);
           C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
         } else {
           C3D_DepthTest(true, g_depth_greater, GPU_WRITE_ALL);
-          C3D_StencilTest(true, GPU_ALWAYS, math ? 2 : 0, 0, 2);
+          C3D_StencilTest(true, GPU_ALWAYS, math ? 2 | mplane << 2 : 0, 0, math ? 0x1e : 2);
           C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
         }
       }
     }
-    const StereoPlane plane = QuadPlane(qd, over);
-    const int dx = g_eye_dx[plane];
+    const int dx = g_flat_sub ? 0 : g_eye_dx[plane];
     if (g_plane_tint) {
       // What the tint depends on: the plane, the drawing level or the plane's depth.
       const int key = g_plane_tint == kPlaneTintOrder ? 100 + qd->level : (int)plane;
@@ -363,6 +426,26 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
   C3D_AlphaTest(false, GPU_ALWAYS, 0);
 }
 
+// Whether the band's subscreen holds only an effects layer (BG3: ash, fog, water), which is added over the main screen's
+// scene and so takes the depth of what it covers. Otherwise the subscreen is the scene itself (and BG3 is on the main
+// screen): its quads keep their planes.
+static bool SubIsEffect(const GpuFrame *f, const GpuBand *b) {
+  for (int q = b->sub_first; q < b->sub_first + b->sub_count; q++) {
+    const GpuQuad *qd = &f->quads[q];
+    if ((qd->flags & (kGpuQuadObj | kGpuQuadAffine)) || (qd->level != 1 && qd->level != 15)) return false;
+  }
+  return true;
+}
+
+// A plane chosen by hand (sm_planes.c) for a layer of the subscreen: that room's effect keeps the owner's plane, as before
+// the effects followed what they cover.
+static bool SubByHand(const GpuFrame *f, const GpuBand *b) {
+  if (!g_stereo_frame.gameplay) return false;
+  for (int q = b->sub_first; q < b->sub_first + b->sub_count; q++)
+    if (f->quads[q].plane) return true;
+  return false;
+}
+
 static void DrawBandSub(const GpuFrame *f, const GpuBand *b) {
   // Backdrop: the fixed colour, alpha 0 = "no subscreen pixel here".
   EnvSolid(ColorFrom555(b->fixed, 0));
@@ -370,11 +453,37 @@ static void DrawBandSub(const GpuFrame *f, const GpuBand *b) {
   C3D_StencilTest(true, GPU_ALWAYS, 0, 0, 0xff);
   C3D_StencilOp(GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE, GPU_STENCIL_REPLACE);
   SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
+  g_flat_sub = SubIsEffect(f, b) && !SubByHand(f, b);
   DrawQuads(f, b->sub_first, b->sub_count, false, false);
+  g_flat_sub = false;
 }
 
 // Texture u of screen column x in a render target.
 static inline float RtU(int x) { return (float)(x + g_off_x) / kTexW; }
+
+// The subscreen added to the pixels whose owner has math on, `dx` columns over (the owner plane's shift): a pixel of the
+// effect (ash, fog, water) takes the depth of what it is drawn on. `stencil_ref`/`stencil_mask`: which owners.
+static void MathAdd(const GpuFrame *f, const GpuBand *b, int stencil_ref, int stencil_mask, int dx) {
+  C3D_StencilTest(true, GPU_EQUAL, stencil_ref, stencil_mask, 0);
+  const GPU_BLENDEQUATION eq = b->subtract ? GPU_BLEND_REVERSE_SUBTRACT : GPU_BLEND_ADD;
+  const float v0 = RtV(b->y0), v1 = RtV(b->y1);
+  C3D_TexBind(0, &g_sub_tex);
+  // Subscreen pixels (alpha 1): halved if `half`.
+  EnvTexture();
+  C3D_AlphaTest(true, GPU_GREATER, 0);
+  if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
+  else C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
+  BatchBegin();
+  PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0 - dx), v0, RtU(f->x1 - dx), v1);
+  BatchDraw();
+  // Subscreen backdrop (alpha 0): the fixed colour, never halved.
+  EnvConstRgbTexAlpha(ColorFrom555(b->fixed, 255));
+  C3D_AlphaTest(true, GPU_EQUAL, 0);
+  C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
+  BatchBegin();
+  PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0 - dx), v0, RtU(f->x1 - dx), v1);
+  BatchDraw();
+}
 
 static void MathPass(const GpuFrame *f, const GpuBand *b) {
   // Only pixels whose owner has math on; no depth.
@@ -383,24 +492,39 @@ static void MathPass(const GpuFrame *f, const GpuBand *b) {
   C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_KEEP);
   const GPU_BLENDEQUATION eq = b->subtract ? GPU_BLEND_REVERSE_SUBTRACT : GPU_BLEND_ADD;
   C3D_BlendingColor(0x80000000);   // constant alpha 0.5 for the halved cases
-  const float v0 = RtV(b->y0), v1 = RtV(b->y1);
   if (b->add_subscreen) {
-    C3D_TexBind(0, &g_sub_tex);
-    // Subscreen pixels (alpha 1): halved if `half`.
-    EnvTexture();
-    C3D_AlphaTest(true, GPU_GREATER, 0);
-    if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
-    else C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
-    BatchBegin();
-    PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0), v0, RtU(f->x1), v1);
-    BatchDraw();
-    // Subscreen backdrop (alpha 0): the fixed colour, never halved.
-    EnvConstRgbTexAlpha(ColorFrom555(b->fixed, 255));
-    C3D_AlphaTest(true, GPU_EQUAL, 0);
-    C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
-    BatchBegin();
-    PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0), v0, RtU(f->x1), v1);
-    BatchDraw();
+    if (!SubIsEffect(f, b) || SubByHand(f, b)) {   // the scene, or an effect with its plane: drawn with its planes, added where it is
+      MathAdd(f, b, 2, 2, 0);
+      C3D_AlphaTest(false, GPU_ALWAYS, 0);
+      BlendOff();
+      return;
+    }
+    // The planes of what math applies to (their quads, and the backdrop): the subscreen moves with each.
+    bool host[kStereoPlaneCount] = { false };
+    for (int q = b->main_first; q < b->main_first + b->main_count; q++)
+      if (f->quads[q].flags & (kGpuQuadMath | kGpuQuadObj)) host[QuadPlane(&f->quads[q], false)] = true;   // the sprites always count
+    if (b->backdrop_math) host[kStereoFar] = true;
+    // One plane, a pixel in front of every plane the effect is added to and of the sprites' (Samus: the game adds the effect to
+    // her only some of the time): an effect that followed each pixel's owner jumped in front of her whenever she passed over
+    // the layer it was on, and sat behind her otherwise.
+    int hmax = StereoDepth_PlanePx(kStereoFar);
+    bool any = false;
+    for (int p = 0; p < kStereoPlaneCount; p++)
+      if (host[p]) {
+        const int px = StereoDepth_PlanePx((StereoPlane)p);
+        if (!any || px > hmax) hmax = px;
+        any = true;
+      }
+    // ...but behind a layer the effect is not added to that draws over it (BG1's walls): that layer hides the effect, so the
+    // effect must be a pixel behind it, or there would be no reason for the layer to cover it. Sprites do not limit it.
+    int u = hmax + 1;
+    for (int q = b->main_first; q < b->main_first + b->main_count; q++) {
+      const GpuQuad *qd = &f->quads[q];
+      if (qd->flags & (kGpuQuadMath | kGpuQuadObj)) continue;
+      const int px = StereoDepth_PlanePx(QuadPlane(qd, false)) - 1;
+      if (px + 1 >= hmax && px < u) u = px;
+    }
+    MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(u, g_slider, g_eye_sign));
   } else {
     EnvSolid(ColorFrom555(b->fixed, 255));
     C3D_AlphaTest(false, GPU_ALWAYS, 0);
@@ -424,9 +548,11 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
   // Backdrop: level 0, math bit as the backdrop's.
   EnvSolid(ColorFrom555(b->backdrop, 255));
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_ALL);
-  C3D_StencilTest(true, GPU_ALWAYS, b->backdrop_math ? 2 : 0, 0, 0xff);
+  C3D_StencilTest(true, GPU_ALWAYS, b->backdrop_math ? 2 | kStereoFar << 2 : 0, 0, 0xff);
   SolidRect(f->x0, b->y0, f->x1, b->y1, 0);
+  g_fx_front = b->math && b->add_subscreen && b->sub_count && !SubIsEffect(f, b);
   DrawQuads(f, b->main_first, b->main_count, true, false);
+  g_fx_front = false;
   if (b->clip) {   // colours to black, stencil and depth kept
     EnvSolid(0xff000000);
     C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
@@ -588,6 +714,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
+  FlushTextures();   // the GPU is idle now: the texels the renderer decoded this frame go in
   g_wait_ticks = t1 - t0 + g_tex_wait_ticks;
   g_tex_wait_ticks = 0;
   g_nverts = 0;
@@ -597,8 +724,10 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   // one, unshifted (2DS: always).
   const int eyes = slider > 0 && gfxIs3D() ? 2 : 1;
   for (int e = 0; e < eyes; e++) {
+    g_slider = eyes == 2 ? slider : 0;
+    g_eye_sign = e ? -1 : 1;
     for (int p = 0; p < kStereoPlaneCount; p++)
-      g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, e ? -1 : 1) : 0;
+      g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
     DrawEye(f, pixel_perfect, e ? g_rt_top_right : g_rt_top);
   }
   EndFrame();
