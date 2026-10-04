@@ -74,3 +74,21 @@ const char *StereoDepth_PlaneName(StereoPlane plane) {
 uint32_t StereoDepth_PlaneColor(StereoPlane plane) {
   return plane >= 0 && plane < kStereoPlaneCount ? kPlaneColor[plane] : 0;
 }
+
+uint32_t StereoDepth_RampColor(float t, int ramp) {
+  if (t < 0) t = 0;
+  if (t > 1) t = 1;
+  const int main = (int)(40 + 215 * t + 0.5f), side = (int)(24 + 56 * t + 0.5f), low = (int)(24 + 80 * t + 0.5f);
+  if (ramp == kRampDepth) return (uint32_t)(side << 16 | low << 8 | main);   // blue
+  return (uint32_t)(side << 16 | main << 8 | low);                           // green
+}
+
+float StereoDepth_PlaneDepth(StereoPlane plane) {
+  int lo = StereoDepth_PlanePx(kStereoFar), hi = lo;
+  for (int p = 0; p < kStereoPlaneCount; p++) {
+    const int v = StereoDepth_PlanePx((StereoPlane)p);
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return hi == lo ? 0.5f : (float)(StereoDepth_PlanePx(plane) - lo) / (float)(hi - lo);
+}

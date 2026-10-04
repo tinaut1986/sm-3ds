@@ -55,7 +55,7 @@ The dump is of the frame after the pause, not of the instant the button was tapp
 
 ## PLANE TINT
 
-GPU renderer only. Every quad of the frame is mixed 78% towards the flat colour of the
+GPU renderer only; the cell cycles OFF, PLANES, DRAW ORDER and STEREO DEPTH. PLANES: every quad of the frame is mixed 78% towards the flat colour of the
 stereo plane it was put on (`StereoDepth_Plane`), over its own picture so the scene stays
 readable; the 3D offsets still apply, so with the slider up each colour also moves by its
 own amount. The window shows the legend (nearest first): HUD magenta, FRONT cyan, PLAY
@@ -64,6 +64,14 @@ It is the on-console counterpart of `STEREO_PLANES=a-b` in `tools/gpu-ppu-test`,
 writes one image per plane on the host (`STEREO_QUADS=1` also prints every quad's level
 and plane). The setting lasts for the session. The CPU renderer has no planes: the cell
 says so.
+
+DRAW ORDER (green) and STEREO DEPTH (blue) each use one colour, dark at the back and bright in front, so
+which of the two is on shows at a glance; the window shows the ramp. DRAW ORDER is how the game draws the quad: its compositor level (backdrop 0, BG3 priority 0
+1, sprites priority 0 2, sprites priority 1 6, BG2 priority 0 7, BG1 priority 0 8, sprites priority 2 10,
+BG2 priority 1 11, BG1 priority 1 12, sprites priority 3 14, BG3 priority 1 and the HUD 15). STEREO DEPTH is
+where 3D puts the same quad: the shift of its plane at full slider, far to near, planes set by hand included
+(`sm_plane_fixes.inc`). Compare the two: what is brighter in one than in the other is drawn in front but
+sits behind in 3D, or the other way round, which is what the depth fixes are about.
 
 ## Files
 

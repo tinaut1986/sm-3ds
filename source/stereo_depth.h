@@ -68,4 +68,13 @@ int StereoDepth_EyeOffset(StereoPlane plane, float slider, int eye);
 // Debug view (Debug tools -> PLANE TINT): a short name and a flat colour per plane, so each
 // quad can be tinted by the plane it landed on. 0xRRGGBB.
 const char *StereoDepth_PlaneName(StereoPlane plane);
+
+// One-colour ramps for the other two debug views: how far back or forward something is drawn. `t` in
+// 0..1 (back .. front) gives the colour (dark to bright, 0xRRGGBB), green for the drawing order
+// (kRampOrder) and blue for the stereoscopic depth (kRampDepth), so the view shown is told at a glance;
+// StereoDepth_PlaneDepth is the t of a plane by its shift at full slider, from the farthest plane (0) to
+// the nearest (1).
+enum { kRampOrder, kRampDepth };
+uint32_t StereoDepth_RampColor(float t, int ramp);
+float StereoDepth_PlaneDepth(StereoPlane plane);
 uint32_t StereoDepth_PlaneColor(StereoPlane plane);
