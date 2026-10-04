@@ -1037,6 +1037,11 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
   GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
   rooms exported again).
+- 2026-10-04: The wait before texel writes (#19) cost a whole GPU frame on every frame that decoded anything (sprites' atlas,
+  animated tiles: "build 18.5, wait for GPU 16.4 ms", the New 3DS at 40 fps in every room, from the owner's perf). Texels
+  are now decoded into a copy in ordinary memory and the changed rows are copied to the GPU's texture after
+  `C3D_FrameBegin` has waited, so the CPU builds the frame while the GPU draws the last one and the GPU never samples a
+  texture being written. Costs the textures' size again in the heap (~4 MB, more with mode 7).
 - 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
   `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
   block fixes' texture clears, which write texels earlier than `DecodeTile`.

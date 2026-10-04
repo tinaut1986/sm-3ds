@@ -66,53 +66,101 @@ static uint32_t *g_readback;      // 256x256 linear RGBA8
 
 // ---- Textures (GpuBackend_*) --------------------------------------------------------------
 
+// The renderer decodes texels into a copy in ordinary memory (GpuTex.px, the "shadow"); the rows it changed are copied to
+// the texture the GPU samples only once the previous frame is done (GpuPpu3ds_DrawAndPresent: C3D_FrameBegin has waited by
+// then). Writing the texture in place had the GPU sampling half-rewritten tiles (the A66A statues, #19), and waiting for
+// the GPU before the first write cost a whole GPU frame on every frame that decoded anything.
+typedef struct {
+  C3D_Tex tex;       // first, so (C3D_Tex *)GpuTex.impl works
+  uint16_t *px;      // the shadow
+  int w;
+  int b0, b1;        // 8-row blocks written since the last copy: [b0, b1)
+  bool queued;
+} TexImpl;
+
+enum { kMaxDirtyTex = 1024 };
+static TexImpl *g_dirty[kMaxDirtyTex];
+static int g_dirty_n;
+
+static void CopyDirty(TexImpl *im) {
+  if (im->b1 > im->b0) {
+    const size_t off = (size_t)im->b0 * 8 * im->w, n = (size_t)(im->b1 - im->b0) * 8 * im->w;
+    memcpy((uint16_t *)im->tex.data + off, im->px + off, n * 2);
+    GSPGPU_FlushDataCache((uint16_t *)im->tex.data + off, (u32)(n * 2));
+  }
+  im->b0 = im->b1 = 0;
+  im->queued = false;
+}
+
 bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
-  C3D_Tex *tex = (C3D_Tex *)calloc(1, sizeof(C3D_Tex));
-  if (!tex) return false;
-  // Linear memory (not VRAM): the CPU writes the texels in place.
-  if (!C3D_TexInit(tex, w, h, GPU_RGBA5551)) {
-    free(tex);
+  TexImpl *im = (TexImpl *)calloc(1, sizeof(TexImpl));
+  uint16_t *shadow = (uint16_t *)calloc((size_t)w * h, 2);
+  if (!im || !shadow) {
+    free(im);
+    free(shadow);
     return false;
   }
-  C3D_TexSetFilter(tex, GPU_NEAREST, GPU_NEAREST);
-  C3D_TexSetWrap(tex, GPU_REPEAT, GPU_REPEAT);
-  memset(tex->data, 0, (size_t)w * h * 2);
-  GSPGPU_FlushDataCache(tex->data, (u32)w * h * 2);
-  t->px = (uint16_t *)tex->data;
+  // Linear memory (not VRAM): the CPU copies the rows into it.
+  if (!C3D_TexInit(&im->tex, w, h, GPU_RGBA5551)) {
+    free(im);
+    free(shadow);
+    return false;
+  }
+  C3D_TexSetFilter(&im->tex, GPU_NEAREST, GPU_NEAREST);
+  C3D_TexSetWrap(&im->tex, GPU_REPEAT, GPU_REPEAT);
+  memset(im->tex.data, 0, (size_t)w * h * 2);
+  GSPGPU_FlushDataCache(im->tex.data, (u32)w * h * 2);
+  im->px = shadow;
+  im->w = w;
+  t->px = shadow;
   t->w = w;
   t->h = h;
-  t->impl = tex;
+  t->impl = im;
   return true;
 }
-
 void GpuBackend_TexFree(GpuTex *t) {
   if (t->impl) {
-    C3D_TexDelete((C3D_Tex *)t->impl);
-    free(t->impl);
+    TexImpl *im = (TexImpl *)t->impl;
+    for (int i = 0; i < g_dirty_n; i++)
+      if (g_dirty[i] == im) g_dirty[i] = g_dirty[--g_dirty_n];
+    C3D_TexDelete(&im->tex);
+    free(im);
   }
+  free(t->px);
   memset(t, 0, sizeof(*t));
 }
-
+static void WaitGpu(void);
+static bool g_any_frame;
+static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU" (a copy forced out of turn)
+// Copies every changed row to the textures the GPU samples: only when the GPU is not drawing (after C3D_FrameBegin).
+static void FlushTextures(void) {
+  for (int i = 0; i < g_dirty_n; i++) CopyDirty(g_dirty[i]);
+  g_dirty_n = 0;
+}
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   if (y0 < 0) y0 = 0;
   if (y1 > t->h) y1 = t->h;
-  if (y1 <= y0) return;
+  if (y1 <= y0 || !t->impl) return;
   // Texels are stored by 8-row blocks of the whole width.
+  TexImpl *im = (TexImpl *)t->impl;
   const int b0 = y0 >> 3, b1 = (y1 + 7) >> 3;
-  GSPGPU_FlushDataCache(t->px + b0 * 8 * t->w, (u32)(b1 - b0) * 8 * t->w * 2);
+  if (im->queued) {
+    if (b0 < im->b0) im->b0 = b0;
+    if (b1 > im->b1) im->b1 = b1;
+    return;
+  }
+  im->b0 = b0, im->b1 = b1;
+  if (g_dirty_n >= kMaxDirtyTex) {   // not reachable with the renderer's few dozen textures: be safe anyway
+    WaitGpu();
+    CopyDirty(im);
+    return;
+  }
+  im->queued = true;
+  g_dirty[g_dirty_n++] = im;
+  im->b0 = b0, im->b1 = b1;
 }
+void GpuBackend_BeforeTexWrite(void) {}   // nothing to wait for: the texels go to the shadow
 
-static void WaitGpu(void);
-static bool g_any_frame;
-
-static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU"
-
-void GpuBackend_BeforeTexWrite(void) {
-  if (!g_ready || !g_any_frame) return;
-  const u64 t0 = svcGetSystemTick();
-  WaitGpu();   // the previous frame may still sample these texels
-  g_tex_wait_ticks += svcGetSystemTick() - t0;
-}
 
 // ---- Drawing helpers ------------------------------------------------------------------------
 
@@ -672,6 +720,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
+  FlushTextures();   // the GPU is idle now: the texels the renderer decoded this frame go in
   g_wait_ticks = t1 - t0 + g_tex_wait_ticks;
   g_tex_wait_ticks = 0;
   g_nverts = 0;
