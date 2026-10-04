@@ -100,6 +100,18 @@ void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   GSPGPU_FlushDataCache(t->px + b0 * 8 * t->w, (u32)(b1 - b0) * 8 * t->w * 2);
 }
 
+static void WaitGpu(void);
+static bool g_any_frame;
+
+static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU"
+
+void GpuBackend_BeforeTexWrite(void) {
+  if (!g_ready || !g_any_frame) return;
+  const u64 t0 = svcGetSystemTick();
+  WaitGpu();   // the previous frame may still sample these texels
+  g_tex_wait_ticks += svcGetSystemTick() - t0;
+}
+
 // ---- Drawing helpers ------------------------------------------------------------------------
 
 static inline uint32_t Expand5(int c) { return (uint32_t)((c << 3) | (c >> 2)); }
@@ -451,8 +463,6 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
 
 // ---- Frame --------------------------------------------------------------------------------
 
-static bool g_any_frame;
-
 // The FPS overlay: on the CPU path it is drawn into the framebuffer, here it is a texture
 // drawn over the top screen's left margin.
 enum { kOverlaySize = 64 };
@@ -578,7 +588,8 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
-  g_wait_ticks = t1 - t0;
+  g_wait_ticks = t1 - t0 + g_tex_wait_ticks;
+  g_tex_wait_ticks = 0;
   g_nverts = 0;
   SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
   g_stereo_frame.gameplay = gameplay;

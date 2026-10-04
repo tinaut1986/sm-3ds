@@ -382,7 +382,19 @@ static void ConvertPalettes(const Ppu *ppu) {
 
 // One 8x8 tile (2 or 4 bpp, chars at VRAM word `base`) into the 64-texel Morton block
 // `dst`. Plane 0/1 are the low/high bytes of word `row`, planes 2/3 those of `row + 8`.
+// Texels are written in place, in textures the GPU may still be reading for the previous
+// frame: wait for it once per frame, before the first write (a statue in WIDE flashed on the
+// console, where the parallax fill rewrote BG2 every frame; the scene recorder, which waits
+// for the GPU, hid it).
+static bool g_tex_waited;
+static inline void TexWriteBegin(void) {
+  if (g_tex_waited) return;
+  g_tex_waited = true;
+  GpuBackend_BeforeTexWrite();
+}
+
 static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const uint16_t *lut, bool hflip, bool vflip) {
+  TexWriteBegin();
   const uint32_t *spread = g_spread[hflip];
   for (int r = 0; r < 8; r++) {
     const int sr = vflip ? 7 - r : r;
@@ -510,6 +522,7 @@ static bool PalDirty(const Surface *s, uint16_t entry) {
 // One 8x8 tile into its block of the priority texture; the same block of the other
 // texture is cleared.
 static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int plane) {
+  TexWriteBegin();   // the clears below write texels too
   const int w = SurfaceW(s);
   const int block = ((ty * (w >> 3)) + tx) << 6;
   const int prio = (e & 0x2000) ? 1 : 0;
@@ -652,6 +665,7 @@ static void M7Track(const Ppu *ppu) {
 }
 
 static void M7DecodeCell(const Ppu *ppu, int c) {
+  TexWriteBegin();
   const int t = ppu->vram[c] & 0xff;
   g_m7_map[c] = (uint8_t)t;
   if (g_m7_stale[c]) g_m7_stale[c] = 0, g_m7_row_stale[c >> 7]--;
@@ -1044,6 +1058,7 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     for (int x = 0; x <= w; x++) src_col[x] = (uint16_t)GpuTexelIndex(x, 0, w + 1);
     src_col_w = w + 1;
   }
+  TexWriteBegin();
   for (int l = l0; l <= l1; l++) {
     const int row = l - 1;
     if (g_composed[layer][row] == g_frame_no) continue;   // main and sub share it
@@ -1339,6 +1354,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   g_quad_plane = 0;
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
   out->hud_first = out->hud_count = g_hud_quad_count = 0;
+  g_tex_waited = false;
   g_x0 = -g_margin_l;
   g_x1 = 256 + g_margin_r;
   out->x0 = g_x0;

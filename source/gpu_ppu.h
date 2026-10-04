@@ -142,6 +142,10 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h);
 void GpuBackend_TexFree(GpuTex *t);
 // The CPU changed texels in rows [y0, y1); flush them to where the GPU reads them.
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
+// About to write texels for the next frame: the GPU may still be drawing the previous one
+// from the same textures (they are written in place), so the backend waits for it here.
+// Called at most once per GpuPpu_BuildFrame, and only when that frame writes texels.
+void GpuBackend_BeforeTexWrite(void);
 
 // Forget every cached texture. Required whenever VRAM changes other than through the
 // PPU's data port (a loaded state, a reset). Cheap; the next frame decodes what it needs.

@@ -25,6 +25,8 @@ the English menu in the first frames of the map (#27). Not merged.
 `feat/plane-tint` (PLANE TINT, REPORT window, numbered captures) was merged on 2026-10-04 after the
 owner tried it on the console: the report window works, PLANE TINT still waits for a close look (P3.3).
 `fix/stereo-bg2-play-v021` (the Fireflea room's flat 3D, BG2 priority 1 on the play plane; CIA on the console at .132) waits too.
+`feat/plane-fixes` (workbench, block fixes in the renderer #33, and `fix/gpu-texture-race` #19, confirmed on the console on 2026-10-04: the A66A
+statues no longer flash) holds all of the above; the block fixes wait for the owner's look at 9AD9 before it goes into the release line.
 Everything above was merged into the release line at the owner's request and shipped in the
 `v0.2.0` beta; what each still needs from the console is in its task (P3.2, P4.4, P4.6,
 P4.7, P4.8) and in issues #7 and #18.
@@ -1034,6 +1036,9 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
   only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
   restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
+  `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
+  block fixes' texture clears, which write texels earlier than `DecodeTile`.
 - 2026-10-04: Block fixes (`SM_PLANE_FIX`) reach the renderer (#33, `feat/plane-fixes`). The dropped attempt (#28) was
   not a failure of the mechanism: its rule was wrong (the plane by the block type under each tile). A fix names a block
   of the level by hand, and a block is found in the tilemap at `(2*bx + i, 2*by + j)` modulo the tilemap's size, the
