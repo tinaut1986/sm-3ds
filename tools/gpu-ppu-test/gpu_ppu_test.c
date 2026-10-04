@@ -59,6 +59,15 @@ void GpuBackend_BeforeTexWrite(void) {}
 enum { kPitch = 256 * 4 };
 static uint8_t g_px[kPitch * 240], g_a[kPitch * 240], g_b[kPitch * 240], g_c[kPitch * 240];
 static PpuLineCapture g_cap;
+// The tile fixes as the renderer takes them, but without the priorities (SM_TILE_PRIO) unless PRIO_FIXES=1: those change the picture on
+// purpose (a wall drawn over a sprite), which the CPU renderer this test compares against does not know.
+static int TestSlotPlanes(int layer, int tw, int th, uint8_t *grid) {
+  int n = SmPlanes_SlotPlanes(layer, tw, th, grid);
+  if (n <= 0 || getenv("PRIO_FIXES")) return n;   // (grid is only filled when it returns tiles)
+  n = 0;
+  for (int i = 0; i < th * 64; i++) n += (grid[i] &= 15) != 0;
+  return n;
+}
 static int g_input;   // controller bits for TestFrame's frames
 static GpuFrame g_frame;
 static int g_frames, g_capture_bad, g_gpu_bad, g_refused, g_dumped;
@@ -479,7 +488,7 @@ static void TestFrame(const char *label, bool check_capture) {
   const char *why;
   // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
   GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
-  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_SlotPlanes : NULL);
+  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? TestSlotPlanes : NULL);
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);

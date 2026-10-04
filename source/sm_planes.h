@@ -14,9 +14,11 @@ int SmPlanes_LayerRule(int layer, int prio);
 int SmPlanes_RoomHasRules(void);
 
 // The tile fixes (SM_PLANE_FIX) of the current room for the renderer's tilemap surface of `layer` (1 = BG1, 2 = BG2),
-// which is `tw` x `th` tiles (32 or 64). Fills `grid` (rows of 64, th rows) with 0 where a tile keeps the layer's plane
-// and StereoPlane + 1 where a fix sends it elsewhere; returns how many tiles are set. A block of the level sits in
-// the tilemap at tile (2*bx + i, 2*by + j) modulo the tilemap's size; of the blocks that share a slot, the one nearest
+// which is `tw` x `th` tiles (32 or 64). Fills `grid` (rows of 64, th rows): per tile, bits 0-3 are 0 when it keeps the
+// layer's plane or StereoPlane + 1 when a fix sends it elsewhere, bits 4-7 are 0 when it keeps its tile priority or
+// priority + 1 when a fix sets the priority it is drawn with (SM_TILE_PRIO); returns how many tiles are set. A block of the level sits in
+// the tilemap at tile (2*(vx0 + bx - lx0) + i, 2*(vy0 + by - ly0) + j) modulo the tilemap's size (lx0 the block of the layer's
+// position, vx0 that of the position plus the scroll offset); of the blocks that share a slot, the one nearest
 // the camera is on screen. A fix whose block word no longer matches the level data (another room state) is ignored.
 // Suits GpuPpu_SetSlotPlanes.
 int SmPlanes_SlotPlanes(int layer, int tw, int th, uint8_t *grid);

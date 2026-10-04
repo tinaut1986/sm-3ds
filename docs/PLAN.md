@@ -1037,6 +1037,17 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
   GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
   rooms exported again).
+- 2026-10-04: `SM_TILE_PRIO` (workbench: "Draw the selection with priority"): a tile fix only moved a tile's depth, and a wall the game
+  draws at priority 0 was still crossed by Samus's weapon (A6A1: 3D in front, drawn behind the sprite). It sets the priority a tile is
+  drawn with (the texture, and compositor level, it goes to); GPU renderer only, and the host test compares without it
+  (`PRIO_FIXES=1` keeps it). Ash on the subscreen now takes one plane in front of the sprites too, not each pixel's owner's:
+  it jumped in front of Samus only while she crossed the layer it was on.
+- 2026-10-04: Block fixes were placed by `2*bx` in the tilemap, which only holds when the room's scroll offset
+  (`bg1_x_offset`, `bg2_x_scroll`) is a multiple of the tilemap's size: after a door it is the screen the room was
+  entered at (256 in B1E5), and the fixes landed on other tiles (A6A1 on the console). The game, and SmWide's `FillLayer`,
+  put block bx at tilemap block `vx0 + bx - lx0` (vx0 from position + offset): checked against WRAM and VRAM (B1E5 from 0 to
+  896 of 896 tiles). The rule `SM_LAYER_PLANE(0x9D19, 3, 0, FRONT)` (#35) was removed: it set the plane of an effect
+  that now follows what it covers.
 - 2026-10-04: The wait before texel writes (#19) cost a whole GPU frame on every frame that decoded anything (sprites' atlas,
   animated tiles: "build 18.5, wait for GPU 16.4 ms", the New 3DS at 40 fps in every room, from the owner's perf). Texels
   are now decoded into a copy in ordinary memory and the changed rows are copied to the GPU's texture after

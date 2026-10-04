@@ -66,13 +66,18 @@ layout is kept in the browser, `RELAYOUT` resets it):
 ```
 SM_PLANE_FIX(0xE0B5, 2, 3, 12, 0x001F, 0x3, kStereoPlay)    /* room, layer, bx, by, block word, corners, plane */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)              /* room, layer, tile priority, plane */
+SM_TILE_PRIO(0xA6A1, 1, 34, 3, 0x8194, 0xF, 1)          /* room, layer, bx, by, block word, corners, priority */
 ```
 
 `corners` is a mask of the block's four 8x8 tiles (1 top left, 2 top right, 4 bottom left, 8 bottom right, `0xF` all of it,
 corners of the block as drawn, flips applied), so a single wrong tile can be moved. `room` is the room header pointer (as `SmRoom.header`); `layer` 1 is BG1, 2 is BG2; `(bx, by)` is the block in
 the room's level data (not a screen or tilemap position: rooms are larger than the tilemap, which wraps); `block`
 is that block's 16-bit word in the level data, a checksum: if the data changes, the fix no longer applies and
-says so (it never moves another block). A block fix beats a layer rule, which beats the default of
+says so (it never moves another block). `SM_TILE_PRIO` changes the priority a block's tiles are *drawn* with, not only their depth: priority 1 draws them over the
+sprites of priority 0-2 (Samus's weapon), 0 under them, and a tile drawn with priority 1 goes to PLAY by default. Use it when a
+wall marked PLAY is still crossed by a sprite: the game has the tile at priority 0. It is the GPU renderer's (the picture changes
+there only), and the Result and the BG windows show it (AFTER; BEFORE keeps the tile's own priority).
+A block fix beats a layer rule, which beats the default of
 `StereoDepth_Plane` (BG1 prio 0 BACK, BG1 prio 1 PLAY, BG2 MID). Planes are the `StereoPlane` names of
 `source/stereo_depth.h`.
 

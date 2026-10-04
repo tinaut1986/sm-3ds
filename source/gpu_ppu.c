@@ -521,11 +521,12 @@ static bool PalDirty(const Surface *s, uint16_t entry) {
 
 // One 8x8 tile into its block of the priority texture; the same block of the other
 // texture is cleared.
-static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int plane) {
+static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int fix) {
   TexWriteBegin();   // the clears below write texels too
   const int w = SurfaceW(s);
   const int block = ((ty * (w >> 3)) + tx) << 6;
-  const int prio = (e & 0x2000) ? 1 : 0;
+  const int plane = fix & 15;   // StereoPlane + 1, 0 = the layer's own
+  const int prio = (fix >> 4) ? (fix >> 4) - 1 : (e & 0x2000) ? 1 : 0;   // a fix may set the priority the tile is drawn with
   GpuTex *to = plane ? ExtraTex(s, plane, prio) : NULL;
   if (!to) to = &s->tex[prio];
   uint16_t *dst = to->px + block;

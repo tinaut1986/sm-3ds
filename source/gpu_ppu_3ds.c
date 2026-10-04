@@ -502,35 +502,20 @@ static void MathPass(const GpuFrame *f, const GpuBand *b) {
     // The planes of what math applies to (their quads, and the backdrop): the subscreen moves with each.
     bool host[kStereoPlaneCount] = { false };
     for (int q = b->main_first; q < b->main_first + b->main_count; q++)
-      if (f->quads[q].flags & kGpuQuadMath) host[QuadPlane(&f->quads[q], false)] = true;
+      if (f->quads[q].flags & (kGpuQuadMath | kGpuQuadObj)) host[QuadPlane(&f->quads[q], false)] = true;   // the sprites always count
     if (b->backdrop_math) host[kStereoFar] = true;
-    // What math is not applied to (and drawn nearer than some of what it is): the effect must stay behind it.
-    bool other[kStereoPlaneCount] = { false };
-    for (int q = b->main_first; q < b->main_first + b->main_count; q++)
-      if (!(f->quads[q].flags & kGpuQuadMath)) other[QuadPlane(&f->quads[q], false)] = true;
-    int hmin = 99, hmax = -99, nmin = 99;
+    // One plane, a pixel in front of every plane the effect is added to and of the sprites' (Samus: the game adds the effect to
+    // her only some of the time): an effect that followed each pixel's owner jumped in front of her whenever she passed over
+    // the layer it was on, and sat behind her otherwise.
+    int hmax = StereoDepth_PlanePx(kStereoFar);
+    bool any = false;
     for (int p = 0; p < kStereoPlaneCount; p++)
       if (host[p]) {
         const int px = StereoDepth_PlanePx((StereoPlane)p);
-        if (px < hmin) hmin = px;
-        if (px > hmax) hmax = px;
+        if (!any || px > hmax) hmax = px;
+        any = true;
       }
-    if (hmin == 99) hmin = hmax = StereoDepth_PlanePx(kStereoFar);
-    for (int p = 0; p < kStereoPlaneCount; p++)
-      if (other[p] && !host[p]) {
-        const int px = StereoDepth_PlanePx((StereoPlane)p);
-        if (px > hmin && px < nmin) nmin = px;
-      }
-    if (hmax <= nmin) {
-      // Nothing it is not added to sits among what it is: one plane, a pixel in front of all of it (fog over the whole
-      // room is then in front of the whole room), but not past what it is not added to.
-      const int u = hmax + 1 < nmin ? hmax + 1 : nmin;
-      MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(u, g_slider, g_eye_sign));
-    } else {
-      // Mixed: each pixel a step in front of its own owner's plane (never past the next plane, planes being whole pixels).
-      for (int p = 0; p < kStereoPlaneCount; p++)
-        if (host[p]) MathAdd(f, b, 2 | p << 2, 0x1e, StereoDepth_EyeOffsetPx(StereoDepth_PlanePx((StereoPlane)p) + 1, g_slider, g_eye_sign));
-    }
+    MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(hmax + 1, g_slider, g_eye_sign));
   } else {
     EnvSolid(ColorFrom555(b->fixed, 255));
     C3D_AlphaTest(false, GPU_ALWAYS, 0);
