@@ -22,7 +22,7 @@ typedef enum {
   kStrScaled, kStrWideView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
   kStrResetQuestion, kStrResetLost1, kStrResetLost2, kStrReset, kStrCancel,
   kStrRaAchievements, kStrRaLogin, kStrRaLogout, kStrRaDisabled, kStrRaNoAccount, kStrRaConnecting, kStrRaOnline,
-  kStrRaOffline, kStrRaLoginError, kStrRaSummary, kStrRaCheats, kStrRaLoading, kStrRaNoList, kStrRaUnlocked,
+  kStrRaOffline, kStrRaLoginError, kStrRaSummary, kStrRaLoading, kStrRaNoList, kStrRaUnlocked,
   kStrRaNotify, kStrRaTop, kStrRaBottom, kStrRaSound, kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints,
   kStrRaSortRecent, kStrRaPoints, kStrRaLockedState, kStrRaUnlockedState, kStrRaMissable, kStrRaProgression,
   kStrRaWin, kStrClose,

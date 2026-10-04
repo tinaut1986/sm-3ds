@@ -22,8 +22,6 @@ static RaAchievement g_list[] = {
 static bool g_on = true;
 bool g_preview_ra_toast;
 
-void RetroAch_NoteCheat(void) {}
-bool RetroAch_CheatsUsed(void) { return false; }
 bool RetroAch_Enabled(void) { return g_on; }
 void RetroAch_SetEnabled(bool on) { g_on = on; }
 void RetroAch_PromptLogin(void) {}
