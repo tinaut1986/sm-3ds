@@ -128,6 +128,8 @@ static uint8_t g_w[(256 + 2 * kGpuMaxMargin) * 4 * (kGpuRows + 2 * kGpuMaxExtraR
 static int g_wide_bad, g_wide_frames, g_wide_dumped, g_wide_tagdiff, g_wide_filled;
 static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, margins included
 
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
+
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
   SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
@@ -275,6 +277,36 @@ static void TestWide(const char *label) {
   }
   memset(g_w, 0, sizeof(g_w));
   GpuRef_DrawFrameColumns(&g_frame, g_w, pitch, -ml, 256 + mr);
+  {   // STEREO_PLANES_WIDE=a-b: the WIDE frame (margins included) split by stereo plane, wideplanes-NNNN-P.ppm, as STEREO_PLANES
+    int pa, pb;
+    if (getenv("STEREO_PLANES_WIDE") && sscanf(getenv("STEREO_PLANES_WIDE"), "%d-%d", &pa, &pb) == 2 && g_frames >= pa && g_frames <= pb) {
+      static GpuFrame one;
+      static uint8_t img[1024 * 4 * 260];
+      const StereoFrame sf = { SmWide_Gameplay() };
+      for (int pl = 0; pl < kStereoPlaneCount; pl++) {
+        one = g_frame;
+        for (int q = 0; q < one.quad_count; q++) {
+          const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
+          if (QuadStereoPlane(&sf, &one.quads[q], hud) != pl) one.quads[q].w = 0;
+        }
+        for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
+        memset(img, 0, (size_t)pitch * rows);
+        GpuRef_DrawFrameColumns(&one, img, pitch, -ml, 256 + mr);
+        char name[48];
+        snprintf(name, sizeof(name), "wideplanes-%04d-%d.ppm", g_frames, pl);
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        fprintf(f, "P6\n%d %d\n255\n", w, rows);
+        for (int y = 0; y < rows; y++)
+          for (int x = 0; x < w; x++) {
+            const uint8_t *px = &img[y * pitch + x * 4];
+            const uint8_t rgb[3] = { px[2], px[1], px[0] };
+            fwrite(rgb, 1, 3, f);
+          }
+        fclose(f);
+      }
+    }
+  }
   int n = 0;
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.

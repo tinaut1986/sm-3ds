@@ -55,9 +55,9 @@ The dump is of the frame after the pause, not of the instant the button was tapp
 
 ## PLANE TINT
 
-GPU renderer only; the cell cycles OFF, PLANES, DRAW ORDER and STEREO DEPTH. PLANES: every quad of the frame is mixed 78% towards the flat colour of the
-stereo plane it was put on (`StereoDepth_Plane`), over its own picture so the scene stays
-readable; the 3D offsets still apply, so with the slider up each colour also moves by its
+GPU renderer only; the cell cycles OFF, PLANES, DRAW ORDER and STEREO DEPTH. PLANES: every quad of the frame is painted in the flat, opaque colour of the
+stereo plane it was put on (`StereoDepth_Plane`), keeping its own silhouette (a see-through mix hid the
+difference between a dark picture and a far plane); the 3D offsets still apply, so with the slider up each colour also moves by its
 own amount. The window shows the legend (nearest first): HUD magenta, FRONT cyan, PLAY
 orange, OBJ white, BACK red, MID green, FAR blue (a flat non-gameplay screen is grey).
 It is the on-console counterpart of `STEREO_PLANES=a-b` in `tools/gpu-ppu-test`, which

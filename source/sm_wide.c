@@ -273,6 +273,12 @@ static int Layer2X(int l1) {
 // The leaned view stands for a camera (l1 + m - left) that the game does not have: BG1 and
 // sprites follow it by construction, BG2 must be moved to where its parallax would put it.
 static void Bg2Shift(void) {
+  // An enemy that draws its body in BG2 (Kraid) moves it with BG1 and its own sprites: no parallax to restore, or the body
+  // slides away from the arms.
+  if (g_rtl_enemy_bg2_room == room_ptr && room_ptr == 0xA59F) {   // Kraid's room
+    g_bg2_dx = 0;
+    return;
+  }
   const int l1 = (uint16)layer1_x_pos, d = g_margin_x - g_left;
   g_bg2_dx = d ? Layer2X(l1 + d) - Layer2X(l1) - d : 0;
 }

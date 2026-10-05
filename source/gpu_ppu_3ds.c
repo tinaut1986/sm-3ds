@@ -204,9 +204,9 @@ static void EnvModulate(uint32_t rgba) {
   C3D_TexEnvColor(e, rgba);
 }
 
-// Debug plane tint: the quad's own texel, mixed 78% towards a flat colour in a second stage
-// (constant colour, alpha = the mix); the alpha stays the texel's so the alpha test and the
-// silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
+// Debug plane tint: the quad's own texel replaced by a flat, opaque colour in a second stage
+// (an interpolation with alpha 1: a dark picture over a dark plane must not look the same as
+// one on a far plane); the alpha stays the texel's so the alpha test and the silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
 static int g_plane_tint;   // kPlaneTint*
 void GpuPpu3ds_SetPlaneTint(int mode) { g_plane_tint = mode; }
 
@@ -218,7 +218,7 @@ static void EnvPlaneTint(uint32_t rgb) {
   C3D_TexEnvFunc(e, C3D_RGB, GPU_INTERPOLATE);
   C3D_TexEnvSrc(e, C3D_Alpha, GPU_PREVIOUS, 0, 0);
   C3D_TexEnvFunc(e, C3D_Alpha, GPU_REPLACE);
-  C3D_TexEnvColor(e, (rgb >> 16 & 0xff) | (rgb & 0xff00) | (rgb & 0xff) << 16 | 200u << 24);   // 0xAABBGGRR
+  C3D_TexEnvColor(e, (rgb >> 16 & 0xff) | (rgb & 0xff00) | (rgb & 0xff) << 16 | 255u << 24);   // 0xAABBGGRR
 }
 
 static void BlendOff(void) {

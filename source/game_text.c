@@ -15,14 +15,14 @@
 
 extern uint16 message_box_das0l_value;   // sm_85.c: bytes of the box's tilemap DMA
 
-// ---- The game's message box font (BG3, chars at VRAM word 0x4000, 2bpp) --------------
+// ---- The game's message box font (BG3, chars at its tile address, usually VRAM word 0x4000, 2bpp) --------------
 // Capitals A-Z are chars 0xE0-0xF9 in colour 1 on colour 3, 6 rows tall from the top;
 // '.' 0xFA, '?' 0xFE, '-' 0xCF; 0x4E (and 0x0F) is a cell of plain colour 3, the box's
 // background. The instruction lines are pre-drawn lowercase words in colour 2 on chars
 // 0xB0-0xDF, mixed with item icons and the button (a capital in its own colours, placed
 // by the game from the controller settings). Outside the box: 0x0E.
 enum {
-  kCharBase = 0x4000, kHudMap = 0x5800, kHudCells = 4 * 32,
+  kHudMap = 0x5800, kHudCells = 4 * 32,
   kTileA = 0xE0, kTileDot = 0xFA, kTileQuestion = 0xFE, kTileDash = 0xCF, kTileFill = 0x4E, kTileOutside = 0x0E,
   kPoolFirst = 0xB0, kPoolLast = 0xDF,
   kFlipXY = 0xC000,
@@ -340,14 +340,21 @@ static void VramPut(uint16_t adr, uint16_t v) {
   if (g_ppu_vram_dirty) g_ppu_vram_dirty[adr >> 3] = 1;
 }
 
+// BG3's chars as the room has them (0x4000 in most rooms; Kraid's has them at 0x2000 and his BG2 tilemap at 0x4000).
+static uint16_t CharBase(void) {
+  const Ppu *ppu = VramPpu();
+  return ppu ? ppu->bgLayer[2].tileAdr : 0x4000;
+}
+
 enum { kMaxBorrowed = kPoolLast - kPoolFirst + 1 };
 static uint16_t g_saved[kMaxBorrowed][8];
 static uint8_t g_saved_char[kMaxBorrowed];
 static int g_saved_count;
+static uint16_t g_saved_base;   // where the borrowed chars were taken from (the room may change before they go back)
 
 static void RestoreChars(void) {
   for (int i = 0; i < g_saved_count; i++)
-    for (int y = 0; y < 8; y++) VramPut((uint16_t)(kCharBase + g_saved_char[i] * 8 + y), g_saved[i][y]);
+    for (int y = 0; y < 8; y++) VramPut((uint16_t)(g_saved_base + g_saved_char[i] * 8 + y), g_saved[i][y]);
   g_saved_count = 0;
 }
 
@@ -617,15 +624,18 @@ static void Translate(void) {
     for (int x = 0; x < 32; x++)
       if (b.new_tile[r][x] < 0) used[CellChar(b.map[r][x])] = true;
   int chr_of[kMaxNew], next = kPoolFirst;
+  const uint16_t char_base = CharBase();
+  if (g_saved_count && g_saved_base != char_base) RestoreChars();
+  g_saved_base = char_base;
   for (int i = 0; i < b.tile_count; i++) {
     while (next <= kPoolLast && (used[next] || FixedChar(next))) next++;
     chr_of[i] = next <= kPoolLast ? next++ : -1;
     if (chr_of[i] < 0) continue;
     uint16_t data[8];
     TileToChar(&b.tiles[i], data);
-    for (int y = 0; y < 8; y++) g_saved[g_saved_count][y] = ppu->vram[(kCharBase + chr_of[i] * 8 + y) & 0x7fff];
+    for (int y = 0; y < 8; y++) g_saved[g_saved_count][y] = ppu->vram[(char_base + chr_of[i] * 8 + y) & 0x7fff];
     g_saved_char[g_saved_count++] = (uint8_t)chr_of[i];
-    for (int y = 0; y < 8; y++) VramPut((uint16_t)(kCharBase + chr_of[i] * 8 + y), data[y]);
+    for (int y = 0; y < 8; y++) VramPut((uint16_t)(char_base + chr_of[i] * 8 + y), data[y]);
   }
   for (int r = 0; r < b.rows + 2; r++)
     for (int x = 0; x < 32; x++) {
