@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "stereo_depth.h"
+
 // The plane (a StereoPlane) the current room sends the layer to, or -1 for the depth function's own choice.
 // `layer`: 1..3 = BG1..BG3, 4 = sprites (`prio` = OAM priority 0..3), 5 = Mode 7. `prio` for the BGs: the tiles'
 // priority bit. Suits GpuPpu_SetPlaneRule.
@@ -25,3 +27,6 @@ int SmPlanes_SlotPlanes(int layer, int tw, int th, uint8_t *grid);
 
 // Rules in the file, for the log and the tests.
 int SmPlanes_RuleCount(void);
+
+// Which non-gameplay screen the game state is, for the 3D (stereo_depth.h): its text and interface in front.
+StereoScreen SmPlanes_Screen(void);

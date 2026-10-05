@@ -41,8 +41,20 @@ typedef struct {
   bool hud;           // in the frame's HUD list (GpuFrame.hud_first), or the port's own text
 } StereoItem;
 
+// The non-gameplay screens that get depth (P3.4): their text and interface in front of the
+// art behind them. Any other screen is flat.
+typedef enum {
+  kStereoScreenFlat,
+  kStereoScreenTitle,      // Nintendo logo, title: the sprites (logo, copyright) in front
+  kStereoScreenMenu,       // file select: everything but BG2 (the planet) in front
+  kStereoScreenIntro,      // the story text (BG3, and its typing cursor) in front of the pictures
+  kStereoScreenPause,      // map and equipment: everything but BG2's grid in front
+  kStereoScreenGameOver,   // the text and the cursor
+} StereoScreen;
+
 typedef struct {
   bool gameplay;      // the room is on screen (game states 7, 8, 12, 18, ... as SmWide's)
+  StereoScreen screen;   // when not gameplay
 } StereoFrame;
 
 StereoPlane StereoDepth_Plane(const StereoFrame *frame, const StereoItem *item);

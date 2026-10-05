@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "gpu_ppu.h"
+#include "stereo_depth.h"
 
 // Lazy: nothing of citro3d is touched until the GPU renderer is first switched on.
 // Returns false if it could not start (then keep using the CPU renderer).
@@ -30,7 +31,7 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
 // `pixel_perfect`.
 // `slider`: the 3D slider (0 = one flat eye); `gameplay`: the room is on screen (stereo
 // planes; otherwise the frame is drawn flat, its HUD list and text excepted).
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay);
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay, StereoScreen screen);
 
 // Waits until the GPU has finished everything queued, so the CPU can write the top
 // framebuffer again (when switching back to the CPU renderer).

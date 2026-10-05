@@ -292,7 +292,7 @@ static void TestWide(const char *label) {
     if (getenv("STEREO_PLANES_WIDE") && sscanf(getenv("STEREO_PLANES_WIDE"), "%d-%d", &pa, &pb) == 2 && g_frames >= pa && g_frames <= pb) {
       static GpuFrame one;
       static uint8_t img[1024 * 4 * 260];
-      const StereoFrame sf = { SmWide_Gameplay() };
+      const StereoFrame sf = { SmWide_Gameplay(), SmPlanes_Screen() };
       for (int pl = 0; pl < kStereoPlaneCount; pl++) {
         one = g_frame;
         for (int q = 0; q < one.quad_count; q++) {
@@ -665,6 +665,64 @@ static void TestFrame(const char *label, bool check_capture) {
       const GpuQuad *qd = &g_frame.quads[q];
       printf("quad %d level %d flags %x x %d y %d w %d h %d\n", q, qd->level, qd->flags, qd->x, qd->y, qd->w, qd->h);
     }
+  // STATE_SURVEY=n: every n-th tested frame (and whenever the game state changes), the state and each
+  // compositor level's quads (count and bounding box, screen pixels): what each non-gameplay screen is made of (P3.4).
+  if (getenv("STATE_SURVEY")) {
+    static int last_state = -1;
+    if (game_state != last_state || g_frames % atoi(getenv("STATE_SURVEY")) == 0) {
+      last_state = game_state;
+      printf("SURVEY frame %d state %02X:", g_frames, game_state);
+      for (int lv = 0; lv < 16; lv++)
+        for (int obj = 0; obj < 2; obj++) {
+          int n = 0, x0 = 999, y0 = 999, x1 = -999, y1 = -999;
+          for (int q = 0; q < g_frame.quad_count; q++) {
+            const GpuQuad *qd = &g_frame.quads[q];
+            if (qd->level != lv || !!(qd->flags & kGpuQuadObj) != obj) continue;
+            n++;
+            if (qd->x < x0) x0 = qd->x;
+            if (qd->y < y0) y0 = qd->y;
+            if (qd->x + qd->w > x1) x1 = qd->x + qd->w;
+            if (qd->y + qd->h > y1) y1 = qd->y + qd->h;
+          }
+          if (n) printf(" %s%d[%d %d,%d..%d,%d]", obj ? "o" : "L", lv, n, x0, y0, x1, y1);
+        }
+      printf(" bands %d mode7 %d\n", g_frame.band_count, (int)(g_cap.line[100].mode == 7));
+    }
+  }
+  // LEVEL_SPLIT=f1,f2,...: at those tested frames, one image per compositor level present
+  // (level-FFFF-L15.ppm for a layer, -o10 for sprites; magenta backdrop): which layer holds what (P3.4).
+  if (getenv("LEVEL_SPLIT")) {
+    bool want = false;
+    for (const char *c = getenv("LEVEL_SPLIT"); *c; c = strchr(c, ',') ? strchr(c, ',') + 1 : c + strlen(c))
+      want |= atoi(c) == g_frames;
+    for (int lv = 0; want && lv < 16; lv++)
+      for (int obj = 0; obj < 2; obj++) {
+        static GpuFrame one;
+        static uint8_t img[kPitch * 240];
+        one = g_frame;
+        int n = 0;
+        for (int q = 0; q < one.quad_count; q++) {
+          if (one.quads[q].level != lv || !!(one.quads[q].flags & kGpuQuadObj) != obj) one.quads[q].w = 0;
+          else n++;
+        }
+        if (!n) continue;
+        for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = 0x7c1f;
+        memset(img, 0, sizeof(img));
+        GpuRef_DrawFrame(&one, img, kPitch);
+        char name[48];
+        snprintf(name, sizeof(name), "level-%04d-%s%d.ppm", g_frames, obj ? "o" : "L", lv);
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        fprintf(f, "P6\n256 224\n255\n");
+        for (int y = 0; y < 224; y++)
+          for (int x = 0; x < 256; x++) {
+            const uint8_t *px = &img[y * kPitch + x * 4];
+            const uint8_t rgb[3] = { px[2], px[1], px[0] };
+            fwrite(rgb, 1, 3, f);
+          }
+        fclose(f);
+      }
+  }
   // STEREO_BANDS_EVERY=n: every n-th tested frame, the room and each band's colour math (which main quads it applies to, which
   // quads are the subscreen): L = a layer, o = a sprite, + = math applies, then its level. To find the rooms with effects.
   if (getenv("STEREO_BANDS_EVERY") && g_frames % atoi(getenv("STEREO_BANDS_EVERY")) == 0)
@@ -686,7 +744,7 @@ static void TestFrame(const char *label, bool check_capture) {
       g_frames <= sp_b) {
     static GpuFrame one;
     static uint8_t img[kPitch * 240];
-    const StereoFrame sf = { SmWide_Gameplay() };
+    const StereoFrame sf = { SmWide_Gameplay(), SmPlanes_Screen() };
     if (getenv("STEREO_QUADS"))   // each quad's place, compositor level and plane
       for (int q = 0; q < g_frame.quad_count; q++) {
         const GpuQuad *qd = &g_frame.quads[q];

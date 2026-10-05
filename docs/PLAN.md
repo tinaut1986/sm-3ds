@@ -307,7 +307,12 @@ Lessons from mzm that apply directly:
   (`GpuPpu_SetSlotPlanes`: the fixed tiles go to a texture per plane, host-checked, not yet on the console). First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
   The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
 - [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
-  (flat or with deliberate depth).
+  (flat or with deliberate depth). Owner's rule (2026-10-06): text in front of everything.
+  First cut 2026-10-06 (branch `feat/stereo-screens`, to check on the New 3DS): the title's sprites, file
+  select, the intro's text, the pause screens and game over have their text and interface on the `HUD`
+  plane and the art behind flat (`docs/stereo-design.md`, "Screens outside gameplay"; `SmPlanes_Screen`,
+  host test `stereo-depth`). Not yet: the options menu, file-select map, ending and credits (flat);
+  the message boxes inside gameplay (BG3 over the room, today `FRONT`, not `HUD`).
 
 ## Phase 4: features
 

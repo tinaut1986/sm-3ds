@@ -12,9 +12,28 @@ static bool g_thickness = true;
 void StereoDepth_SetThickness(bool on) { g_thickness = on; }
 bool StereoDepth_Thickness(void) { return g_thickness; }
 
+// A non-gameplay screen: its art stays on the screen's plane, the text and interface go in front.
+static StereoPlane ScreenPlane(StereoScreen screen, const StereoItem *item) {
+  const bool obj = item->kind == kStereoKindObj, bg = item->kind == kStereoKindBg;
+  switch (screen) {
+  case kStereoScreenTitle:
+    return obj ? kStereoHud : kStereoScreen;
+  case kStereoScreenMenu:
+    return (bg && item->layer == 1) || (!obj && !bg) ? kStereoScreen : kStereoHud;
+  case kStereoScreenIntro:
+    return (bg && item->layer == 2) || (obj && item->priority == 3) ? kStereoHud : kStereoScreen;
+  case kStereoScreenPause:
+    return (bg && item->layer == 1 && !item->priority) || (!obj && !bg) ? kStereoScreen : kStereoHud;
+  case kStereoScreenGameOver:
+    return obj || (bg && item->layer == 0 && !item->priority) ? kStereoHud : kStereoScreen;
+  default:
+    return kStereoScreen;
+  }
+}
+
 StereoPlane StereoDepth_Plane(const StereoFrame *frame, const StereoItem *item) {
   if (item->hud) return kStereoHud;   // text and HUD in front of everything, menus included
-  if (!frame->gameplay) return kStereoScreen;
+  if (!frame->gameplay) return ScreenPlane(frame->screen, item);
   switch (item->kind) {
   case kStereoKindObj:
     return item->priority == 3 ? kStereoPlay : kStereoObj;   // priority 3: drawn over the walls

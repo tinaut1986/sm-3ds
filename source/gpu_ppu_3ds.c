@@ -709,7 +709,7 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
   }
 }
 
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay) {
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay, StereoScreen screen) {
   if (!g_ready) return;
   const u64 t0 = svcGetSystemTick();
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
@@ -720,6 +720,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   g_nverts = 0;
   SetTexOffset(-f->x0);   // at most 512 - 256 - the right margin: GpuPpu_SetMargins
   g_stereo_frame.gameplay = gameplay;
+  g_stereo_frame.screen = screen;
   // Two eyes only with the 3D screen on (gfxSet3D, main.c) and the slider up; otherwise
   // one, unshifted (2DS: always).
   const int eyes = slider > 0 && gfxIs3D() ? 2 : 1;
