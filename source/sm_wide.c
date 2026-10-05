@@ -25,6 +25,12 @@ static bool g_mode7;   // the last frame showed a mode 7 room (Ceres): the plane
 static int g_room[4];        // the room in screen pixels, as drawn (screen shake included)
 static int g_room_still[4];  // the same without the shake: what the lean follows
 
+// The X-ray scope is on and set up (it freezes time; the angle is set when its tilemaps are queued).
+static bool XrayActive(void) { return (time_is_frozen_flag & 0xff) && xray_angle && CanXrayShowBlocks(); }
+// The scope is switching off: the game points its window table at the empty one (0x980001) and
+// puts BG2 back, frames before it clears the freeze.
+static bool XrayOff(void) { return hdma_ptr_1.addr == 0x0001 && hdma_ptr_1.bank == 0x98; }
+
 // Whether the frame shows the room as it is in the level data. In a door transition only
 // while the old room fades out (its level data still loaded, the camera where it was) and
 // while the new one fades in (loaded, the camera at its destination); in between the
@@ -273,6 +279,11 @@ static int Layer2X(int l1) {
 // The leaned view stands for a camera (l1 + m - left) that the game does not have: BG1 and
 // sprites follow it by construction, BG2 must be moved to where its parallax would put it.
 static void Bg2Shift(void) {
+  // The scope's BG2 is a copy of BG1's blocks: no parallax to restore.
+  if (XrayActive()) {
+    g_bg2_dx = 0;
+    return;
+  }
   // An enemy that draws its body in BG2 (Kraid) moves it with BG1 and its own sprites: no parallax to restore, or the body
   // slides away from the arms.
   if (g_rtl_enemy_bg2_room == room_ptr && room_ptr == 0xA59F) {   // Kraid's room
@@ -356,7 +367,7 @@ static void ConeExtent(void) {
   // The X-ray scope switching off leaves frames in which the game does not work the cone out but
   // its windows are still on: the last one stands until the scope is done (time unfrozen), or
   // the margins showed the BG2 pages' garbage there.
-  if (!g_rtl_xray_cone.fresh && g_win1_on && g_cone_window == 2 && (time_is_frozen_flag & 0xff)) return;
+  if (!g_rtl_xray_cone.fresh && g_win1_on && g_cone_window == 2 && (time_is_frozen_flag & 0xff) && !XrayOff()) return;
   g_win1_on = g_rtl_xray_cone.fresh;
   g_rtl_xray_cone.fresh = false;
   if (!g_win1_on) return;
@@ -366,20 +377,79 @@ static void ConeExtent(void) {
     // Measured against the game's own tables: its apex is column x - 1 of captured line y.
     ConeSpan(c->x - 1, l - c->y, c->center & 0xff, c->half_width, g_win1[l]);
   g_cone_window = c->table == 0x9800 ? 2 : 1;
-  // The X-ray scope reveals blocks through BG2, which the game rebuilds for the 256 px view
-  // only (Xray_SetupStage4): in the margins its tilemap is something else, so its cone
-  // stays within the view there.
-  if (g_cone_window == 2)
-    for (int l = 1; l < kPpuCaptureLines; l++) {
-      if (g_win1[l][0] == kGpuWinNone) continue;
-      g_win1[l][0] = g_win1[l][0] < 0 ? 0 : g_win1[l][0] > 256 ? 256 : g_win1[l][0];
-      g_win1[l][1] = g_win1[l][1] < g_win1[l][0] ? g_win1[l][0] : g_win1[l][1] > 256 ? 256 : g_win1[l][1];
-    }
 }
 
 const int16_t (*SmWide_WindowCone(int *window))[2] {
   *window = g_cone_window;
   return g_win1_on ? (const int16_t (*)[2])g_win1 : NULL;
+}
+
+// ---- The X-ray scope in the margins -------------------------------------------------------
+// While the scope is on, BG2 shows its cone: a copy of BG1's blocks with the ones it reveals
+// drawn as they are under it. The game builds that tilemap for its 17 block columns only
+// (Xray_SetupStage4, in the two 32x32 pages BG2SC points at). For the margins' block columns
+// the same tilemap is built here with the game's own block drawers (RtlXrayBuildBlock), over a
+// copy of what BG1 shows there, and written to the pages' other columns (a 64-column map: the
+// left margin wraps to its end). The pages are put back as they were when the scope is done.
+static uint16_t g_xmap[2048 + 128];    // the pages as the game lays them out (+ what its drawers write past the last row)
+static uint16_t g_xsnap[2048];   // BG2's pages before the scope
+static bool g_xsaved;
+static uint16_t g_xsnap_base;
+
+static int XIdx(int tc, int tr) { return ((tc & 63) >= 32 ? 1024 : 0) + (tr & 31) * 32 + (tc & 31); }
+
+static void XrayMargins(Ppu *ppu) {
+  if (!XrayActive()) {
+    if (g_xsaved)   // the scope is done: BG2 as it was
+      for (int i = 0; i < 2048; i++) VramPut(ppu, (uint16_t)(g_xsnap_base + i), g_xsnap[i]);
+    g_xsaved = false;
+    return;
+  }
+  const uint16_t base = (uint16_t)((reg_BG2SC & 0xfc) << 8);
+  if (!(reg_BG2SC & 1) || !(reg_BG1SC & 1)) return;
+  if (!g_xsaved) {
+    for (int i = 0; i < 2048; i++) g_xsnap[i] = ppu->vram[(base + i) & 0x7fff];
+    g_xsnap_base = base;
+    g_xsaved = true;
+  }
+  if (g_xsnap_base != base) return;
+  const uint16_t b1 = (uint16_t)((reg_BG1SC & 0xfc) << 8);
+  const int bxm = (uint16)(layer1_x_pos + bg1_x_offset) >> 4, bym = (uint16)(layer1_y_pos + bg1_y_offset) >> 4;
+  const int lx0 = FloorDiv16((int16)layer1_x_pos), ly0 = FloorDiv16((int16)layer1_y_pos);
+  const int fx = reg_BG2HOFS & 15;
+  int k0 = FloorDiv16(fx - g_left), k1 = FloorDiv16(fx + 255 + g_right);
+  if (k0 >= 0 && k1 <= 16) return;   // no margin columns
+  if (k1 - k0 > 31) k1 = k0 + 31;
+  // BG1's blocks, as BG1 shows them (its margins are filled by now).
+  for (int k = k0; k <= k1; k++)
+    for (int j = 0; j < 16; j++)
+      for (int d = 0; d < 4; d++) {
+        const int dx = d & 1, dy = d >> 1;
+        g_xmap[XIdx(2 * k + dx, 2 * j + dy)] =
+            ppu->vram[(b1 + XIdx(2 * (bxm + k) + dx, 2 * (bym + j) + dy)) & 0x7fff];
+      }
+  // The blocks the scope reveals, drawn as the game does: a row at a time, left to right.
+  const int w = room_width_in_blocks, h = room_height_in_blocks;
+  for (int j = 0; j < 16; j++) {
+    const int lr = ly0 + j;
+    if (lr < 0 || lr >= h) continue;
+    for (int k = k0; k <= k1; k++) {
+      const int lc = lx0 + k;
+      if (lc < 0 || lc >= w) continue;
+      const uint16 dst = (uint16)(2 * XIdx(2 * k, 2 * j));
+      if (k == k0 && lc > 0) RtlXrayBuildBlock(g_xmap, 0, dst, (uint16)(lr * w + lc), true);
+      RtlXrayBuildBlock(g_xmap, k == k1 ? 1 : 2, dst, (uint16)(lr * w + lc), false);
+    }
+  }
+  // Out to the margins' columns; the game's own (0..16) stay as it built them.
+  for (int k = k0; k <= k1; k++) {
+    if (k >= 0 && k <= 16) continue;
+    for (int j = 0; j < 16; j++)
+      for (int d = 0; d < 4; d++) {
+        const int idx = XIdx(2 * k + (d & 1), 2 * j + (d >> 1));
+        VramPut(ppu, (uint16_t)(base + idx), g_xmap[idx]);
+      }
+  }
 }
 
 static void BeforePpuDraw(void) {
@@ -443,6 +513,7 @@ static void BeforePpuDraw(void) {
     FillLayer(ppu, custom_background, reg_BG2SC, reg_BG2HOFS + g_bg2_dx, reg_BG2VOFS,
               bg2_x_scroll + layer2_x_pos + g_bg2_dx, bg2_y_scroll + layer2_y_pos, layer2_x_pos + g_bg2_dx,
               layer2_y_pos, g_bg2_dx != 0);
+  XrayMargins(ppu);
   if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
   g_filled = true;
 }

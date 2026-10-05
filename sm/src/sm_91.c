@@ -791,6 +791,7 @@ static void XrayHdmaOnScreen_BeamHoriz(XrayHdmaCtx *ctx) {  // 0x91C998
 }
 
 RtlXrayCone g_rtl_xray_cone;   // 3DS port, see sm_rtl.h
+uint16 *g_rtl_xray_out;        // 3DS port, see XrayOut
 
 void CalculateXrayHdmaTableInner(uint16 k, uint16 j, uint16 r18, uint16 r20, bool off_screen, uint16 *dest_addr) {
   int v3;
@@ -996,12 +997,16 @@ static const uint8 *Xray_GetXrayedBlock(uint16 k) {  // 0x91CDD6
 }
 
 
+// 3DS port, WIDE view (sm_wide.c, XrayMargins): the block drawers below write into this map
+// instead of the game's when it is set, to build the scope's tiles for the margins' blocks.
+static uint16 *XrayOut(void) { return g_rtl_xray_out ? g_rtl_xray_out : ram4000.xray_tilemaps; }
+
 void Xray_SetupStage4_Func2(uint16 dst_r22, uint16 r34) {  // 0x91CD42
   // bug: passing 0xffff to this function is invalid and will read invalid memory.
   if (r34 == 0)
     return;
   const uint8 *jp = Xray_GetXrayedBlock(r34 - 1);
-  uint16 *dst = (uint16 *)((uint8 *)ram4000.xray_tilemaps + dst_r22);
+  uint16 *dst = (uint16 *)((uint8 *)XrayOut() + dst_r22);
 
   if (jp == NULL)
     return;
@@ -1091,10 +1096,10 @@ static void Xray_Func11(uint16 r18, uint16 dst_r22, const uint8 *jp) {  // 0x91C
     uint16 top_right = tile_table.tables[v5].top_right;
     uint16 bottom_left = tile_table.tables[v5].bottom_left;
     uint16 bottom_right = tile_table.tables[v5].bottom_right;
-    *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[99] + dst_r22) = bottom_right;
-    *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[98] + dst_r22) = bottom_left;
-    *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[67] + dst_r22) = top_right;
-    *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[66] + dst_r22) = top_left;
+    *(uint16 *)((uint8 *)&XrayOut()[99] + dst_r22) = bottom_right;
+    *(uint16 *)((uint8 *)&XrayOut()[98] + dst_r22) = bottom_left;
+    *(uint16 *)((uint8 *)&XrayOut()[67] + dst_r22) = top_right;
+    *(uint16 *)((uint8 *)&XrayOut()[66] + dst_r22) = top_left;
   }
 }
 
@@ -1127,10 +1132,10 @@ static void Xray_Func13(uint16 dst_r22, uint16 a) {  // 0x91CFC1
   uint16 top_right = tile_table.tables[a].top_right;
   uint16 bottom_left = tile_table.tables[a].bottom_left;
   uint16 bottom_right = tile_table.tables[a].bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[33] + dst_r22) = bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[32] + dst_r22) = bottom_left;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[1] + dst_r22) = top_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[0] + dst_r22) = top_left;
+  *(uint16 *)((uint8 *)&XrayOut()[33] + dst_r22) = bottom_right;
+  *(uint16 *)((uint8 *)&XrayOut()[32] + dst_r22) = bottom_left;
+  *(uint16 *)((uint8 *)&XrayOut()[1] + dst_r22) = top_right;
+  *(uint16 *)((uint8 *)&XrayOut()[0] + dst_r22) = top_left;
 }
 
 static void Xray_Func14(uint16 dst_r22, const uint8 *jp) {  // 0x91CFEE
@@ -1139,10 +1144,10 @@ static void Xray_Func14(uint16 dst_r22, const uint8 *jp) {  // 0x91CFEE
   uint16 top_right = tile_table.tables[a].top_right;
   uint16 bottom_left = tile_table.tables[a].bottom_left;
   uint16 bottom_right = tile_table.tables[a].bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[35] + dst_r22) = bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[34] + dst_r22) = bottom_left;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[3] + dst_r22) = top_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[2] + dst_r22) = top_left;
+  *(uint16 *)((uint8 *)&XrayOut()[35] + dst_r22) = bottom_right;
+  *(uint16 *)((uint8 *)&XrayOut()[34] + dst_r22) = bottom_left;
+  *(uint16 *)((uint8 *)&XrayOut()[3] + dst_r22) = top_right;
+  *(uint16 *)((uint8 *)&XrayOut()[2] + dst_r22) = top_left;
 }
 
 static void Xray_Func15(uint16 dst_r22, const uint8 *jp) {  // 0x91D01D
@@ -1151,10 +1156,10 @@ static void Xray_Func15(uint16 dst_r22, const uint8 *jp) {  // 0x91D01D
   uint16 top_right = tile_table.tables[a].top_right;
   uint16 bottom_left = tile_table.tables[a].bottom_left;
   uint16 bottom_right = tile_table.tables[a].bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[97] + dst_r22) = bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[96] + dst_r22) = bottom_left;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[65] + dst_r22) = top_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[64] + dst_r22) = top_left;
+  *(uint16 *)((uint8 *)&XrayOut()[97] + dst_r22) = bottom_right;
+  *(uint16 *)((uint8 *)&XrayOut()[96] + dst_r22) = bottom_left;
+  *(uint16 *)((uint8 *)&XrayOut()[65] + dst_r22) = top_right;
+  *(uint16 *)((uint8 *)&XrayOut()[64] + dst_r22) = top_left;
 }
 
 static void Xray_Func16(uint16 dst_r22, uint16 a) {  // 0x91D0A6
@@ -1162,10 +1167,10 @@ static void Xray_Func16(uint16 dst_r22, uint16 a) {  // 0x91D0A6
   uint16 top_right = tile_table.tables[a].top_right;
   uint16 bottom_left = tile_table.tables[a].bottom_left;
   uint16 bottom_right = tile_table.tables[a].bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[1] + dst_r22) = bottom_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[0] + dst_r22) = bottom_left;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[33] + dst_r22) = top_right;
-  *(uint16 *)((uint8 *)&ram4000.xray_tilemaps[32] + dst_r22) = top_left;
+  *(uint16 *)((uint8 *)&XrayOut()[1] + dst_r22) = bottom_right;
+  *(uint16 *)((uint8 *)&XrayOut()[0] + dst_r22) = bottom_left;
+  *(uint16 *)((uint8 *)&XrayOut()[33] + dst_r22) = top_right;
+  *(uint16 *)((uint8 *)&XrayOut()[32] + dst_r22) = top_left;
 }
 
 void LoadBlockToXrayTilemap(uint16 a, uint16 k, uint16 j) {  // 0x91D04C
@@ -3980,4 +3985,17 @@ uint8 HandleCollDueToChangedPose_Block_CollBoth(void) {  // 0x91FFA7
     samus_prev_y_pos = samus_y_pos;
   }
   return 0;
+}
+
+// 3DS port, WIDE view: the scope's tiles of level block `block` drawn into `out` (laid out like the
+// game's maps: two 32x32 tile pages) at byte offset dst_r22, as the setup does for the view's
+// blocks: Func3 for the block itself (r18: 1 = no block to its right), `left` for what the block
+// to its left spills into this one (Func2, `block` being the one this spills into, not 0).
+void RtlXrayBuildBlock(uint16 *out, uint16 r18, uint16 dst_r22, uint16 block, bool left) {
+  g_rtl_xray_out = out;
+  if (left)
+    Xray_SetupStage4_Func2(dst_r22, block);
+  else
+    Xray_SetupStage4_Func3(r18, dst_r22, block);
+  g_rtl_xray_out = NULL;
 }

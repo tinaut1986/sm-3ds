@@ -262,6 +262,15 @@ static void TestWide(const char *label) {
     }
     printf("\n");
   }
+  if (getenv("LINE_REGS")) {   // LINE_REGS=n: the registers of captured line n (colour math, windows, layers)
+    const PpuLineState *l = &g_cap.line[atoi(getenv("LINE_REGS"))];
+    printf("  line regs: TM %02x TS %02x windowed %02x/%02x windowsel %08x W1 %d..%d W2 %d..%d clip %d prevent %d math",
+           l->screenEnabled[0], l->screenEnabled[1], l->screenWindowed[0], l->screenWindowed[1], l->windowsel,
+           l->window1left, l->window1right, l->window2left, l->window2right, l->clipMode, l->preventMathMode);
+    for (int i = 0; i < 6; i++) printf(" %d", l->mathEnabled[i]);
+    printf(" sub %d half %d addsub %d fixed %d,%d,%d bright %d\n", l->addSubscreen, l->halfColor, l->subtractColor,
+           l->fixedColorR, l->fixedColorG, l->fixedColorB, l->brightness);
+  }
   if (getenv("WIDE_BANDS")) {   // the masks, the bands of the wide frame and their main-screen quads
     printf("  masks:");
     for (int i = 0; i < g_frame.mask_count; i++)
