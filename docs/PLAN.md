@@ -312,8 +312,15 @@ Lessons from mzm that apply directly:
 - [ ] **P4.4** RetroAchievements (softcore only).
   Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
-  The existing SNES set runs as is: rcheevos' "System RAM" is `g_ram` (same layout as the
+  The existing SNES set runs with one adaptation (below): rcheevos' "System RAM" is `g_ram` (same layout as the
   SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
+  **The port is a reimplementation, not the original code** (`sm/` is hand-written C checked against the ROM, see CLAUDE.md), so
+  the sets are adapted to the one that exists now (2026-10-05, 134 achievements) and **must be adapted again if it changes**:
+  19 of its achievements (every item pick-up, four bosses, two map downloads) also ask for two 16-bit words of the original's
+  direct-page scratch ($0032, $0034) to hold a pair of numbers when the event happens, which the C code keeps in locals;
+  `retro_ach.c` (`kDpTags`) writes the pair in the frame of the event. The port saves the set it downloads as
+  `debug/ra-set.json`; `tools/ra-tags/dp_tags.py` compares it with the table (issue #37). Anything else a new set reads from
+  outside the game's own variables (the stack, other scratch) would need the same.
   Progress goes with save states (`saves/saveN.rap`). Cheats and the teleport do not pause
   it (see the decisions log, 2026-10-04). Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
   notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
@@ -1039,6 +1046,12 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
   GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
   rooms exported again).
+- 2026-10-05: 19 achievements of the RA set never unlocked (#37: Morph Ball, Varia, every beam and suit, four bosses, two maps): next to
+  the item bit they ask that the 16-bit words at $0032 and $0034 hold a pair of numbers per event (`0x 000032=42`, `0x 000034=14`
+  for the Morph Ball): direct-page scratch the original asm leaves there in that frame, kept in locals by the C code. Read off the
+  downloaded set (`debug/ra-set.json`, saved by the port); `retro_ach.c` writes the pair in the frame the bit, boss bit or map byte
+  changes and puts the old bytes back (`kDpTags`). The table is for the set as it is (2026-10-05): if the set changes the table must be
+  adapted again, `tools/ra-tags/dp_tags.py ra-set.json source/retro_ach.c` says what differs. Checked on the console by the owner: they unlock.
 - 2026-10-05: The garbage strip in Kraid's body (A59F, GLITCH OR GARBAGE dumps 0005, 0009, 0010) was the translated HUD: `HudScreen` wrote
   the letters of "ENERGY" into BG3 chars 0x0b-0x0d at a fixed VRAM word 0x4000, but in Kraid's room BG3's chars are at 0x2000 and
   0x4000 is BG2's tilemap (VRAM 0x4058-0x406F, 24 words, with any UI language but English). Both text hooks now take the address

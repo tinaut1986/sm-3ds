@@ -99,7 +99,8 @@ once landed in slot 00 (issue #8).
 | `sm-rec-NNNN.bin` | scene recorder (below) |
 | `sm-dump-NNNN-note.txt`, `sm-rec-NNNN-note.txt` | what the owner said was wrong when taking it (REPORT, below): one line |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |
-| `retroachievements.log` | RetroAchievements, all builds: each server call (URL without its query, which carries the token), login, game load, unlocks, errors |
+| `retroachievements.log` | RetroAchievements, all builds: each server call (URL without its query, which carries the token), login, game load (how many the account has unlocked, the Varia ones' state), unlocks, `achievement tag:` lines (the $0032/$0034 pair written for an event, see PLAN P4.4), errors |
+| `ra-set.json` | the RetroAchievements set as downloaded (game data only, no account): `tools/ra-tags/dp_tags.py` checks the table in `retro_ach.c` against it |
 
 Save states are `saves/saveN.sav` with `saves/saveN.txt` (where and when, for the
 STATES tab).

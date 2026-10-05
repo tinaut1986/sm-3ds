@@ -53,6 +53,10 @@ running the real ROM on the bundled CPU emulator in lockstep and comparing RAM
 frame by frame. Consequences:
 
 - The ROM is still required at runtime (graphics, levels, music data).
+- It is **not the original code**: anything that expects the original's internals (direct-page scratch, the stack, exact timing) is
+  not there. The game's variables are at the original's WRAM addresses, so RetroAchievements and original `.srm` saves work, but
+  the RA set needs a table for what it reads outside them (`kDpTags` in `source/retro_ach.c`, PLAN P4.4): adapted to the set as
+  it is, to be redone if the set changes (`tools/ra-tags/dp_tags.py`).
 - Gaps or bugs in the C can be found by running both side by side and comparing
   snapshots (`sm/src/sm_cpu_infra.c`). This is the main debugging tool for game
   logic problems.
@@ -178,6 +182,7 @@ Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
 room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `./run_workbench.sh` (`tools/layer-workbench/`, README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
+`tools/ra-tags/dp_tags.py` (docstring) checks the RetroAchievements table against the set the console saved,
 `tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
