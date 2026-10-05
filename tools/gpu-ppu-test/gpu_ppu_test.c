@@ -130,6 +130,8 @@ static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, mar
 
 static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
 
+static int g_eproj_margin_frames, g_eproj_margin_max, g_eproj_left_first = -1;
+
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
   SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
@@ -543,6 +545,23 @@ static void TestFrame(const char *label, bool check_capture) {
   g_frames++;
   if (getenv("INTRO_CURSOR_CHECK")) CheckIntroCursor(label);
   if (getenv("EDGE_CHECK")) CheckEdgeSprites(label);
+  if (getenv("EPROJ_MARGIN") && g_frames == 20)
+    for (int i = 0; i < 16; i++)
+      if (gEnemyData(i * 64)->enemy_ptr) printf("EPROJ_MARGIN enemy %d: %04X at %d,%d (camera %d,%d, Samus %d,%d)\n", i, gEnemyData(i * 64)->enemy_ptr, gEnemyData(i * 64)->x_pos, gEnemyData(i * 64)->y_pos, layer1_x_pos, layer1_y_pos, samus_x_pos, samus_y_pos);
+  if (getenv("EPROJ_LIST") && g_frames % atoi(getenv("EPROJ_LIST")) == 0)
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i]) printf("EPROJ_LIST frame %d slot %d id %04X at %d,%d (camera %d,%d)\n", g_frames, i, eproj_id[i], eproj_x_pos[i], eproj_y_pos[i], layer1_x_pos, layer1_y_pos);
+  if (getenv("EPROJ_MARGIN")) {   // enemy projectiles alive outside the game's own 256 px window (WIDE keeps them)
+    int out = 0;
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i] && (!getenv("EPROJ_ID") || eproj_id[i] == strtol(getenv("EPROJ_ID"), NULL, 16)) &&
+          ((int16)(eproj_x_pos[i] - layer1_x_pos) < 0 || (int16)(eproj_x_pos[i] - layer1_x_pos) >= 256)) out++;
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i] && (int16)(eproj_x_pos[i] - layer1_x_pos) < -8 && (int16)(eproj_x_pos[i] - layer1_x_pos) > -60 && g_eproj_left_first < 0)
+        g_eproj_left_first = g_frames, printf("EPROJ_MARGIN first projectile in the left margin: frame %d, eproj %04X at x %d\n", g_frames, eproj_id[i], (int16)(eproj_x_pos[i] - layer1_x_pos));
+    g_eproj_margin_frames += out > 0;
+    g_eproj_margin_max = out > g_eproj_margin_max ? out : g_eproj_margin_max;
+  }
   // SHOTS=a-b: tested frames a..b (counted from 1) as shot-NNNN.ppm (CPU renderer, 256x224)
   // with VRAM as vram-NNNN.bin, e.g. to look at a message box (MSGBOX) and its font.
   int shot_a, shot_b;
@@ -822,6 +841,7 @@ static void Report(void) {
   if (g_music_rooms)
     printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
            g_music_wrong);
+  if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once)\n", g_eproj_margin_frames, g_eproj_margin_max);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);
   if (getenv("WIDE"))

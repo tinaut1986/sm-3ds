@@ -2549,6 +2549,21 @@ void sub_86B535(uint16 k) {  // 0x86B535
   }
 }
 
+// 3DS port: the 256x256 window enemy projectiles are deleted outside of, widened by the WIDE
+// margins like CheckIfEprojIsOffScreen (the margins are 0 with WIDE off: the original test).
+static bool EprojIsOutsideWindowX(uint16 k) {
+  int v1 = k >> 1;
+  return (int16)(eproj_x_pos[v1] - layer1_x_pos + g_rtl_wide_margin_left) < 0
+      || (int16)(layer1_x_pos + 256 + g_rtl_wide_margin_right - eproj_x_pos[v1]) < 0;
+}
+
+static bool EprojIsOutsideWindow(uint16 k) {
+  int v1 = k >> 1;
+  return EprojIsOutsideWindowX(k)
+    || (int16)(eproj_y_pos[v1] - layer1_y_pos + g_rtl_wide_extra_top) < 0
+    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+}
+
 void Eproj_DeleteIfYposOutside(uint16 k) {  // 0x86B5B9
   int v1 = k >> 1;
   if ((int16)(eproj_y_pos[v1] - layer1_y_pos) >= 288)
@@ -2794,11 +2809,7 @@ void CallNorfairLavaquakeRocksFunc(uint32 ea, uint16 k) {
 }
 
 uint16 EprojPreInstr_NorfairLavaquakeRocks_Inner2(uint16 k) {  // 0x86BD2A
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-    || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0
-    || (int16)(eproj_y_pos[v1] - layer1_y_pos) < 0
-    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+  return EprojIsOutsideWindow(k);
 }
 
 void EprojPreInstr_NorfairLavaquakeRocks_Inner(uint16 k) {  // 0x86BD1E
@@ -4052,11 +4063,7 @@ void EprojPreInstr_SpikeShootingPlantSpikes(uint16 k) {
 }
 
 uint16 EprojPreInstrHelper_SpikeShootingPlantSpikes_Func2(uint16 k) {  // 0x86DACE
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-    || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0
-    || (int16)(eproj_y_pos[v1] - layer1_y_pos) < 0
-    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+  return EprojIsOutsideWindow(k);
 }
 
 static void EprojInit_DBF2(uint16 j) {  // 0x86DB18
@@ -4095,11 +4102,7 @@ void EprojPreInstr_DBF2_MoveX2(uint16 k) {  // 0x86DB8C
 }
 
 uint16 EprojPreInstrHelper_DBF2_Func2(uint16 k) {  // 0x86DBC2
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-    || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0
-    || (int16)(eproj_y_pos[v1] - layer1_y_pos) < 0
-    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+  return EprojIsOutsideWindow(k);
 }
 
 const uint8 *EprojInstr_DC5A(uint16 k, const uint8 *epjp) {  // 0x86DC5A
@@ -4226,9 +4229,7 @@ void Eproj_NamiFuneFireball_After(uint16 v0) {  // 0x86DF94
 }
 
 uint16 sub_86DFA0(uint16 k) {  // 0x86DFA0
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-      || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0;
+  return EprojIsOutsideWindowX(k);
 }
 
 const uint8 *EprojInstr_DFEA(uint16 k, const uint8 *epjp) {  // 0x86DFEA
@@ -4284,11 +4285,7 @@ void sub_86E0A4(uint16 v0) {  // 0x86E0A4
 }
 
 uint16 sub_86E0B0(uint16 k) {  // 0x86E0B0
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-    || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0
-    || (int16)(eproj_y_pos[v1] - layer1_y_pos) < 0
-    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+  return EprojIsOutsideWindow(k);
 }
 
 
@@ -4368,7 +4365,7 @@ static uint16 CheckIfEprojIsOffScreen(uint16 k) {  // 0x86E6E0
   // 3DS port: widened by the WIDE margins.
   if ((int16)(eproj_x_pos[v1] - layer1_x_pos + g_rtl_wide_margin_left) >= 0) {
     if ((int16)(eproj_x_pos[v1] - (layer1_x_pos + 256 + g_rtl_wide_margin_right)) < 0
-        && (int16)(eproj_y_pos[v1] - layer1_y_pos) >= 0) {
+        && (int16)(eproj_y_pos[v1] - layer1_y_pos + g_rtl_wide_extra_top) >= 0) {
       if ((int16)(eproj_y_pos[v1] - (layer1_y_pos + 256)) < 0)
         return 0;
     }
@@ -4555,11 +4552,7 @@ void sub_86EC0C(uint16 k) {  // 0x86EC0C
 }
 
 uint16 sub_86EC18(uint16 k) {  // 0x86EC18
-  int v1 = k >> 1;
-  return (int16)(eproj_x_pos[v1] - layer1_x_pos) < 0
-    || (int16)(layer1_x_pos + 256 - eproj_x_pos[v1]) < 0
-    || (int16)(eproj_y_pos[v1] - layer1_y_pos) < 0
-    || (int16)(layer1_y_pos + 256 - eproj_y_pos[v1]) < 0;
+  return EprojIsOutsideWindow(k);
 }
 
 static void EprojInit_YappingMawsBody(uint16 j) {  // 0x86EC62
