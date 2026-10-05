@@ -26,10 +26,10 @@ no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements 
 the scene on the subscreen, rooms like 957D, A5ED, A7DE: none found yet), the fps after decoding into a shadow, the 2DS in
 general, the Ceres elevator shaft (#34, left pending: a Mode 7 room is one layer, see the issue), Ridley's depth ramp. The
 achievements: 19 of the set's now unlock (#37, checked by the owner), through a table that belongs to the set as it is (P4.4). The rest of what the earlier merges need
-from the console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issue #7.
+from the console is in its task (P4.4, P4.6, P4.7, P4.8) and in issue #7.
 
 **Priority** (owner's order; the reasons are in the decisions log):
-Phase 3 (P3.2 onward) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+P3.3 only as depth bugs turn up (#23, #34) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
