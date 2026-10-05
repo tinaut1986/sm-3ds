@@ -285,7 +285,7 @@ Lessons from mzm that apply directly:
   plane, drawing twice; agreed with the owner 2026-10-03).
   Done on the host 2026-10-03: `source/stereo_depth.{h,c}`, `tools/stereo-test` (in
   `make test`). Nothing to see on the console until P3.2.
-- [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
+- [x] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
   Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
   First cut 2026-10-03 (branch `feat/stereo`, to check on the New 3DS): each eye drawn
   from the one frame build with every quad moved by its plane's whole-pixel offset
@@ -294,8 +294,12 @@ Lessons from mzm that apply directly:
   `feat/stereo-edge-columns`, checked by the owner): with the slider up in gameplay the frame
   gets `kStereoMaxPx` (4) margin columns a side, built like WIDE's but without its HUD over the
   room, and the present step crops them (`GpuPpu_SetCropToView`): a shifted layer no longer
-  leaves backdrop at the view's edge. Not yet: colour windows stay unshifted,
-  second eye's vertices pushed again. No option to turn it off: the slider is the switch
+  leaves backdrop at the view's edge. Colour windows stay unshifted: the power bomb looks right
+  (owner, 2026-10-06), not worth doing. Left open on purpose, for whoever has an Old 3DS (an
+  Old 3DS or XL has the 3D screen; the 2DS does not): the second eye pushes every quad's vertices
+  again, which is CPU work on the 268 MHz core. Measure first: fps in Landing Site with the slider
+  up against down; if it drops a lot, share the vertices between the eyes (`DrawEye`, `PushQuad`
+  in `gpu_ppu_3ds.c`), otherwise note it as not worth it. Not needed on the New 3DS (`wait for GPU 0.0`). No option to turn it off: the slider is the switch
   (owner, 2026-10-05).
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
   (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter, viewer and the layer rules
@@ -1107,3 +1111,6 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   "X-ray scope seen on the console"; P2.5 keeps only the 2DS measurements. P3.1's host model has
   been in use on the console since v0.2.0. Priority is now Phase 3 (P3.2 onward) → P1.3 → P2.5.
 - 2026-10-05: no OPTIONS entry to turn the 3D off (P3.2): the slider is the switch.
+- 2026-10-06: P3.2 ticked. Colour windows are left unshifted (the power bomb looks right) and the
+  second eye's vertex re-push is kept in the task as a to-measure item for an Old 3DS: the owner has
+  none, so it waits for someone's feedback or hardware.
