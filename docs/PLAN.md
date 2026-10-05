@@ -291,7 +291,7 @@ Lessons from mzm that apply directly:
   from the one frame build with every quad moved by its plane's whole-pixel offset
   (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
   CPU path flat in both eyes. Edge columns without WIDE (2026-10-05, branch
-  `feat/stereo-edge-columns`, to check on the New 3DS): with the slider up in gameplay the frame
+  `feat/stereo-edge-columns`, checked by the owner): with the slider up in gameplay the frame
   gets `kStereoMaxPx` (4) margin columns a side, built like WIDE's but without its HUD over the
   room, and the present step crops them (`GpuPpu_SetCropToView`): a shifted layer no longer
   leaves backdrop at the view's edge. Not yet: colour windows stay unshifted,
