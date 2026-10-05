@@ -252,11 +252,12 @@ static void TestWide(const char *label) {
         printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_shown_x[i], g_rtl_oam_shown_y[i]);
     }
   }
-  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, first 24 entries (h: HUD)
+  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, the first 24 entries and the others not parked (h: HUD)
     printf("  oam:");
-    for (int i = 0; i < 24; i++) {
+    for (int i = 0; i < 128; i++) {
       const uint16_t *o = &g_snes->ppu->oam[i * 2];
       const int raw = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8;
+      if (i >= 24 && (o[0] >> 8) == 0xf0 && g_rtl_oam_shown_y[i] == kRtlOamUnknown) continue;   // parked
       printf(" %d:%d/%d,y%d/%d%s", i, raw, g_rtl_oam_shown_x[i], o[0] >> 8, g_rtl_oam_shown_y[i], g_rtl_oam_shown_hud[i] ? "h" : "");
     }
     printf("\n");
