@@ -60,7 +60,7 @@ static int Accepted(const char *front, const char *back, bool thickness) {
 
 static void TestGameplayOrder(bool thickness) {
   StereoDepth_SetThickness(thickness);
-  const StereoFrame fr = { true };
+  const StereoFrame fr = { true, kStereoScreenFlat };
   int used[kAcceptedCount] = { 0 };
   for (int a = 0; a < kLayerCount; a++) {
     const int pa = StereoDepth_PlanePx(StereoDepth_Plane(&fr, &kLayers[a].item));
@@ -81,7 +81,7 @@ static void TestGameplayOrder(bool thickness) {
 }
 
 static void TestPlanes(void) {
-  const StereoFrame play = { true }, menu = { false };
+  const StereoFrame play = { true, kStereoScreenFlat }, menu = { false, kStereoScreenFlat };
   for (int t = 0; t < 2; t++) {
     StereoDepth_SetThickness(t);
     // Sprites over the walls (OAM priority 3) on the walls' plane, the rest on Samus's.
@@ -193,6 +193,52 @@ static void TestRamps(void) {
   StereoDepth_SetThickness(true);
 }
 
+// The non-gameplay screens (P3.4): their text and interface in front (the HUD plane), the art
+// behind them on the screen's own plane. What each holds was read off the host frames
+// (LEVEL_SPLIT in tools/gpu-ppu-test): file select's text is BG1 priority 1, its planet BG2; the
+// pause screens' grid is BG2 priority 0; the intro's text is BG3 and its typing cursor a priority 3 sprite.
+static const StereoItem bg1p0 = { kStereoKindBg, 0, 0, false }, bg1p1 = { kStereoKindBg, 0, 1, false },
+                   bg2p0 = { kStereoKindBg, 1, 0, false }, bg2p1 = { kStereoKindBg, 1, 1, false },
+                   bg3p0 = { kStereoKindBg, 2, 0, false }, bg3p1 = { kStereoKindBg, 2, 1, false },
+                   obj3 = { kStereoKindObj, 0, 3, false }, obj2 = { kStereoKindObj, 0, 2, false },
+                   m7 = { kStereoKindMode7, 0, 0, false }, back = { kStereoKindBackdrop, 0, 0, false };
+
+static void TestScreens(void) {
+  static const struct { StereoScreen screen; const char *name; const StereoItem *item; const char *what; StereoPlane want; } kCases[] = {
+    { kStereoScreenTitle, "title", &obj3, "logo sprites", kStereoHud },
+    { kStereoScreenTitle, "title", &m7, "mode 7 background", kStereoScreen },
+    { kStereoScreenMenu, "file select", &bg1p1, "text (BG1)", kStereoHud },
+    { kStereoScreenMenu, "file select", &obj3, "frame and icons", kStereoHud },
+    { kStereoScreenMenu, "file select", &bg2p0, "planet (BG2)", kStereoScreen },
+    { kStereoScreenMenu, "file select", &back, "backdrop", kStereoScreen },
+    { kStereoScreenIntro, "intro", &bg3p0, "text (BG3 prio 0)", kStereoHud },
+    { kStereoScreenIntro, "intro", &bg3p1, "text (BG3 prio 1)", kStereoHud },
+    { kStereoScreenIntro, "intro", &obj3, "typing cursor", kStereoHud },
+    { kStereoScreenIntro, "intro", &obj2, "picture sprites", kStereoScreen },
+    { kStereoScreenIntro, "intro", &bg1p0, "pictures (BG1)", kStereoScreen },
+    { kStereoScreenIntro, "intro", &bg2p1, "pictures (BG2)", kStereoScreen },
+    { kStereoScreenPause, "pause", &bg2p0, "grid (BG2 prio 0)", kStereoScreen },
+    { kStereoScreenPause, "pause", &bg2p1, "map frame (BG2 prio 1)", kStereoHud },
+    { kStereoScreenPause, "pause", &bg1p0, "equipment text (BG1 prio 0)", kStereoHud },
+    { kStereoScreenPause, "pause", &bg1p1, "equipment (BG1 prio 1)", kStereoHud },
+    { kStereoScreenPause, "pause", &bg3p1, "HUD (BG3)", kStereoHud },
+    { kStereoScreenPause, "pause", &obj2, "sprites", kStereoHud },
+    { kStereoScreenGameOver, "game over", &bg1p0, "text (BG1)", kStereoHud },
+    { kStereoScreenGameOver, "game over", &obj3, "cursor", kStereoHud },
+    { kStereoScreenGameOver, "game over", &back, "gradient backdrop", kStereoScreen },
+    { kStereoScreenFlat, "other screen", &bg1p1, "BG1", kStereoScreen },
+    { kStereoScreenFlat, "other screen", &obj3, "sprites", kStereoScreen },
+  };
+  for (size_t i = 0; i < sizeof(kCases) / sizeof(kCases[0]); i++) {
+    const StereoFrame fr = { false, kCases[i].screen };
+    const StereoPlane got = StereoDepth_Plane(&fr, kCases[i].item);
+    CHECK(got == kCases[i].want, "%s: %s on plane %d, want %d", kCases[i].name, kCases[i].what, got, kCases[i].want);
+  }
+  // Gameplay is not affected by the screen kind.
+  const StereoFrame play = { true, kStereoScreenMenu };
+  CHECK(StereoDepth_Plane(&play, &bg2p0) == kStereoFar, "gameplay BG2 prio 0 changed by the screen kind");
+}
+
 int main(void) {
   TestRamps();
   TestDebugView();
@@ -200,6 +246,7 @@ int main(void) {
   TestGameplayOrder(false);
   TestPlanes();
   TestOffsets();
+  TestScreens();
   printf("stereo-test: %d checks, %d failed\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
 }

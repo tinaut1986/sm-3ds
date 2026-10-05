@@ -1,4 +1,5 @@
 #include "gpu_ppu.h"
+#include "stereo_depth.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -876,11 +877,15 @@ static int TexIndex(GpuTex *t) {
 static int (*g_plane_rule)(int layer, int prio);
 void GpuPpu_SetPlaneRule(int (*rule)(int layer, int prio)) { g_plane_rule = rule; }
 static uint8_t g_quad_plane;   // GpuQuad.plane of the quads being added
+static int g_msgbox_map = -1;
+static bool g_msgbox;          // the BG3 being added is a message box
+void GpuPpu_SetMessageBoxMap(int tilemap_adr) { g_msgbox_map = tilemap_adr; }
 
 // Sets g_quad_plane from the rule of (layer, prio): the quads added next carry it.
 static void UsePlaneRule(int layer, int prio) {
   const int p = g_plane_rule ? g_plane_rule(layer, prio) : -1;
   g_quad_plane = p >= 0 ? (uint8_t)(p + 1) : 0;
+  if (g_msgbox && layer == 3) g_quad_plane = kStereoHud + 1;   // text in front of everything, whatever the room's rules
 }
 
 static bool AddQuad(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags) {
@@ -1005,6 +1010,9 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
   SyncSurface(s, ppu, layer);
   // Columns this layer covers (the band's last output row is l1-1).
   const bool narrow = layer == 2 && NarrowBg3(cap, l0, l1);
+  const BgLayer *bgl = &cap->line[l0].bgLayer[layer];
+  g_msgbox = layer == 2 && g_msgbox_map >= 0 && l0 > g_narrow_bg3_rows && bgl->tilemapAdr == g_msgbox_map &&
+             !bgl->tilemapWider && !bgl->tilemapHigher;
   const int vx0 = narrow ? g_hud_x : g_x0, vx1 = narrow ? g_hud_x + 256 : g_x1;
   // Texel column of screen column vx0 (the narrow layer is moved, not scrolled), with the
   // layer's extra shift.

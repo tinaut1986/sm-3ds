@@ -5,6 +5,7 @@
 
 #include "src/types.h"
 #include "src/variables.h"
+#include "src/ida_types.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
 
@@ -133,4 +134,17 @@ int SmPlanes_SlotPlanes(int layer, int tw, int th, uint8_t *grid) {
     }
   }
   return n;
+}
+
+// States not listed are flat.
+StereoScreen SmPlanes_Screen(void) {
+  switch (game_state) {
+  case kGameState_0_Reset: case kGameState_1_OpeningCinematic: return kStereoScreenTitle;
+  case kGameState_4_FileSelectMenus: return kStereoScreenMenu;
+  case kGameState_13_Pausing: case kGameState_14_Paused: case kGameState_15_Paused:
+  case kGameState_16_Unpausing: case kGameState_17_Unpausing: return kStereoScreenPause;
+  case kGameState_26_GameOverMenu: return kStereoScreenGameOver;
+  case kGameState_30_IntroCinematic: return kStereoScreenIntro;
+  default: return kStereoScreenFlat;
+  }
 }

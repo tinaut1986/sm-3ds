@@ -72,7 +72,7 @@ Values are a starting point to tune on the console, not a decision.
 | `BACK` | BG1 tile priority 0 (level 8): the level's parts Samus passes in front of (the save station's glass, background pipes) | -2 |
 | `MID` | BG3 priority 0 FX: falling ash, fog, haze (level 1) | -3 |
 | `FAR` | BG2 tile priority 0 (level 7), the room's background; backdrop | -4 |
-| `SCREEN` | non-gameplay screens until P3.4 treats them: everything flat | 0 |
+| `SCREEN` | non-gameplay screens: the art behind the text (see "Screens"), and every screen not listed there | 0 |
 
 Why these (revised 2026-10-03 after the first console test):
 
@@ -116,6 +116,29 @@ Why these (revised 2026-10-03 after the first console test):
   in, in Ridley's room it is Ridley flying at her.
 - Without WIDE the HUD is not taken out into the HUD list: BG3 quads within the top 32
   rows count as HUD there (gpu_ppu_3ds.c `QuadDx`).
+
+## Screens outside gameplay (P3.4)
+
+The owner's rule: **text and interface in front of everything** (the `HUD` plane), the art behind it flat
+(`SCREEN`). What each screen holds was read off the host frames (`STATE_SURVEY`, `LEVEL_SPLIT` in
+`tools/gpu-ppu-test`); `SmPlanes_Screen()` names the screen from the game state and `ScreenPlane()`
+(`stereo_depth.c`) decides, with `tools/stereo-test` pinning each case:
+
+| Screen (game state) | In front (`HUD`) | Flat (`SCREEN`) |
+|---|---|---|
+| Nintendo logo, title (0, 1) | the sprites: logo, copyright | the mode 7 scene |
+| File select (4) | BG1 (text), BG3 and the sprites (frame, icons, cursor) | BG2 (the planet), backdrop |
+| Intro story (0x1E) | BG3 (the text), priority 3 sprites (the typing cursor) | BG1 and BG2 pictures, other sprites |
+| Pause map and equipment (0xD-0x11) | everything but the grid | BG2 priority 0 (the grid), backdrop |
+| Game over (0x1A) | BG1 priority 0 (text) and the sprites (cursor) | the backdrop gradient |
+| Anything else | | everything: flat |
+
+In gameplay the message boxes (BG3 tilemap `0x5800`: save prompt, item and map texts) are on `HUD`
+as well: the renderer tags their quads (`GpuPpu_SetMessageBoxMap`), because by level alone they
+cannot be told from water or fog on BG3.
+
+Not looked at yet (flat): the options menu and file-select map (states 2, 5), the ending and credits,
+the Ceres explosion's text. Add one to the table when the owner wants it.
 
 ## The 3D slider and whole pixels
 

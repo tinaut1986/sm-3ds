@@ -769,6 +769,7 @@ int main(int argc, char** argv) {
         SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
         SmWide_Rows(&rows_top, &rows_bottom, &hud_y);
         GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetMessageBoxMap(SmWide_Gameplay() ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetCropToView(edge > 0);   // only the 3D's edge columns: not shown
         GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
@@ -800,7 +801,7 @@ int main(int argc, char** argv) {
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
-          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay());
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;

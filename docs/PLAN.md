@@ -306,8 +306,14 @@ Lessons from mzm that apply directly:
   (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are read too
   (`GpuPpu_SetSlotPlanes`: the fixed tiles go to a texture per plane, host-checked, not yet on the console). First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
   The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
-- [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
-  (flat or with deliberate depth).
+- [x] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
+  (flat or with deliberate depth). Owner's rule (2026-10-06): text in front of everything.
+  Done 2026-10-06 (checked by the owner): the title's sprites, file
+  select, the intro's text, the pause screens and game over have their text and interface on the `HUD`
+  plane and the art behind flat (`docs/stereo-design.md`, "Screens outside gameplay"; `SmPlanes_Screen`,
+  host test `stereo-depth`). The message boxes inside gameplay (save prompt, item texts: BG3 tilemap
+  `0x5800`) go on `HUD` too (`GpuPpu_SetMessageBoxMap`, tags their quads; a room's hand rules do not move
+  them). Not yet: the options menu, file-select map, ending and credits (flat).
 
 ## Phase 4: features
 
@@ -1114,3 +1120,5 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-06: P3.2 ticked. Colour windows are left unshifted (the power bomb looks right) and the
   second eye's vertex re-push is kept in the task as a to-measure item for an Old 3DS: the owner has
   none, so it waits for someone's feedback or hardware.
+- 2026-10-06: P3.4 ticked with the options menu, the file-select map, the ending and the credits left flat:
+  nobody has asked for depth there. Each is one case in `ScreenPlane` plus a line in `stereo-test` when wanted.
