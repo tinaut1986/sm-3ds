@@ -445,6 +445,66 @@ static void TestWide(const char *label) {
 // normal way (from a save state) to compare the capture replay against it.
 static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
 
+// INTRO_CURSOR_CHECK=1 (with GAME_LANG): in the intro's story text (game state 0x1E) the typing
+// cursor, a sprite, must be right after the last letter on screen or at the start of the next line
+// (a full line, or the page done), whatever the language: game_text_screens.c moves it with the
+// translated letters (issue #36). The cursor is the sprite with tile 0xFC. Story letters are the BG3 cells with the priority bit and a tile
+// other than the blank 0x2F, rows 4-23. No sprite on a frame is the cursor blinking: not checked.
+static int g_cursor_frames, g_cursor_bad, g_cursor_blink;
+
+static void CheckIntroCursor(const char *label) {
+  const Ppu *ppu = g_snes->ppu;
+  if (game_state != 0x1e || g_ui_lang == kLangEn) return;
+  const BgLayer *bg = &ppu->bgLayer[2];
+  int last_row = -1, last_col = -1, first_col = 99, letters = 0;
+  for (int r = 4; r <= 23; r++)
+    for (int x = 0; x < 32; x++) {
+      const uint16_t t = ppu->vram[(bg->tilemapAdr + r * 32 + x) & 0x7fff];
+      if (!(t & 0x2000) || (t & 0x3ff) == 0x2f) continue;
+      last_row = r, last_col = x, letters++;
+      if (x < first_col) first_col = x;
+    }
+  if (letters < 3) return;   // the first letters of a page stay in English (a page is known from 3 on)
+  int found = 0;
+  for (int i = 0; i < 128; i++) {
+    const uint16_t w = ppu->oam[i * 2];
+    const int y = w >> 8, x = (w & 0xff) | (ppu->highOam[i >> 2] >> ((i & 3) * 2) & 1) << 8;
+    if (y >= 224 || (ppu->oam[i * 2 + 1] & 0x1ff) != 0xfc) continue;   // the cursor's tile
+    found = 1;
+    const int col = ((x + bg->hScroll) >> 3) & 31, row = ((y + 1 + bg->vScroll) >> 3) & 31;
+    const bool after_letter = row == last_row && col == last_col + 1;
+    const bool next_line = row == last_row + 2 && col == first_col;
+    g_cursor_frames++;
+    if (!after_letter && !next_line) {
+      if (g_cursor_bad++ < 8)
+        printf("%s: INTRO CURSOR at cell %d,%d, last letter at %d,%d (first column %d)\n", label, row, col, last_row,
+               last_col, first_col);
+    }
+  }
+  if (!found) g_cursor_blink++;
+}
+
+// EDGE_CHECK=1: an OAM entry in the bottom band (raw Y 224-255, where the extra rows show what a
+// wrapped sprite reads as: one below the view for one above it and the other way round) must be
+// tagged with its full position or parked (Y 0xF0). Samus's pieces were not, and showed at the
+// opposite edge (issue #26). The tagged entries fully outside the view are counted: with Samus
+// pinned off the view (SAMUS_PIN) there must be some, or the test did not look at anything.
+static int g_edge_frames, g_edge_untagged, g_edge_outside;
+
+static void CheckEdgeSprites(const char *label) {
+  const Ppu *ppu = g_snes->ppu;
+  g_edge_frames++;
+  for (int i = 0; i < 128; i++) {
+    const int y = ppu->oam[i * 2] >> 8, fy = g_rtl_oam_shown_y[i];
+    if (fy == kRtlOamUnknown) {
+      if (y >= 224 && y != 0xf0 && g_edge_untagged++ < 8)
+        printf("%s: EDGE OAM %d at raw y %d is not tagged\n", label, i, y);
+    } else if (fy < kRtlOamHiddenY && (fy < -16 || fy >= 232)) {
+      g_edge_outside++;
+    }
+  }
+}
+
 static void TestFrame(const char *label, bool check_capture) {
   if (check_capture) RtlSaveLoad(kSaveLoad_Save, 8);
   if (check_capture) {
@@ -472,6 +532,8 @@ static void TestFrame(const char *label, bool check_capture) {
   g_replay_us += (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
   memcpy(g_b, g_px, sizeof(g_b));
   g_frames++;
+  if (getenv("INTRO_CURSOR_CHECK")) CheckIntroCursor(label);
+  if (getenv("EDGE_CHECK")) CheckEdgeSprites(label);
   // SHOTS=a-b: tested frames a..b (counted from 1) as shot-NNNN.ppm (CPU renderer, 256x224)
   // with VRAM as vram-NNNN.bin, e.g. to look at a message box (MSGBOX) and its font.
   int shot_a, shot_b;
@@ -698,6 +760,10 @@ static void Report(void) {
   if (getenv("WIDE"))
     printf("WIDE frames %d, bad %d, frames where full positions change the view below the HUD %d, room filled in %d\n",
            g_wide_frames, g_wide_bad, g_wide_tagdiff, g_wide_filled);
+  if (getenv("INTRO_CURSOR_CHECK"))
+    printf("INTRO CURSOR frames %d, bad %d, blinking %d\n", g_cursor_frames, g_cursor_bad, g_cursor_blink);
+  if (getenv("EDGE_CHECK"))
+    printf("EDGE frames %d, untagged %d, tagged outside the view %d\n", g_edge_frames, g_edge_untagged, g_edge_outside);
   if (getenv("WIDE")) printf("WIDE image hash %016llx\n", (unsigned long long)g_wide_hash);
   // Game state at the end, for tools/test: any change to the game logic changes it.
   uint64_t h = 1469598103934665603ull;
@@ -950,6 +1016,15 @@ int main(int argc, char **argv) {
       int sx, sy;
       if (getenv("SAMUS_AT") && k == 1 && sscanf(getenv("SAMUS_AT"), "%d,%d", &sx, &sy) == 2)
         samus_x_pos = samus_prev_x_pos = (uint16)sx, samus_y_pos = samus_prev_y_pos = (uint16)sy;
+      // SAMUS_PIN=dy[,pose]: from frame 3 on Samus is put dy pixels below the camera's top every
+      // frame (negative: above the view, over 224: below it), as in an elevator shaft where she
+      // rides out of the view, in that pose if given (hex; 0: standing facing the front).
+      if (getenv("SAMUS_PIN") && k >= 3) {
+        int dy, pose;
+        const int n = sscanf(getenv("SAMUS_PIN"), "%d,%x", &dy, &pose);
+        if (n >= 1) samus_y_pos = samus_prev_y_pos = (uint16)(layer1_y_pos + dy);
+        if (n >= 2) samus_pose = (uint16)pose;
+      }
       // ITEMS=hex: these items collected and equipped from frame 1 (4 = morph ball: the eyes).
       if (getenv("ITEMS") && k == 1) {
         const int it = (int)strtol(getenv("ITEMS"), 0, 16);
