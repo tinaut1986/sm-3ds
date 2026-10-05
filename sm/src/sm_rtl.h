@@ -135,6 +135,8 @@ extern uint8 g_rtl_pb_half_width[256];
 // window 2; the eyes' window 1 otherwise). `fresh` is set there and cleared by the reader.
 typedef struct { int16 x, y; uint16 center, half_width, table; bool fresh; } RtlXrayCone;
 extern RtlXrayCone g_rtl_xray_cone;
+extern uint16 *g_rtl_xray_out;
+void RtlXrayBuildBlock(uint16 *out, uint16 r18, uint16 dst_r22, uint16 block, bool left);
 // 3DS port, WIDE view: the room (room_ptr) in which an enemy last wrote its own tilemap to
 // BG2 (Spore Spawn, Kraid, Mother Brain...): BG2 is not level background data there.
 extern uint16 g_rtl_enemy_bg2_room;
