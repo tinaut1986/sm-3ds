@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "retro_ach.h"
 
 #include <3ds.h>
@@ -283,6 +284,16 @@ static void Worker(void *arg) {
     // Never the query string: it carries the token, or the password on a login.
     LogLine("%.*s -> http %d, %d bytes", (int)strcspn(call.url, "?"), call.url, call.status, n);
     if (n > 0 && (status < 200 || status >= 300)) LogLine("  body: %.200s", g_response);
+    // The set itself (the game data: achievements and their conditions, nothing of the account), kept for reading what an
+    // achievement that does not unlock is waiting for. Not the login, which carries the token.
+    if (n > 20000 && status == 200 && memmem(g_response, (size_t)n, "\"Achievements\"", 14)) {
+      FILE *f = fopen("debug/ra-set.json", "wb");
+      if (f) {
+        fwrite(g_response, 1, (size_t)n, f);
+        fclose(f);
+        LogLine("  set saved to debug/ra-set.json");
+      }
+    }
     LightLock_Lock(&g_lock);
     g_done[g_done_count++] = call;
     LightLock_Unlock(&g_lock);
@@ -618,6 +629,15 @@ static void LoadGameDone(int result, const char *error, rc_client_t *client, voi
     SetMessage("");
     LogLine("game loaded: id %lu '%s', %d achievements", (unsigned long)(game ? game->id : 0),
             game && game->title ? game->title : "", g_count);
+    // For the issues about an achievement that did not unlock: how many the account already has, and the state of those about
+    // the Varia Suit (an achievement the server says is unlocked is never triggered again, softcore or not).
+    int have = 0;
+    for (int i = 0; i < g_count; i++) have += g_list[i].unlocked;
+    LogLine("account has %d of %d unlocked", have, g_count);
+    for (int i = 0; i < g_count; i++)
+      if (strcasestr(g_list[i].title, "varia") || strcasestr(g_list[i].description, "varia"))
+        LogLine("  %lu '%s' (%s): %s", (unsigned long)g_list[i].id, g_list[i].title, g_list[i].description,
+                g_list[i].unlocked ? "UNLOCKED" : "locked");
   } else if (result == RC_NO_GAME_LOADED) {
     g_load_attempts = 99;   // an unknown hash stays unknown
     SetMessage("ROM not recognised by RetroAchievements");
@@ -731,12 +751,70 @@ void RetroAch_Update(void) {
   }
 }
 
+// ---- What the set reads that a C reimplementation does not keep ------------------------------------
+// 19 achievements of the set (the item pick-ups, four bosses, two map downloads) also ask for the 16-bit words at $0032 and
+// $0034 to hold two numbers when the item bit, the boss bit or the map byte changes: direct-page scratch the original code
+// leaves there in the frame it happens, which the C code keeps in locals (so none of them could ever unlock). Each event has
+// its own pair; they are read off the achievements' conditions (`0x 000032=A`, `0x 000034=B`, the changing address in the
+// same line). In the frame an event happens they are written for the set to read and put back right after.
+//
+// THE TABLE BELONGS TO THE SET AS IT IS NOW (checked 2026-10-05, 134 achievements). This port is a reimplementation of the game,
+// not the original code, and a set written against the original may lean on more of the original's internals than the
+// game's variables (the pairs are numbers we have only read off the conditions, not understood). A new or edited set has to
+// be adapted again: the console saves the set it downloads as debug/ra-set.json, and
+//   tools/ra-tags/dp_tags.py debug/ra-set.json source/retro_ach.c
+// prints the table the set wants and what differs from this one. An achievement that never unlocks although its item bit
+// changes (see issue #37) is the first thing to check against it.
+typedef struct {
+  uint16_t addr;
+  uint8_t bit;   // 0-7: that bit goes 0 -> 1; 8: the byte reaches 255
+  uint8_t v32, v34;
+  const char *name;
+} DpTag;
+
+static const DpTag kDpTags[] = {
+  { 0x9A4, 2, 42, 14, "Morph Ball" },    { 0x9A9, 4, 45, 14, "Charge Beam" },  { 0x9A5, 0, 24, 10, "Hi-Jump Boots" },
+  { 0x9A4, 0, 206, 14, "Varia Suit" },   { 0x9A5, 5, 136, 6, "Speed Booster" }, { 0x9A8, 1, 8, 6, "Ice Beam" },
+  { 0x9A8, 0, 19, 6, "Wave Beam" },      { 0x9A5, 6, 64, 2, "Grapple Beam" },   { 0x9A5, 7, 62, 10, "X-Ray Scope" },
+  { 0x9A4, 5, 53, 0, "Gravity Suit" },   { 0x9A5, 1, 168, 8, "Space Jump" },    { 0x9A8, 3, 11, 4, "Plasma Beam" },
+  { 0x9A4, 1, 191, 14, "Spring Ball" },  { 0xD828, 2, 26, 14, "Bomb Torizo" },  { 0xD829, 1, 14, 8, "Spore Spawn" },
+  { 0xD82A, 1, 41, 8, "Crocomire" },     { 0xD82C, 1, 34, 0, "Botwoon" },       { 0xD90A, 8, 16, 14, "Norfair map" },
+  { 0xD90C, 8, 69, 14, "Maridia map" },
+};
+enum { kDpTagCount = (int)(sizeof(kDpTags) / sizeof(kDpTags[0])) };
+static uint8_t g_dp_prev[kDpTagCount];
+static bool g_dp_valid;   // g_dp_prev is of the last frame (not after a reset or a loaded state)
+
+static uint8_t DpWatched(const DpTag *t) { return g_ram[t->addr]; }
+
+static const DpTag *DpEventThisFrame(void) {
+  const DpTag *hit = NULL;
+  for (int i = 0; i < kDpTagCount; i++) {
+    const DpTag *t = &kDpTags[i];
+    const uint8_t now = DpWatched(t), was = g_dp_prev[i];
+    const bool event = g_dp_valid && (t->bit == 8 ? (was != 255 && now == 255) : (!(was >> t->bit & 1) && (now >> t->bit & 1)));
+    if (event && !hit) hit = t;
+    g_dp_prev[i] = now;
+  }
+  g_dp_valid = true;
+  return hit;
+}
+
 void RetroAch_DoFrame(void) {
   if (!g_client || !g_enabled) return;
+  const DpTag *tag = DpEventThisFrame();
+  uint8_t saved[4];
+  if (tag) {
+    memcpy(saved, &g_ram[0x32], 4);
+    g_ram[0x32] = tag->v32, g_ram[0x33] = 0, g_ram[0x34] = tag->v34, g_ram[0x35] = 0;
+    LogLine("achievement tag: %s ($0032 = %d, $0034 = %d)", tag->name, tag->v32, tag->v34);
+  }
   rc_client_do_frame(g_client);
+  if (tag) memcpy(&g_ram[0x32], saved, 4);
 }
 
 void RetroAch_GameReset(void) {
+  g_dp_valid = false;
   if (g_client) rc_client_reset(g_client);
 }
 
@@ -760,6 +838,7 @@ void RetroAch_StateSaved(int slot) {
 }
 
 void RetroAch_StateLoaded(int slot) {
+  g_dp_valid = false;   // no event comes of the difference a loaded state makes
   if (!g_client || !rc_client_is_game_loaded(g_client)) return;
   char path[32];
   ProgressPath(slot, path, sizeof(path));
