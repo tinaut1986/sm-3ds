@@ -25,6 +25,11 @@
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode;
 # BOOT_SEQ=hex@frame,... is the same for the boot mode (instead of its START/A pattern).
 # BOOT_SEQ_STATE=hex: BOOT_SEQ's frames count from the first frame in that game state.
+# INTRO_CURSOR_CHECK=1 (boot mode, with GAME_LANG): in the intro's story text the typing cursor (sprite tile 0xFC) must be
+# after the last letter on screen or at the start of the next line (prints INTRO CURSOR frames, bad). EDGE_CHECK=1: no OAM
+# entry in the bottom band (raw Y 224-255) is untagged (see sm_rtl.h, g_rtl_oam_x) unless parked, and it counts the tagged
+# ones outside the view (prints EDGE ...). SAMUS_PIN=dy[,pose]: Samus dy px below the camera's top every frame from frame 3
+# (negative: above the view; over 224: below it), in that pose (hex) if given.
 # Built 32-bit with -malign-double so console save states load (docs/debug-tools.md).
 set -e
 ROM=$(realpath "$1")

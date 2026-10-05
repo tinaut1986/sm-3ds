@@ -122,6 +122,14 @@ ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-en rooms 300 91F8 &
 GAME_LANG=1 ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-es rooms 300 91F8 &
 SAMUS_HEALTH=0 run_gpu gameover-en rooms 500 91F8 &
 GAME_LANG=1 SAMUS_HEALTH=0 run_gpu gameover-es rooms 500 91F8 &
+# The intro's typing cursor follows the translated letters, in every language (#36), and Samus
+# pinned above or below the view (an elevator shaft) shows nothing at the opposite edge of the
+# PIXEL PERFECT view (#26).
+for lang in 1 2 3 4; do
+  GAME_LANG=$lang INTRO_CURSOR_CHECK=1 run_gpu intro-cursor-$lang boot "$OUT/empty.srm" 3800 &
+done
+WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=-48,0 run_gpu samus-edge-above rooms 60 91F8 &
+WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=270,0 run_gpu samus-edge-below rooms 60 91F8 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
 run_audio audio-rooms rooms 120 &
 if [ $FULL = 1 ]; then
@@ -194,6 +202,24 @@ same_wram pause-es pause-en
 echo "gameover-es: the game over menu in Spanish"
 gpu_checks gameover-es
 same_wram gameover-es gameover-en
+for lang in 1 2 3 4; do
+  echo "intro-cursor-$lang: the intro's typing cursor next to the last translated letter (UI language $lang)"
+  r=$(field "$OUT/intro-cursor-$lang.log" "INTRO CURSOR frames.*")
+  check "intro-cursor-$lang" "ran to the end (no crash)" "$( [ -n "$r" ]; echo $?)"
+  check "intro-cursor-$lang" "no frame with the cursor away from the last letter or the next line's start" \
+    "$(echo "$r" | grep -q ", bad 0,"; echo $?)"
+  check "intro-cursor-$lang" "the cursor was looked at (over 1000 frames)" \
+    "$( [ "$(echo "$r" | sed 's/INTRO CURSOR frames \([0-9]*\).*/\1/')" -gt 1000 ] 2>/dev/null; echo $?)"
+done
+for side in above below; do
+  echo "samus-edge-$side: Samus pinned $side the view, PIXEL PERFECT's extra rows"
+  r=$(field "$OUT/samus-edge-$side.log" "EDGE frames.*")
+  check "samus-edge-$side" "ran to the end (no crash)" "$( [ -n "$r" ]; echo $?)"
+  check "samus-edge-$side" "every OAM entry in the bottom band is tagged with its full position (or parked)" \
+    "$(echo "$r" | grep -q "untagged 0,"; echo $?)"
+  check "samus-edge-$side" "entries tagged outside the view were seen (Samus was off it)" \
+    "$( [ "$(echo "$r" | sed 's/.*outside the view \([0-9]*\)/\1/')" -gt 0 ] 2>/dev/null; echo $?)"
+done
 echo "soft-reset: B on the file-select screens, soft resets back to the title"
 gpu_checks soft-reset
 check soft-reset "soft resets happened" \
