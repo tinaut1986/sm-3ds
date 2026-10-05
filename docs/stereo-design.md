@@ -133,6 +133,10 @@ The owner's rule: **text and interface in front of everything** (the `HUD` plane
 | Game over (0x1A) | BG1 priority 0 (text) and the sprites (cursor) | the backdrop gradient |
 | Anything else | | everything: flat |
 
+In gameplay the message boxes (BG3 tilemap `0x5800`: save prompt, item and map texts) are on `HUD`
+as well: the renderer tags their quads (`GpuPpu_SetMessageBoxMap`), because by level alone they
+cannot be told from water or fog on BG3.
+
 Not looked at yet (flat): the options menu and file-select map (states 2, 5), the ending and credits,
 the Ceres explosion's text. Add one to the table when the owner wants it.
 

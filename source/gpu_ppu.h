@@ -163,6 +163,10 @@ static inline void GpuPpu_SetMargin(int margin) { GpuPpu_SetMargins(margin, marg
 // (a layer moved by its plane's offset uncovers its edge columns), not to be seen.
 void GpuPpu_SetCropToView(bool crop);
 
+// The BG3 tilemap the game's message boxes use (item, save, map prompts): its quads go on the
+// HUD's stereo plane, text in front of everything, over the room's own rules. -1 = none.
+void GpuPpu_SetMessageBoxMap(int tilemap_adr);
+
 // Where BG3 is drawn on the narrow (HUD) rows of GpuPpu_SetNarrowBg3Rows: columns
 // [x, x + 256). 0 = where the PPU puts it; with uneven margins, the HUD keeps its place on
 // the screen by moving by the difference.

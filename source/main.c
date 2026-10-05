@@ -769,6 +769,7 @@ int main(int argc, char** argv) {
         SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
         SmWide_Rows(&rows_top, &rows_bottom, &hud_y);
         GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetMessageBoxMap(SmWide_Gameplay() ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetCropToView(edge > 0);   // only the 3D's edge columns: not shown
         GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);

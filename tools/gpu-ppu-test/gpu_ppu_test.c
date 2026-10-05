@@ -864,6 +864,7 @@ int main(int argc, char **argv) {
     g_ui_lang = (UiLang)atoi(getenv("GAME_LANG"));
     GameText_Init();
   }
+  GpuPpu_SetMessageBoxMap(kSmWideMessageBoxMap);   // as the console in gameplay: message boxes on the HUD plane
   // WIDE: the game side fills the margins' tilemap areas in every frame run from here on
   // (they are outside the normal view, so the normal checks are unaffected).
   if (getenv("WIDE"))

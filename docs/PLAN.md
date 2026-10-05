@@ -311,8 +311,9 @@ Lessons from mzm that apply directly:
   First cut 2026-10-06 (branch `feat/stereo-screens`, to check on the New 3DS): the title's sprites, file
   select, the intro's text, the pause screens and game over have their text and interface on the `HUD`
   plane and the art behind flat (`docs/stereo-design.md`, "Screens outside gameplay"; `SmPlanes_Screen`,
-  host test `stereo-depth`). Not yet: the options menu, file-select map, ending and credits (flat);
-  the message boxes inside gameplay (BG3 over the room, today `FRONT`, not `HUD`).
+  host test `stereo-depth`). The message boxes inside gameplay (save prompt, item texts: BG3 tilemap
+  `0x5800`) go on `HUD` too (`GpuPpu_SetMessageBoxMap`, tags their quads; a room's hand rules do not move
+  them). Not yet: the options menu, file-select map, ending and credits (flat).
 
 ## Phase 4: features
 
