@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "retro_ach.h"
 
 #include <3ds.h>
@@ -283,6 +284,16 @@ static void Worker(void *arg) {
     // Never the query string: it carries the token, or the password on a login.
     LogLine("%.*s -> http %d, %d bytes", (int)strcspn(call.url, "?"), call.url, call.status, n);
     if (n > 0 && (status < 200 || status >= 300)) LogLine("  body: %.200s", g_response);
+    // The set itself (the game data: achievements and their conditions, nothing of the account), kept for reading what an
+    // achievement that does not unlock is waiting for. Not the login, which carries the token.
+    if (n > 20000 && status == 200 && memmem(g_response, (size_t)n, "\"Achievements\"", 14)) {
+      FILE *f = fopen("debug/ra-set.json", "wb");
+      if (f) {
+        fwrite(g_response, 1, (size_t)n, f);
+        fclose(f);
+        LogLine("  set saved to debug/ra-set.json");
+      }
+    }
     LightLock_Lock(&g_lock);
     g_done[g_done_count++] = call;
     LightLock_Unlock(&g_lock);
@@ -618,6 +629,15 @@ static void LoadGameDone(int result, const char *error, rc_client_t *client, voi
     SetMessage("");
     LogLine("game loaded: id %lu '%s', %d achievements", (unsigned long)(game ? game->id : 0),
             game && game->title ? game->title : "", g_count);
+    // For the issues about an achievement that did not unlock: how many the account already has, and the state of those about
+    // the Varia Suit (an achievement the server says is unlocked is never triggered again, softcore or not).
+    int have = 0;
+    for (int i = 0; i < g_count; i++) have += g_list[i].unlocked;
+    LogLine("account has %d of %d unlocked", have, g_count);
+    for (int i = 0; i < g_count; i++)
+      if (strcasestr(g_list[i].title, "varia") || strcasestr(g_list[i].description, "varia"))
+        LogLine("  %lu '%s' (%s): %s", (unsigned long)g_list[i].id, g_list[i].title, g_list[i].description,
+                g_list[i].unlocked ? "UNLOCKED" : "locked");
   } else if (result == RC_NO_GAME_LOADED) {
     g_load_attempts = 99;   // an unknown hash stays unknown
     SetMessage("ROM not recognised by RetroAchievements");
