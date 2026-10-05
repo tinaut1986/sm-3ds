@@ -148,7 +148,7 @@ static void TestWide(const char *label) {
   // So the mode 7 plane under the HUD is in the reference. WIDE_HUD_INBAND=1: not, so the
   // reference draws the HUD within its band, as without WIDE (the WIDE frame draws it over
   // everything, GpuFrame.hud_first): checks that both give the same image.
-  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_HUD_INBAND") ? 0 : kSmWideHudRows);
+  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_HUD_INBAND") || getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
   GpuPpu_SetMode7UnderHud(SmWide_Mode7());
   // HUD sprites (the escape timer) moved with the HUD in the reference too (the HUD's own
   // rows are not compared when it moves).
@@ -181,7 +181,7 @@ static void TestWide(const char *label) {
   GpuPpu_SetHudX(hud_x);
   GpuPpu_SetHudY(hud_y);
   GpuPpu_SetExtraRows(et, eb);
-  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
   GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
   GpuPpu_SetWindow2Extent(SmWide_Window2Extent());
   int cone_window;
@@ -414,7 +414,7 @@ static void TestWide(const char *label) {
     GpuPpu_SetHudY(hud_y);
     GpuPpu_SetLayerShiftX(1, bg2_dx);
     GpuPpu_SetExtraRows(et, eb);
-    GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+    GpuPpu_SetNarrowBg3Rows(getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
     GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
     if (GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &f2, &why2)) {
       SmWide_AddMasks(&f2, &g_cap);
@@ -810,7 +810,7 @@ int main(int argc, char **argv) {
   // (they are outside the normal view, so the normal checks are unaffected).
   if (getenv("WIDE"))
     SmWide_SetView(atoi(getenv("WIDE")), getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0,
-                   getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0);
+                   getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, !getenv("WIDE_EDGE"));
   if (!strcmp(argv[2], "state")) {
     // The state is copied to saves/save9.sav by run.sh.
     if (!RtlSaveLoad(kSaveLoad_Load, 9)) return 4;

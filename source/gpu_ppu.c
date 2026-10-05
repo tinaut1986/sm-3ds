@@ -48,6 +48,10 @@ void GpuPpu_SetMargins(int left, int right) {
   if (g_margin_l + g_margin_r > kGpuMaxMargins) g_margin_r = kGpuMaxMargins - g_margin_l;
 }
 
+static bool g_crop_to_view;
+
+void GpuPpu_SetCropToView(bool crop) { g_crop_to_view = crop; }
+
 void GpuPpu_SetHudX(int x) { g_hud_x = x; }
 
 static int g_hud_y;
@@ -1360,6 +1364,8 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   g_x1 = 256 + g_margin_r;
   out->x0 = g_x0;
   out->x1 = g_x1;
+  out->show_x0 = g_crop_to_view ? 0 : g_x0;
+  out->show_x1 = g_crop_to_view ? 256 : g_x1;
   out->y0 = -g_extra_top;
   out->y1 = kGpuRows + g_extra_bottom;
   g_out = out;

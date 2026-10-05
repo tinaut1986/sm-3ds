@@ -1,6 +1,8 @@
 # Expected values for tools/test/run.sh. Regenerate with --update after a change
 # that is meant to alter them, and say why in the commit.
 audio-rooms.hash=2711ed38f007843a
+edge-rooms.refused=0
+edge-rooms.wram=eea086f0dca547f8
 gameover-es.refused=0
 gameover-es.wram=d35913b68593af80
 gpu-newgame.refused=0
@@ -32,16 +34,16 @@ wide-rooms.wram=eea086f0dca547f8
 wide-rows.image=63f39557636718b5
 wide-rows.refused=0
 wide-rows.wram=eea086f0dca547f8
+wide-xray.image=a3f61d5876a636f2
+wide-xray-left.image=f750a99fe564049c
+wide-xray-left.refused=0
+wide-xray-left.wram=6902bc23b60842e3
+wide-xray-margin.image=d3771535d24f753b
+wide-xray-margin.refused=0
+wide-xray-margin.wram=d1da1ce08e4a6f8b
 wide-xray-off.image=67ef6359d5231f19
 wide-xray-off.refused=0
 wide-xray-off.wram=ab400bad83e44ab9
-wide-xray-margin.wram=d1da1ce08e4a6f8b
-wide-xray-margin.refused=0
-wide-xray-margin.image=d3771535d24f753b
-wide-xray-left.image=f750a99fe564049c
-wide-xray-left.wram=6902bc23b60842e3
-wide-xray-left.refused=0
-wide-xray.image=a3f61d5876a636f2
 wide-xray.refused=0
 wide-xray.wram=b9a889945bbd8888
 warp.result=ok 583 fail 3 nodoor 6 of 262

@@ -101,6 +101,8 @@ run_gpu gpu-rooms rooms 10 &
 CERES_BOOM=1 run_gpu gpu-newgame boot "$OUT/empty.srm" 10500 &
 PBOMB=1 run_gpu gpu-pbomb rooms 200 91F8 &
 WIDE=60 run_gpu wide-rooms rooms 10 &
+# The 3D's edge columns without WIDE (4 px margins, the HUD in its band): the 256 px view must come out the same.
+WIDE=4 WIDE_EDGE=1 run_gpu edge-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
 # The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
 WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
@@ -171,6 +173,9 @@ wide_checks() {   # wide_checks NAME: the WIDE build of every frame
 echo "wide-rooms: every room with WIDE on (60 px margins), 10 frames each"
 gpu_checks wide-rooms
 wide_checks wide-rooms
+echo "edge-rooms: every room with the 3D's 4 px edge columns (no WIDE), 10 frames each"
+gpu_checks edge-rooms
+wide_checks edge-rooms
 echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
 gpu_checks wide-rows
 wide_checks wide-rows

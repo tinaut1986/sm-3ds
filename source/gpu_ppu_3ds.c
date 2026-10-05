@@ -670,9 +670,9 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
   BlendOff();
   C3D_TexBind(0, &g_main_tex);
   // The frame's columns centred on the screen (uneven margins: not the 256 px view).
-  const float x_scale = pixel_perfect ? 1.0f : 274.0f / 256.0f, mid = (f->x0 + f->x1) * 0.5f;
-  const float x0 = 200 + (f->x0 - mid) * x_scale, x1 = 200 + (f->x1 - mid) * x_scale;
-  const float u0 = RtU(f->x0), u1 = RtU(f->x1);
+  const float x_scale = pixel_perfect ? 1.0f : 274.0f / 256.0f, mid = (f->show_x0 + f->show_x1) * 0.5f;
+  const float x0 = 200 + (f->show_x0 - mid) * x_scale, x1 = 200 + (f->show_x1 - mid) * x_scale;
+  const float u0 = RtU(f->show_x0), u1 = RtU(f->show_x1);
   // PIXEL PERFECT: the frame's rows centred (the extra rows may lean to one side).
   const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f,
               y_off = pixel_perfect ? (240 - (f->y1 - f->y0)) / 2 - f->y0 : 0;
