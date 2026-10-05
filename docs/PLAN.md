@@ -25,7 +25,7 @@ no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements 
 (#30), Ridley's room E0B5, and Kraid (arms in WIDE, garbage strip). Still unchecked there: the fog (BG3 on the main screen with
 the scene on the subscreen, rooms like 957D, A5ED, A7DE: none found yet), the fps after decoding into a shadow, the 2DS in
 general, the Ceres elevator shaft (#34, left pending: a Mode 7 room is one layer, see the issue), Ridley's depth ramp. The
-achievements tab shows a problem (owner's capture of 2026-10-05, not looked at yet). The rest of what the earlier merges need
+achievements: 19 of the set's now unlock (#37, checked by the owner), through a table that belongs to the set as it is (P4.4). The rest of what the earlier merges need
 from the console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issues #7 and #18.
 
 **Priority** (owner's order; the reasons are in the decisions log):
