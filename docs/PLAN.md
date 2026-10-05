@@ -15,11 +15,11 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.1` (tag `v0.2.0` shipped as a beta on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
+**Release line:** `release/v0.2.2` (tag `v0.2.1` shipped as a beta on 2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked; before it `v0.2.0` on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
 **Branches:** none open. `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
-were merged into `release/v0.2.1` at the owner's request. Checked on the console by the owner: block fixes and render
+were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
 priorities in 9AD9, A6A1, A011 and the spikes' row at the WIDE edge (#33, #24, #28), the ash following what it covers (9CB3, #35),
 no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements after cheats (#27, #29), the PLANE TINT views
 (#30), Ridley's room E0B5, and Kraid (arms in WIDE, garbage strip). Still unchecked there: the fog (BG3 on the main screen with
