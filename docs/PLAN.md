@@ -1038,6 +1038,10 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
   GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
   rooms exported again).
+- 2026-10-05: The garbage strip in Kraid's body (A59F, GLITCH OR GARBAGE dumps 0005, 0009, 0010) was the translated HUD: `HudScreen` wrote
+  the letters of "ENERGY" into BG3 chars 0x0b-0x0d at a fixed VRAM word 0x4000, but in Kraid's room BG3's chars are at 0x2000 and
+  0x4000 is BG2's tilemap (VRAM 0x4058-0x406F, 24 words, with any UI language but English). Both text hooks now take the address
+  from the room's BG3 (`bgLayer[2].tileAdr`). Reproduced on the host from the console's save state with GAME_LANG=1.
 - 2026-10-04: `SM_TILE_PRIO` (workbench: "Draw the selection with priority"): a tile fix only moved a tile's depth, and a wall the game
   draws at priority 0 was still crossed by Samus's weapon (A6A1: 3D in front, drawn behind the sprite). It sets the priority a tile is
   drawn with (the texture, and compositor level, it goes to); GPU renderer only, and the host test compares without it

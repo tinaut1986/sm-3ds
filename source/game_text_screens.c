@@ -1380,13 +1380,18 @@ static void EndingScreen(void) {
   TranslateLayer(&big, kCreditsBig, sizeof(kCreditsBig) / sizeof(kCreditsBig[0]));
 }
 
-// ---- HUD (BG3 tilemap at 0x5800, chars at 0x4000) ------------------------------------------------
+// ---- HUD (BG3 tilemap at 0x5800, chars at BG3's tile address) ------------------------------------------------
 // ENERGY is a picture over chars 0x0b-0x0d and 0x32: colour 2 letters outlined in 1 on 3.
 
 static void HudScreen(void) {
   static const struct { const char *tr[kLangCount - 1]; } kEnergy = { { "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" } };
   static const uint16_t kChars[4] = { 0x0b, 0x0c, 0x0d, 0x32 };
-  enum { kHudMap = 0x5800, kHudChars = 0x4000 };
+  enum { kHudMap = 0x5800 };
+  // BG3's chars are where the room says: 0x4000 in most, 0x2000 in Kraid's, whose BG2 tilemap is at 0x4000 (writing the
+  // letters there left a strip of garbage tiles in his body).
+  const Ppu *hud_ppu = ThePpu();
+  if (!hud_ppu) return;
+  const uint16_t kHudChars = hud_ppu->bgLayer[2].tileAdr;
   const int lang = g_ui_lang;
   if (lang <= kLangEn || lang >= kLangCount) return;
   bool found = false;
