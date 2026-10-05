@@ -10,7 +10,7 @@ change (what goes where: the table in CLAUDE.md).
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
-## Status (2026-10-03)
+## Status (2026-10-05)
 
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
@@ -26,10 +26,10 @@ no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements 
 the scene on the subscreen, rooms like 957D, A5ED, A7DE: none found yet), the fps after decoding into a shadow, the 2DS in
 general, the Ceres elevator shaft (#34, left pending: a Mode 7 room is one layer, see the issue), Ridley's depth ramp. The
 achievements: 19 of the set's now unlock (#37, checked by the owner), through a table that belongs to the set as it is (P4.4). The rest of what the earlier merges need
-from the console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issues #7 and #18.
+from the console is in its task (P3.2, P4.4, P4.6, P4.7, P4.8) and in issue #7.
 
 **Priority** (owner's order; the reasons are in the decisions log):
-P4.5 leftovers (#18's X-ray scope on the console) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+Phase 3 (P3.2 onward) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -278,7 +278,7 @@ Lessons from mzm that apply directly:
 
 ## Phase 3: stereoscopic 3D
 
-- [ ] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
+- [x] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
   per-layer and per-tile priority, OBJ priority, which layer carries HUD/FX),
   with exhaustive host tests like `../mzm/platform/3ds/tests/stereo_depth_test.c`.
   Design: `docs/stereo-design.md` (planes, whole-pixel offsets, the platform-thickness
@@ -292,7 +292,8 @@ Lessons from mzm that apply directly:
   (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
   CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
   (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
-  no option to turn it off besides the slider, second eye's vertices pushed again.
+  second eye's vertices pushed again. No option to turn it off: the slider is the switch
+  (owner, 2026-10-05).
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
   (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter, viewer and the layer rules
   (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are read too
@@ -333,7 +334,7 @@ Lessons from mzm that apply directly:
   *Done when:* logged in on the console, the list loads with its badges, dragging scrolls
   without opening cards and a tap opens one, an unlock in play shows the notice (with its
   badge) and appears on the RA site.
-- [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
+- [x] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
   the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
   style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
   `port_wide_view.c`).
@@ -1098,3 +1099,8 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   `FAR`, BG3 priority 0 FX is `MID`. stereo-test pins "BG2 prio 0 over BG3 prio 0, farther"
   as accepted. The Fireflea room's thorns (reported behind, should be at Samus's depth) are
   not located yet: not in BG1/BG2 at the room's left end in the host runs.
+- 2026-10-05: P4.5 and P3.1 ticked at the owner's word that both work on the console. #18 (the X-ray
+  scope in WIDE) is closed, which was the last thing P4.5 waited on, and it also meets P2.5's
+  "X-ray scope seen on the console"; P2.5 keeps only the 2DS measurements. P3.1's host model has
+  been in use on the console since v0.2.0. Priority is now Phase 3 (P3.2 onward) → P1.3 → P2.5.
+- 2026-10-05: no OPTIONS entry to turn the 3D off (P3.2): the slider is the switch.
