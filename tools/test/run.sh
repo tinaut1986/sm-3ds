@@ -106,6 +106,9 @@ WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
 WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
+# The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
+# showed the BG2 pages' garbage in the margin.
+WIDE=72 WIDE_Y=8 XRAY=1 SAMUS_AT=170,171 ROOM_SEQ=0@0,1@40,0@100 run_gpu wide-xray-off rooms 160 9FBA &
 # The Ceres elevator shaft (DF45, mode 7) tilting in the escape, PIXEL PERFECT margins,
 # Samus shooting left then right (the beams' OAM is in the WRAM hash).
 WIDE=72 WIDE_Y=8 CERES_ESCAPE=1 AUTOFIRE=1 ROOM_SEQ=0@0,240@40,280@120 run_gpu wide-ceres rooms 200 DF45 &
@@ -171,6 +174,10 @@ echo "wide-xray: the X-ray scope's cone with WIDE (it stays in the view, no BG2 
 gpu_checks wide-xray
 wide_checks wide-xray
 expect wide-xray.image "$(field "$OUT/wide-xray.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray-off: the X-ray scope switched off in 9FBA with WIDE PIXEL PERFECT (no garbage in the margin)"
+gpu_checks wide-xray-off
+wide_checks wide-xray-off
+expect wide-xray-off.image "$(field "$OUT/wide-xray-off.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
 echo "wide-pbomb: the power bomb in Landing Site with WIDE on"
 gpu_checks wide-pbomb
 wide_checks wide-pbomb

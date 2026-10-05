@@ -353,6 +353,10 @@ static void ConeSpan(int ax, int dy, int center, int half, int16_t out[2]) {
 }
 
 static void ConeExtent(void) {
+  // The X-ray scope switching off leaves frames in which the game does not work the cone out but
+  // its windows are still on: the last one stands until the scope is done (time unfrozen), or
+  // the margins showed the BG2 pages' garbage there.
+  if (!g_rtl_xray_cone.fresh && g_win1_on && g_cone_window == 2 && (time_is_frozen_flag & 0xff)) return;
   g_win1_on = g_rtl_xray_cone.fresh;
   g_rtl_xray_cone.fresh = false;
   if (!g_win1_on) return;
