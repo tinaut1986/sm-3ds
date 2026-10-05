@@ -518,7 +518,7 @@ static void BeforePpuDraw(void) {
   g_filled = true;
 }
 
-void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
+void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room) {
   if (margin_x != g_margin_x) {   // even until the next gameplay frame works out the lean
     g_left = g_right = margin_x;
     g_bg2_dx = 0;
@@ -535,7 +535,7 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
   g_margin_x = margin_x;
   g_extra_top = extra_top;
   g_extra_bottom = extra_bottom;
-  g_rtl_wide_hud_over_room = margin_x || extra_top || extra_bottom;
+  g_rtl_wide_hud_over_room = hud_over_room;
   const bool on = margin_x || extra_top || extra_bottom;
   g_rtl_before_ppu_draw = on ? BeforePpuDraw : NULL;
   if (!on) {

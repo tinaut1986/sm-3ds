@@ -26,6 +26,7 @@
 #include "cheats.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "stereo_depth.h"
 #include "sm_planes.h"
 #include "debug_tools.h"
 #include "scene_rec.h"
@@ -176,18 +177,29 @@ static bool g_top_wide;   // the last frame shown had WIDE margins
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
 // title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
 // fill the 400 px screen.
-static int WideMargin(void) {
-  if (!g_ui.wide) return 0;
+static bool GameplayView(void) {
   switch (game_state) {
   case kGameState_7_MainGameplayFadeIn: case kGameState_8_MainGameplay: case kGameState_9_HitDoorBlock:
   case kGameState_10_LoadingNextRoom: case kGameState_11_LoadingNextRoom: case kGameState_12_Pausing:
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
   case kGameState_33_BlackoutFromCeres:       // and its fade to black
-    return g_ui.pixel_perfect ? 72 : 60;
+    return true;
   default:
-    return 0;
+    return false;
   }
+}
+
+static int WideMargin(void) {
+  if (!g_ui.wide || !GameplayView()) return 0;
+  return g_ui.pixel_perfect ? 72 : 60;
+}
+
+// Columns each side the 3D needs while the slider is up (GpuPpu_SetCropToView): a layer
+// moved by its plane's offset uncovers that many columns of its edge. Not needed with
+// WIDE, whose margins are far wider.
+static int StereoEdge(void) {
+  return g_ui.gpu_render && GameplayView() && osGet3DSliderState() > 0 ? kStereoMaxPx : 0;
 }
 
 
@@ -716,14 +728,16 @@ int main(int argc, char** argv) {
       // Decided before the frame runs, like the game state the margin depends on. Not
       // from `gpu`: the margin changes game logic (which enemies run), and that must not
       // depend on whether this frame happens to be drawn.
-      const int margin = g_ui.gpu_render ? WideMargin() : 0;
+      const int wide = g_ui.gpu_render ? WideMargin() : 0;
+      const int edge = wide ? 0 : StereoEdge();
+      const int margin = wide ? wide : edge;
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
-      const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
+      const int extra = wide && g_ui.pixel_perfect ? 8 : 0;
 
       g_gpu_ppu_obj_x = margin ? g_rtl_oam_shown_x : NULL;
       g_gpu_ppu_obj_y = margin ? g_rtl_oam_shown_y : NULL;
       g_gpu_ppu_obj_hud = margin ? g_rtl_oam_shown_hud : NULL;
-      SmWide_SetView(margin, extra, extra);
+      SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
@@ -755,18 +769,19 @@ int main(int argc, char** argv) {
         SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
         SmWide_Rows(&rows_top, &rows_bottom, &hud_y);
         GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetCropToView(edge > 0);   // only the 3D's edge columns: not shown
         GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
         GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
-        GpuPpu_SetNarrowBg3Rows(margin_l || margin_r ? kSmWideHudRows : 0);
+        GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
         int cone_window;
         const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
         GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
-        GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
+        GpuPpu_SetMode7UnderHud(wide && SmWide_Mode7());
         // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
         const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();
         GpuPpu_SetPlaneRule(by_hand ? SmPlanes_LayerRule : NULL);
@@ -806,7 +821,7 @@ int main(int argc, char** argv) {
           DrawPpuFrame(g_ui.pixel_perfect, g_top_wide);
         }
         g_top_by_gpu = gpu_presented;
-        g_top_wide = built && g_gpu_frame.x0 < 0;
+        g_top_wide = built && g_gpu_frame.x0 < 0 && g_gpu_frame.show_x0 < 0;
         t_draw = svcGetSystemTick() - t0;
         presented = true;
       }

@@ -290,8 +290,11 @@ Lessons from mzm that apply directly:
   First cut 2026-10-03 (branch `feat/stereo`, to check on the New 3DS): each eye drawn
   from the one frame build with every quad moved by its plane's whole-pixel offset
   (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
-  CPU path flat in both eyes. Not yet: extra columns at the view's edges without WIDE
-  (a shifted layer leaves up to 3 px of backdrop there), colour windows stay unshifted,
+  CPU path flat in both eyes. Edge columns without WIDE (2026-10-05, branch
+  `feat/stereo-edge-columns`, checked by the owner): with the slider up in gameplay the frame
+  gets `kStereoMaxPx` (4) margin columns a side, built like WIDE's but without its HUD over the
+  room, and the present step crops them (`GpuPpu_SetCropToView`): a shifted layer no longer
+  leaves backdrop at the view's edge. Not yet: colour windows stay unshifted,
   second eye's vertices pushed again. No option to turn it off: the slider is the switch
   (owner, 2026-10-05).
 - [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench

@@ -13,8 +13,10 @@
 #include "gpu_ppu.h"
 
 // View for the next frames, in screen pixels: margin on each side, rows above and below
-// the 224. All 0 = off (the game runs untouched).
-void SmWide_SetView(int margin_x, int extra_top, int extra_bottom);
+// the 224. All 0 = off (the game runs untouched). `hud_over_room`: the WIDE view proper,
+// which shows the room under the HUD; without it the margin is only the 3D's edge columns
+// (kStereoEdgePx) and the HUD's rows stay as the game draws them.
+void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room);
 
 // The last frame's margins: 2 * margin_x in all, but leaning away from a room edge that
 // would otherwise show (GpuPpu_SetMargins), where to draw the HUD so that it stays put on

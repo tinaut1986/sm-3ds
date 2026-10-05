@@ -14,6 +14,7 @@ SRAM, scripted inputs, warps).
 | gpu-newgame | power-on, title, intro, new game, Ceres (mode 7), Ceres exploding (`CERES_BOOM`) | same |
 | gpu-pbomb | a power bomb in Landing Site (layer and colour windows) | same |
 | wide-rooms | every room with WIDE on (60 px margins), 10 frames each | GPU list == CPU renderer; the WIDE middle equals the normal frame; margins black while the room is not filled in (doors, fades), except the HUD's columns |
+| edge-rooms | every room with the 3D's edge columns without WIDE (4 px margins, `WIDE_EDGE`, the HUD in its band), 10 frames each | GPU list == CPU renderer; the 256 px view equals the normal frame; the same WRAM hash as wide-rooms (the margin does not change the game) |
 | wide-rows | every room with WIDE PIXEL PERFECT (72 px margins, 8 extra rows above and below), 10 frames each | same, and a hash of the whole WIDE images: the extra rows lean off a room's top or bottom with the HUD kept in place (issue #7) |
 | msgbox-es | the save prompt (message box 23) in Landing Site with YES/NO toggled, in Spanish (`GAME_LANG=1`), against the same in English | GPU list == CPU renderer, and the WRAM hash equal to the English run's: the translation only touches VRAM |
 | newgame-es | gpu-newgame in Spanish: title, file select, options, intro pages, Ceres | GPU list == CPU renderer, and the WRAM hash equal to gpu-newgame's (`game_text_screens.c` only touches VRAM) |

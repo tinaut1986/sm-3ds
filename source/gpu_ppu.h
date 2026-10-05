@@ -119,6 +119,8 @@ typedef struct {
   // extra side space does. Rows: [0, 224), or with extra rows above and below
   // (GpuPpu_SetExtraRows), which repeat the first and last line's registers.
   int x0, x1, y0, y1;
+  // The columns the present step shows: all of them, or just [0, 256) (GpuPpu_SetCropToView).
+  int show_x0, show_x1;
   GpuTex *tex[kGpuMaxTex];
   int tex_count;
   GpuQuad quads[kGpuMaxQuads];
@@ -156,6 +158,10 @@ void GpuPpu_Invalidate(void);
 // 256 wide. Not necessarily even: next to a room edge the view leans away from it.
 void GpuPpu_SetMargins(int left, int right);
 static inline void GpuPpu_SetMargin(int margin) { GpuPpu_SetMargins(margin, margin); }
+
+// Show only the 256 px view of the frames built next: the margins are there for the 3D
+// (a layer moved by its plane's offset uncovers its edge columns), not to be seen.
+void GpuPpu_SetCropToView(bool crop);
 
 // Where BG3 is drawn on the narrow (HUD) rows of GpuPpu_SetNarrowBg3Rows: columns
 // [x, x + 256). 0 = where the PPU puts it; with uneven margins, the HUD keeps its place on

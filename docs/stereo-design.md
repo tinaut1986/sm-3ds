@@ -156,7 +156,10 @@ With 3D on and the slider above 0:
 Edges: shifting a layer by N pixels uncovers N columns at the edge of the view. With
 WIDE those are the margins' columns, already built. Without WIDE the frame builder adds
 `max offset` columns per side (as it does for the margins, `GpuPpu_SetMargins`) and the
-present step crops them, so the edge never shows empty columns.
+present step crops them, so the edge never shows empty columns. Done as `StereoEdge()` in
+`main.c`: gameplay, slider up, WIDE off, margin `kStereoMaxPx`; `SmWide_SetView`'s
+`hud_over_room` stays off (the HUD keeps its band and the game does not draw the room under it)
+and `GpuPpu_SetCropToView` limits the picture to the 256 px view. Host: `edge-rooms`.
 
 Colour math: the sub screen is drawn per eye with the same planes, so translucent water
 over the level lines up in each eye.
