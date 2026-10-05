@@ -211,6 +211,7 @@ void Kraid_SetEnemyPropsToDead(void) {  // 0xA7A943
 void Kraid_Init(void) {  // 0xA7A959
   VramWriteEntry *v5;
   uint16 j;
+  g_rtl_enemy_bg2_room = room_ptr;   // 3DS port: Kraid's body is BG2's tilemap, see g_rtl_enemy_bg2_room
 
   unpause_hook.bank = -89;
   pause_hook.bank = -89;
@@ -370,6 +371,7 @@ void KraidsFoot_Init(void) {  // 0xA7ABF8
 }
 
 void Kraid_Main(void) {  // 0xA7AC21
+  g_rtl_enemy_bg2_room = room_ptr;   // 3DS port: WIDE's BG2 fill must not overwrite Kraid's tilemap
   Kraid_Shot_Mouth();
   Kraid_Palette_Handling();
   Kraid_Shot_Body();

@@ -5,6 +5,7 @@
 
 #include "src/types.h"
 #include "src/variables.h"
+#include "sm_wide.h"
 #include "stereo_depth.h"
 
 typedef struct {
@@ -109,8 +110,11 @@ int SmPlanes_SlotPlanes(int layer, int tw, int th, uint8_t *grid) {
   }
   const int lx0 = cam_x >> 4, ly0 = cam_y >> 4;
   const int wb = tw >> 1, hb = th >> 1;   // blocks the tilemap holds
-  // The window of blocks the tilemap shows: centred on the camera's middle (256x224 view).
-  const int x0 = ((cam_x + 128) >> 4) - (wb >> 1), y0 = ((cam_y + 112) >> 4) - (hb >> 1);
+    // With WIDE the view is wider (and taller) than 256x224 and leans off a room's edge: centre on what is shown.
+  int ml, mr, hud_x, bg2_dx, et, eb, hud_y;
+  SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
+  SmWide_Rows(&et, &eb, &hud_y);
+  const int x0 = ((cam_x + 128 + (mr - ml) / 2) >> 4) - (wb >> 1), y0 = ((cam_y + 112 + (eb - et) / 2) >> 4) - (hb >> 1);
   memset(grid, 0, (size_t)th * 64);
   int n = 0;
   // Two kinds of entry: planes (low nibble of the slot: StereoPlane + 1) and render priorities (high nibble: priority + 1).
