@@ -890,30 +890,27 @@ static bool RestIsSpaces(const char *q) {
 
 // The game rewrites OAM every frame (before this hook runs), so a moved sprite needs no putting back.
 
-// The cursor sprite, where the game has it (the cell after its last letter, or the first one of the
-// next line when the line is full or the page done: `from`), put at (to_row, to_col).
-static void MoveCursorSprite(const TextLayer *L, const int from_row[2], const int from_col[2], int to_row,
-                             int to_col) {
+// The cursor sprite: the game keeps it in the page's cells (after its last letter, a gap behind the
+// letter it has already typed, or at the start of the next line), so any sprite over the rows of the
+// text is it. Put at (to_row, to_col).
+static void MoveCursorSprite(const TextLayer *L, int row_lo, int row_hi, int to_row, int to_col) {
   Ppu *ppu = ThePpu();
   if (!ppu || to_col >= 32 || to_row >= 32) return;
   const BgLayer *bg = NULL;
   for (int i = 0; i < 4; i++)
     if (ppu->bgLayer[i].tilemapAdr == L->map) bg = &ppu->bgLayer[i];
   if (!bg) return;
+  const int top = row_lo * 8 - bg->vScroll - 1, bottom = row_hi * 8 - bg->vScroll - 1;
   for (int i = 0; i < 128; i++) {
     const uint16_t w = ppu->oam[i * 2];
     const int hi = ppu->highOam[i >> 2] >> ((i & 3) * 2) & 3;
     const int x = (w & 0xff) | (hi & 1) << 8, y = w >> 8;
-    for (int c = 0; c < 2; c++) {
-      const int want_x = (from_col[c] * 8 - bg->hScroll) & 0x1ff;
-      const int want_y = (from_row[c] * 8 - bg->vScroll - 1) & 0xff;
-      if (x != want_x || y < want_y - 8 || y > want_y + 8) continue;
-      const int nx = (to_col * 8 - bg->hScroll) & 0x1ff;
-      const int ny = (y + (to_row - from_row[c]) * 8) & 0xff;
-      ppu->oam[i * 2] = (uint16_t)(ny << 8 | (nx & 0xff));
-      ppu->highOam[i >> 2] = (uint8_t)((ppu->highOam[i >> 2] & ~(1 << ((i & 3) * 2))) | (nx >> 8) << ((i & 3) * 2));
-      return;
-    }
+    if (x >= 256 || y < top - 8 || y > bottom + 8) continue;
+    const int nx = (to_col * 8 - bg->hScroll) & 0x1ff;
+    const int ny = (to_row * 8 - bg->vScroll - 1) & 0xff;
+    ppu->oam[i * 2] = (uint16_t)(ny << 8 | (nx & 0xff));
+    ppu->highOam[i >> 2] = (uint8_t)((ppu->highOam[i >> 2] & ~(1 << ((i & 3) * 2))) | (nx >> 8) << ((i & 3) * 2));
+    return;
   }
 }
 
@@ -1006,11 +1003,10 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
   // The typing cursor is a sprite the game keeps after its last English letter, or at the start of the
   // next line when that line is full or the page done: the same for the translation, wherever its
   // lines break (so it works for every language).
-  const int from_row[2] = { cell_row[cells - 1], cell_row[cells - 1] + step };
-  const int from_col[2] = { cell_col[cells - 1] + 1, first_col };
-  if (last_row < 0) MoveCursorSprite(L, from_row, from_col, first_row, first_col);
-  else if (last_full) MoveCursorSprite(L, from_row, from_col, last_row + step, first_col);
-  else MoveCursorSprite(L, from_row, from_col, last_row, last_col + 1);
+  const int row_lo = first_row, row_hi = cell_row[cells - 1] + step;
+  if (last_row < 0) MoveCursorSprite(L, row_lo, row_hi, first_row, first_col);
+  else if (last_full) MoveCursorSprite(L, row_lo, row_hi, last_row + step, first_col);
+  else MoveCursorSprite(L, row_lo, row_hi, last_row, last_col + 1);
 }
 
 // The story font: 8 px letters outlined in colour 3 (A at 0, 0-9 at 0x1a, then . , ' : !).
