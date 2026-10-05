@@ -881,6 +881,39 @@ static int WrapLines(const char *tr, int width, const char *starts[16], int lens
   return lines;
 }
 
+static bool RestIsSpaces(const char *q) {
+  while (*q == ' ') q++;
+  return !*q;
+}
+
+// ---- The typing cursor ----------------------------------------------------------------------------
+
+// The game rewrites OAM every frame (before this hook runs), so a moved sprite needs no putting back.
+
+// The cursor sprite: the game keeps it in the page's cells (after its last letter, a gap behind the
+// letter it has already typed, or at the start of the next line), so any sprite over the rows of the
+// text is it. Put at (to_row, to_col).
+static void MoveCursorSprite(const TextLayer *L, int row_lo, int row_hi, int to_row, int to_col) {
+  Ppu *ppu = ThePpu();
+  if (!ppu || to_col >= 32 || to_row >= 32) return;
+  const BgLayer *bg = NULL;
+  for (int i = 0; i < 4; i++)
+    if (ppu->bgLayer[i].tilemapAdr == L->map) bg = &ppu->bgLayer[i];
+  if (!bg) return;
+  const int top = row_lo * 8 - bg->vScroll - 1, bottom = row_hi * 8 - bg->vScroll - 1;
+  for (int i = 0; i < 128; i++) {
+    const uint16_t w = ppu->oam[i * 2];
+    const int hi = ppu->highOam[i >> 2] >> ((i & 3) * 2) & 3;
+    const int x = (w & 0xff) | (hi & 1) << 8, y = w >> 8;
+    if (x >= 256 || y < top - 8 || y > bottom + 8) continue;
+    const int nx = (to_col * 8 - bg->hScroll) & 0x1ff;
+    const int ny = (to_row * 8 - bg->vScroll - 1) & 0xff;
+    ppu->oam[i * 2] = (uint16_t)(ny << 8 | (nx & 0xff));
+    ppu->highOam[i >> 2] = (uint8_t)((ppu->highOam[i >> 2] & ~(1 << ((i & 3) * 2))) | (nx >> 8) << ((i & 3) * 2));
+    return;
+  }
+}
+
 static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *pages, int count) {
   const int lang = g_ui_lang;
   if (lang <= kLangEn || lang >= kLangCount) return;
@@ -891,7 +924,6 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
   static bool cell_alpha[kMaxPageCells];
   char typed[kMaxPageCells + 32];
   int cells = 0, tn = 0, first_row = -1, first_col = 0, second_row = -1;
-  int cursor_row = -1, cursor_col = 0;   // the typing cursor: a cell right after the last letter
   for (int r = row0; r <= row1 && r < 32 - (f->h - 1); r++) {
     int x0 = -1, x1 = -1;
     for (int x = 0; x < 32; x++) {
@@ -905,7 +937,6 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
     for (int x = x0; x <= x1; x++) {
       const unsigned c = DecodeCell(L, r, x);
       if (c == 1) continue;
-      cursor_row = -1;
       if (c == ' ') {
         if (tn > 0 && typed[tn - 1] != ' ' && tn < (int)sizeof(typed) - 1) typed[tn++] = ' ';
         continue;
@@ -914,10 +945,11 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
       if (cells < kMaxPageCells) {
         cell_row[cells] = (int16_t)r, cell_col[cells] = (int16_t)x;
         cell_alpha[cells] = IsAlpha(c);
-        cell_attr[cells++] = Cell(L, r, x) & 0x3c00;
+        // A tall letter's colour is on its top cell, but the dots have only a bottom one.
+        const bool top_blank = (Cell(L, r, x) & 0x3ff) == f->fill;
+        cell_attr[cells++] = Cell(L, r + (f->h == 2 && top_blank), x) & 0x3c00;
       }
     }
-    if (x1 + 1 < 32 && DecodeCell(L, r, x1 + 1) == 1) cursor_row = r, cursor_col = x1 + 1;
     if (f->h == 2) r++;
   }
   typed[tn] = 0;
@@ -943,12 +975,12 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
   const char *starts[16];
   int lens[16];
   const int lines = WrapLines(tr, page->width, starts, lens);
-  uint16_t cursor = 0;
-  if (cursor_row >= 0) {
-    cursor = Cell(L, cursor_row, cursor_col);
-    Want((uint16_t)(L->map + cursor_row * 32 + cursor_col), (uint16_t)((cursor & 0xfc00) | f->fill));
-  }
-  int k = 0, last_row = -1, last_col = 0;
+  // The fade-in tail: the English letters at the end whose colour differs from the page's steady one
+  // (the first letter's, long since faded in).
+  const int steady = 0;
+  int tail = 0;
+  while (tail < cells && cell_attr[cells - 1 - tail] != cell_attr[steady]) tail++;
+  int k = 0, last_row = -1, last_col = 0, last_full = 0;
   for (int l = 0; l < lines && k < shown; l++) {
     const int r = first_row + l * step;
     if (r + f->h - 1 > row1) break;
@@ -958,18 +990,23 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
       if (c == ' ') continue;
       const int x = first_col + i;
       if (x >= 32) break;
-      // The colour of the English letter at the same point (a letter: punctuation may differ).
-      int src = (int)((long)k * cells / (shown > 0 ? shown : 1));
-      if (src >= cells) src = cells - 1;
-      for (int d = 0; d < cells && !cell_alpha[src]; d++) src = (src + 1) % cells;
-      const uint16_t attr = cell_attr[src];
+      // The colour: the newest letters fade in, so the last ones shown take the colours of the
+      // English page's last ones, in order; every other letter has the colour the rest of the page has.
+      const int from_end = shown - 1 - k;
+      const uint16_t attr = from_end < tail ? cell_attr[cells - 1 - from_end] : cell_attr[steady];
       if (!PutLetter(L, r, x, c, attr)) PutLetter(L, r, x, ' ', attr);
       last_row = r, last_col = x;
       k++;
+      last_full = i + 1 >= lens[l] || k >= shown && RestIsSpaces(q);
     }
   }
-  if (cursor_row >= 0 && last_row >= 0 && last_col + 1 < 32)
-    Want((uint16_t)(L->map + last_row * 32 + last_col + 1), cursor);
+  // The typing cursor is a sprite the game keeps after its last English letter, or at the start of the
+  // next line when that line is full or the page done: the same for the translation, wherever its
+  // lines break (so it works for every language).
+  const int row_lo = first_row, row_hi = cell_row[cells - 1] + step;
+  if (last_row < 0) MoveCursorSprite(L, row_lo, row_hi, first_row, first_col);
+  else if (last_full) MoveCursorSprite(L, row_lo, row_hi, last_row + step, first_col);
+  else MoveCursorSprite(L, row_lo, row_hi, last_row, last_col + 1);
 }
 
 // The story font: 8 px letters outlined in colour 3 (A at 0, 0-9 at 0x1a, then . , ' : !).
