@@ -16,6 +16,8 @@
  * First rules (2026-10-04, from the owner's captures; tune them in the workbench):
  *   0xE0B5 BG2 -> PLAY (#34): in Ridley's room (Ceres) the floor and walls are BG2, which the depth function takes for the
  *     background and puts behind Samus; the scenery goes to the level's plane, in front of her.
+ *   0xE0B5 Mode 7 -> BACK (2026-10-05): Ridley flying from the back is the Mode 7 plane, which the game draws behind Samus
+ *     (level 5 under her 10) and the depth function put in front of her (PLAY).
  *   0xDF45 sprites of priority 2 -> FRONT (#34): in the Ceres elevator shaft (Mode 7) Samus is drawn in front of the room
  *     but sat behind it.
  *   0x9D19 BG3 prio 0 -> FRONT (#35): the ash (BG3, behind BG2 on paper, seen over it through colour math).
@@ -3834,3 +3836,4 @@ SM_TILE_PRIO(0xA6A1, 1, 32, 21, 0x81AA, 0xF, 1)  /* drawn with priority 1 */
 SM_LAYER_PLANE(0xDF45, 4, 2, kStereoFront)  /* -> FRONT */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)  /* -> PLAY */
 SM_LAYER_PLANE(0xE0B5, 2, 1, kStereoPlay)  /* -> PLAY */
+SM_LAYER_PLANE(0xE0B5, 5, 0, kStereoBack)  /* -> BACK */
