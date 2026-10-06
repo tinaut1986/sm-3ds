@@ -36,6 +36,7 @@
 #include "retro_ach.h"
 #include "game_text.h"
 #include "version.h"
+#include "updater.h"
 #include "build_config.h"
 
 enum Button {
@@ -565,6 +566,10 @@ static void ShowRomError(const RomInfo *info) {
 // one write and a flush.
 static FILE *g_exit_file;
 
+// The updater asks to quit after installing, to relaunch the new build (aptSetChainloaderToSelf).
+static volatile bool g_quit_request;
+void Main_RequestQuit(void) { g_quit_request = true; }
+
 void ExitStep(const char *what) {
   if (!g_exit_file) {
     mkdir("debug", 0777);
@@ -658,6 +663,8 @@ int main(int argc, char** argv) {
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
+  // Pre-release builds (the ones with the debug tools) follow the betas, the others the releases.
+  Updater_Init(g_ui.auto_update, DEBUG_TOOLS != 0);
   GameText_Init();
 
   // Setup audio
@@ -728,8 +735,8 @@ int main(int argc, char** argv) {
     RetroAch_Update();
 
     hidScanInput();
-    if (!aptMainLoop()) {
-      ExitStep("quit event");
+    if (!aptMainLoop() || g_quit_request) {
+      ExitStep(g_quit_request ? "quit requested" : "quit event");
       running = false;
       // Not one more frame: the system has taken the GPU (HOME's close), and a frame would wait for it.
       break;

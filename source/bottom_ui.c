@@ -18,6 +18,7 @@
 #include "sm_warp.h"
 #include "stereo_depth.h"
 #include "ui_draw.h"
+#include "updater.h"
 #include "ui_lang.h"
 #include "retro_ach.h"
 
@@ -31,6 +32,7 @@
 UiOptions g_ui = {
   .audio_on = true,
   .frameskip = true,
+  .auto_update = true,
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
   // the CPU renderer), and any frame it cannot draw goes to the CPU renderer anyway.
@@ -876,7 +878,7 @@ void BottomUi_GameReset(void) {
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_COUNT } OptCell;
+typedef enum { OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_AUTO_UPDATE, OPT_UPDATES, OPT_COUNT } OptCell;
 
 // Two columns; RESET GAME takes the last row's free cell.
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
@@ -903,6 +905,21 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OPT_DISPLAY, Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelPerfect : kStrScaled), COL_GOOD);
   DrawOnOffCell(s, OPT_WIDE, Tr(kStrWideView), g_ui.wide);
   DrawOptCell(s, OPT_LANGUAGE, Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  DrawOnOffCell(s, OPT_AUTO_UPDATE, Tr(kStrAutoUpdate), g_ui.auto_update);
+  {
+    char value[40];
+    uint32_t col = COL_GOOD;
+    switch (Updater_State()) {
+    case UPD_CHECKING: snprintf(value, sizeof(value), "%s", Tr(kStrUpdChecking)); col = COL_DIM; break;
+    case UPD_UP_TO_DATE: snprintf(value, sizeof(value), "%s", Tr(kStrUpdUpToDate)); break;
+    case UPD_AVAILABLE: snprintf(value, sizeof(value), Tr(kStrUpdNew), Updater_RemoteTag()); break;
+    case UPD_DOWNLOADING: snprintf(value, sizeof(value), "%s %d%%", Tr(kStrUpdInstalling), Updater_Progress()); col = COL_DIM; break;
+    case UPD_INSTALLED: snprintf(value, sizeof(value), "%s", Tr(kStrUpdInstalled)); break;
+    case UPD_ERROR: snprintf(value, sizeof(value), "%s", Tr(kStrUpdError)); col = COL_WARN; break;
+    default: snprintf(value, sizeof(value), "%s", Tr(kStrUpdTap)); col = COL_DIM; break;
+    }
+    DrawOptCell(s, OPT_UPDATES, Tr(kStrUpdates), value, col);
+  }
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
                  Tr(kStrResetGame));
 
@@ -938,6 +955,8 @@ static void OptionsTouch(int x, int y) {
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
+    case OPT_AUTO_UPDATE: g_ui.auto_update = !g_ui.auto_update; break;
+    case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
     }
     return;
@@ -965,6 +984,64 @@ static void ResetModalTouch(int x, int y) {
     g_modal = MODAL_NONE;
   } else if (UiIn(NoRect(), x, y)) {
     g_modal = MODAL_NONE;
+  }
+}
+
+// ---- Update prompt ------------------------------------------------------------
+// The updater (updater.c) asks over any tab: a newer build is there (install?), it is installing
+// (a bar), it is installed (restart?), or the install failed. Nothing else answers a touch while
+// one is up.
+
+static void DrawUpdatePrompt(Surface s) {
+  const UpdPrompt prompt = Updater_Prompt();
+  if (prompt == UPD_PROMPT_NONE) return;
+  UiFillRect(s, 40, 76, 240, 96, COL_MODAL_EDGE);
+  UiFillRect(s, 41, 77, 238, 94, COL_MODAL);
+  char line[64];
+  switch (prompt) {
+  case UPD_PROMPT_ASK_INSTALL:
+    snprintf(line, sizeof(line), Tr(kStrUpdAsk), Updater_RemoteTag());
+    UiDrawTextCentered(s, SCREEN_W / 2, 92, COL_TITLE, line);
+    UiDrawTextCentered(s, SCREEN_W / 2, 110, COL_DIM, Tr(kStrUpdAsk2));
+    UiDrawBoxLabel(s, YesRect(), COL_BOX, COL_BOX_EDGE, COL_GOOD, Pressed(YesRect()), Tr(kStrYes));
+    UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrNo));
+    break;
+  case UPD_PROMPT_PROGRESS: {
+    UiDrawTextCentered(s, SCREEN_W / 2, 96, COL_TITLE, Tr(kStrUpdInstalling));
+    const int pct = Updater_Progress();
+    UiFrameRect(s, 60, 120, 200, 12, COL_MODAL_EDGE);
+    UiFillRect(s, 62, 122, 196 * pct / 100, 8, COL_GOOD);
+    snprintf(line, sizeof(line), "%d%%", pct);
+    UiDrawTextCentered(s, SCREEN_W / 2, 142, COL_DIM, line);
+    break;
+  }
+  case UPD_PROMPT_ASK_RESTART:
+    UiDrawTextCentered(s, SCREEN_W / 2, 100, COL_TITLE, Tr(kStrUpdRestart));
+    UiDrawBoxLabel(s, YesRect(), COL_BOX, COL_BOX_EDGE, COL_GOOD, Pressed(YesRect()), Tr(kStrYes));
+    UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrNo));
+    break;
+  case UPD_PROMPT_ERROR:
+    UiDrawTextCentered(s, SCREEN_W / 2, 88, COL_WARN, Tr(kStrUpdFailed));
+    UiDrawTextCentered(s, SCREEN_W / 2, 104, COL_DIM, Updater_Message());
+    if (Updater_KeptCia()) UiDrawTextCentered(s, SCREEN_W / 2, 116, COL_DIM, Tr(kStrUpdKept));
+    UiDrawBoxLabel(s, (Rect){ 112, 136, 96, 24 }, COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed((Rect){ 112, 136, 96, 24 }),
+                   Tr(kStrOk));
+    break;
+  default: break;
+  }
+}
+
+static void UpdatePromptTouch(int x, int y) {
+  switch (Updater_Prompt()) {
+  case UPD_PROMPT_ASK_INSTALL:
+  case UPD_PROMPT_ASK_RESTART:
+    if (UiIn(YesRect(), x, y)) Updater_AnswerPrompt(true);
+    else if (UiIn(NoRect(), x, y)) Updater_AnswerPrompt(false);
+    break;
+  case UPD_PROMPT_ERROR:
+    if (UiIn((Rect){ 112, 136, 96, 24 }, x, y)) Updater_AnswerPrompt(true);
+    break;
+  default: break;
   }
 }
 
@@ -1632,11 +1709,11 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update };
 }
 
 static void SaveConfig(void) {
@@ -1645,8 +1722,8 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom);
+          "language=%d\nmap_zoom=%d\nauto_update=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom, o.auto_update);
   fclose(f);
 }
 
@@ -1673,6 +1750,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
+    else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
@@ -1691,6 +1769,10 @@ static void SelectTab(Tab t) {
 static void TouchDownImpl(int x, int y) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+  if (Updater_Prompt() != UPD_PROMPT_NONE) {   // the update prompt is over everything
+    UpdatePromptTouch(x, y);
+    return;
+  }
 #if DEBUG_TOOLS
   if (g_modal == MODAL_REPORT) {   // the game is paused until a reason or CANCEL: nothing else works
     ReportTouch(x, y);
@@ -1774,6 +1856,7 @@ static void DrawBottom(const UiPerf *p) {
 #endif
   default: break;
   }
+  DrawUpdatePrompt(s);
   if (g_toast[0]) {
     // On the map the bottom rows hold the warp buttons, so use the info line there.
     const int y = g_tab == TAB_MAP && g_modal == MODAL_NONE ? 201 : SCREEN_H - 12;
@@ -1793,6 +1876,11 @@ bool BottomUi_Frame(const UiPerf *p) {
   static uint32_t ra_seen;
   if (RetroAch_Version() != ra_seen) {
     ra_seen = RetroAch_Version();
+    g_dirty = 2;
+  }
+  static uint32_t updater_seen;
+  if (Updater_Version() != updater_seen) {
+    updater_seen = Updater_Version();
     g_dirty = 2;
   }
   if (g_tap_flash_pending && now - g_tap_ms >= TAP_FLASH_MS) {

@@ -108,6 +108,23 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrRaWin] = { "WIN CONDITION", "CONDICIÓN DE VICTORIA", "CONDICIÓ DE VICTÒRIA", "CONDITION DE VICTOIRE",
                   "CONDIÇÃO DE VITÓRIA" },
   [kStrClose] = { "CLOSE", "CERRAR", "TANCA", "FERMER", "FECHAR" },
+  [kStrAutoUpdate] = { "AUTO UPDATE", "ACTUALIZAR AUTO", "ACTUALITZAR AUTO", "MISE À JOUR AUTO", "ATUALIZAR AUTO" },
+  [kStrUpdates] = { "UPDATES", "ACTUALIZACIONES", "ACTUALITZACIONS", "MISES À JOUR", "ATUALIZAÇÕES" },
+  [kStrUpdTap] = { "TAP TO CHECK", "TOCA PARA BUSCAR", "TOCA PER CERCAR", "TOUCHER: VÉRIFIER", "TOQUE PARA VERIFICAR" },
+  [kStrUpdChecking] = { "CHECKING...", "BUSCANDO...", "CERCANT...", "VÉRIFICATION...", "VERIFICANDO..." },
+  [kStrUpdUpToDate] = { "UP TO DATE", "AL DÍA", "AL DIA", "À JOUR", "ATUALIZADO" },
+  [kStrUpdNew] = { "NEW: %s", "NUEVA: %s", "NOVA: %s", "NOUVELLE: %s", "NOVA: %s" },
+  [kStrUpdInstalled] = { "RESTART TO USE", "REINICIA PARA USAR", "REINICIA PER USAR", "REDÉMARRER", "REINICIE PARA USAR" },
+  [kStrUpdError] = { "ERROR: TAP TO RETRY", "ERROR: TOCA PARA REINTENTAR", "ERROR: TOCA PER REINTENTAR", "ERREUR: RÉESSAYER", "ERRO: TENTAR DE NOVO" },
+  [kStrUpdAsk] = { "NEW VERSION %s", "NUEVA VERSIÓN %s", "NOVA VERSIÓ %s", "NOUVELLE VERSION %s", "NOVA VERSÃO %s" },
+  [kStrUpdAsk2] = { "INSTALL IT NOW?", "¿INSTALARLA AHORA?", "VOLS INSTAL·LAR-LA ARA?", "L'INSTALLER MAINTENANT ?", "INSTALAR AGORA?" },
+  [kStrUpdInstalling] = { "INSTALLING...", "INSTALANDO...", "INSTAL·LANT...", "INSTALLATION...", "INSTALANDO..." },
+  [kStrUpdRestart] = { "UPDATED. RESTART NOW?", "ACTUALIZADO. ¿REINICIAR?", "ACTUALITZAT. REINICIAR?", "MIS À JOUR. REDÉMARRER ?", "ATUALIZADO. REINICIAR?" },
+  [kStrUpdFailed] = { "THE UPDATE FAILED", "LA ACTUALIZACIÓN FALLÓ", "L'ACTUALITZACIÓ HA FALLAT", "LA MISE À JOUR A ÉCHOUÉ", "A ATUALIZAÇÃO FALHOU" },
+  [kStrUpdKept] = { "CIA KEPT IN UPDATE/ FOR FBI", "CIA EN UPDATE/ PARA FBI", "CIA A UPDATE/ PER A FBI", "CIA DANS UPDATE/ POUR FBI", "CIA EM UPDATE/ PARA O FBI" },
+  [kStrYes] = { "YES", "SÍ", "SÍ", "OUI", "SIM" },
+  [kStrNo] = { "NO", "NO", "NO", "NON", "NÃO" },
+  [kStrOk] = { "OK", "OK", "OK", "OK", "OK" },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };

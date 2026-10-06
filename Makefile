@@ -130,7 +130,8 @@ ASFLAGS := $(ARCH)
 LDFLAGS = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map) \
 		  -Wl,--gc-sections -Wl,--as-needed
 
-LIBS := -lcitro2d -lcitro3d -lctru -lm
+# libcurl + mbedtls: the console's own TLS (httpc, used by RetroAchievements) cannot talk to GitHub, the updater needs them
+LIBS := -lcitro2d -lcitro3d -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lctru -lm
 LIBDIRS := $(PORTLIBS) $(CTRULIB) ./lib
 
 # SM game sources
