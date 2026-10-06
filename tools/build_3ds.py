@@ -29,7 +29,6 @@ ROOT = os.path.abspath(os.path.join(HERE, ".."))
 IP_HISTORY_FILE = os.path.join(ROOT, ".3ds_ftp_ip")
 # What `make cia` produces (fixed name; the FTP upload adds the version).
 CIA_PATH = os.path.join(ROOT, "output", "SuperMetroid3DSPort.cia")
-SDL_LIB = os.path.join(ROOT, "SDL", "build", "libSDL2.a")
 TITLE = "Super Metroid 3DS - build assistant"
 
 RESET = "\033[0m"
@@ -298,8 +297,6 @@ def run_build(debug=True, send_ftp=False, ftp_host="", ftp_port=5000, clean=Fals
         env["PATH"] = extra + os.pathsep + env.get("PATH", "")
 
     steps = []
-    if not os.path.isfile(SDL_LIB):
-        steps.append(("Building SDL2 (first time only)", [make_bin, "-C", ROOT, "sdl"]))
     if clean:
         steps.append(("Cleaning (make clean)", [make_bin, "-C", ROOT, "clean"]))
     target = "ftp" if send_ftp else "cia"

@@ -22,7 +22,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
 
       - name: Install host tools
         run: |
@@ -75,7 +74,6 @@ jobs:
           # The ROM is never part of the repository or of a published build.
           # Fail loudly if one ever ends up in romfs/.
           if ls romfs | grep -qiE '\.(smc|sfc)$'; then echo "ROM found in romfs/"; exit 1; fi
-          make sdl
           make clean
           # Betas carry the debug tools (Debug tab, teleport, cheats) for
           # playtesting; stable releases (reachable from main) do not.

@@ -15,7 +15,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 mkdir -p "$OUT/saves" "$OUT/debug"
 S=$ROOT/sm
 SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c")
-gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/SDL/include" -I"$ROOT/SDL/build/include" \
+gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/third_party/sdl_keys" \
     -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE -w $SRCS \
     "$ROOT/source/debug_tools.c" "$ROOT/tools/frame-capture/frame_capture.c" -o "$OUT/frame_capture" -lm
 cp "$STATE" "$OUT/saves/save9.sav"
