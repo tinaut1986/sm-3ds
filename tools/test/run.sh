@@ -65,11 +65,16 @@ ROM=$(realpath "$ROM")
 echo "building the host test programs..."
 head -c 8192 /dev/zero > "$OUT/empty.srm"
 mkdir -p "$OUT/gpu-build" "$OUT/audio-build"
-# Built once, then copied to each test's folder.
-WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1
-WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1
-if [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
+# Built once, then copied to each test's folder. A binary left by an earlier run must never
+# stand in for a failed build (it once ran every test on code days old: no 32-bit libc
+# headers, so gcc -m32 failed and the old program went on to "fail" checks it predates).
+rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench"
+build_ok=1
+WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1 || build_ok=0
+WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1 || build_ok=0
+if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
   echo "  FAIL  build (see $OUT/gpu-build.log, $OUT/audio-build.log)"
+  echo "        32-bit host builds need the 32-bit libc headers: sudo apt install gcc-multilib"
   exit 1
 fi
 

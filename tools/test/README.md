@@ -1,5 +1,7 @@
 # Host regression tests
 
+Needs `gcc` with 32-bit support (`sudo apt install gcc-multilib` on Debian/Ubuntu): the test programs are built `-m32`, like the console. If that build fails the run stops with `FAIL  build`; it never falls back to a program left by an earlier run.
+
 `make test SM_ROM=/path/to/rom.sfc` (or `tools/test/run.sh [--full] [--update] ROM`)
 runs everything that can be checked on the PC and prints PASS/FAIL per check; it
 exits non-zero if anything failed. About 90 s; `--full` adds the teleport test (ASAN,
