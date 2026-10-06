@@ -46,7 +46,7 @@ RaSort RetroAch_Sort(void) { return g_sort; }
 bool RetroAch_Descending(void) { return g_desc; }
 void RetroAch_SetSort(RaSort sort, bool descending) { g_sort = sort, g_desc = descending; }
 void RetroAch_ShowPreview(void) {}
-void RetroAch_MixAudio(int16_t *out, int frames) { (void)out, (void)frames; }
+void RetroAch_MixAudio(int16_t *out, int frames, int rate) { (void)out, (void)frames, (void)rate; }
 
 // Made-up badges: a ring in a colour per achievement on a dark square. Badge "4" never
 // loads, to show the placeholder.
