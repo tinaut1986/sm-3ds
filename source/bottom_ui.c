@@ -179,20 +179,62 @@ static void DrawTabBar(Surface s) {
 // scrolling is needed. Row 0 of the tilemap is an empty margin and is not drawn.
 // Picking a room and warping into it exists in DEBUG_TOOLS builds only.
 
-#define MAP_CELL 5
-#define MAP_Y0 26
-#define MAP_COL_EXPLORED  RGB(214, 96, 150)
-#define MAP_COL_KNOWN     RGB(56, 64, 104)
-#define MAP_COL_ROOM      RGB(250, 220, 90)
-#define MAP_COL_SELECT    RGB(90, 220, 240)
+// The map canvas is the strip between the tab bar and the area buttons. Zoom 0 fits a
+// whole area (64 cells of 5 px); the others show the game's own 8 px tiles or bigger and
+// scroll by dragging.
+#define MAP_Y0 23
+#define MAP_VIEW_Y1 183
+#define MAP_ZOOMS 3
+static const int kMapCellPx[MAP_ZOOMS] = { 5, 8, 12 };
+#define MAP_CELL (kMapCellPx[g_map_zoom])
+enum { kMapDragSlop = 6 };   // a stylus wobbles this much on a tap; past it the touch scrolls
+
+
+#define MAP_BG_R 14   // COL_BG, to average transparent tile pixels with
+#define MAP_BG_G 16
+#define MAP_BG_B 28
+#define MAP_COL_ROOM      RGB(250, 220, 90)   // the room Samus is in
+#define MAP_COL_SELECT    RGB(60, 255, 70)    // the room picked for a warp
+#define MAP_COL_DOOR      RGB(255, 80, 40)    // its door
 
 static int g_map_area;              // area being shown
 static bool g_map_follow = true;    // follow the area Samus is in
 static int g_sel_col = -1, g_sel_row = -1;
-
+static int g_map_zoom;              // index into kMapCellPx
+static int g_scroll_x, g_scroll_y;  // canvas offset in px (0 at zoom 0)
+static bool g_map_centre = true;    // keep the view on Samus (or the area's middle) until dragged
+static struct { bool active, dragging; int start_x, start_y, last_x, last_y; } g_map_touch;
 
 static Rect AreaButtonRect(int i) { return (Rect){ 2 + i * 45, 183, 43, 13 }; }
 static Rect FollowRect(void) { return (Rect){ 226, 198, 92, 13 }; }
+static Rect ZoomRect(void) { return (Rect){ 192, 198, 30, 13 }; }
+
+// Map cell <-> canvas pixel. Row 0 is the empty margin of the map, where the arrow names sit.
+static int MapPxX(int col) { return col * MAP_CELL - g_scroll_x; }
+static int MapPxY(int row) { return MAP_Y0 + row * MAP_CELL - g_scroll_y; }
+
+static void MapClampScroll(void) {
+  const int max_x = kSmMapCols * MAP_CELL - SCREEN_W;
+  const int max_y = kSmMapRows * MAP_CELL - (MAP_VIEW_Y1 - MAP_Y0);
+  if (g_scroll_x > max_x) g_scroll_x = max_x;
+  if (g_scroll_y > max_y) g_scroll_y = max_y;
+  if (g_scroll_x < 0) g_scroll_x = 0;
+  if (g_scroll_y < 0) g_scroll_y = 0;
+}
+
+// Scrolls so that cell (col, row) is in the middle of the canvas.
+static void MapCentreOn(int col, int row) {
+  g_scroll_x = col * MAP_CELL + MAP_CELL / 2 - SCREEN_W / 2;
+  g_scroll_y = row * MAP_CELL + MAP_CELL / 2 - (MAP_VIEW_Y1 - MAP_Y0) / 2;
+  MapClampScroll();
+}
+
+static bool MapCellAt(int x, int y, int *col, int *row) {
+  if (y < MAP_Y0 || y >= MAP_VIEW_Y1) return false;
+  *col = (x + g_scroll_x) / MAP_CELL;
+  *row = (y - MAP_Y0 + g_scroll_y) / MAP_CELL;
+  return *col < kSmMapCols && *row < kSmMapRows;
+}
 
 #if DEBUG_TOOLS
 static int g_warp_door;             // which of the doors into the selected room to use
@@ -216,35 +258,189 @@ static void MapTouch(int x, int y) {
     if (UiIn(AreaButtonRect(i), x, y)) {
       g_map_area = i;
       g_map_follow = false;
+      g_map_centre = true;
       g_sel_col = g_sel_row = -1;
       return;
     }
   }
   if (UiIn(FollowRect(), x, y)) {
     g_map_follow = !g_map_follow;
+    g_map_centre = true;
+    return;
+  }
+  if (UiIn(ZoomRect(), x, y)) {
+    // Following Samus (or the area's middle) keeps doing so; otherwise the zoom stays
+    // on the centre of what was on screen.
+    const int old_cell = MAP_CELL, cx = g_scroll_x + SCREEN_W / 2, cy = g_scroll_y + (MAP_VIEW_Y1 - MAP_Y0) / 2;
+    g_map_zoom = (g_map_zoom + 1) % MAP_ZOOMS;
+    if (!g_map_centre) {
+      g_scroll_x = cx * MAP_CELL / old_cell - SCREEN_W / 2;
+      g_scroll_y = cy * MAP_CELL / old_cell - (MAP_VIEW_Y1 - MAP_Y0) / 2;
+      MapClampScroll();
+    }
     return;
   }
 #if DEBUG_TOOLS
   const SmRoom *room = SelectedRoom(area);
   if (room && UiIn(WarpRect(), x, y)) {
     Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
-  } else if (room && UiIn(DoorRect(), x, y)) {
+    return;
+  }
+  if (room && UiIn(DoorRect(), x, y)) {
     const int n = SmWarp_DoorCount(room);
     if (n > 1) g_warp_door = (g_warp_door + 1) % n;
-  } else if (y >= MAP_Y0 && y < MAP_Y0 + (kSmMapRows - 1) * MAP_CELL) {
-    g_sel_col = x / MAP_CELL;
-    g_sel_row = (y - MAP_Y0) / MAP_CELL + 1;
-    g_warp_door = 0;
+    return;
   }
 #else
   (void)area;
 #endif
+  // On the canvas: a tap picks a room (debug builds), a drag scrolls. Which one it was
+  // is only known when the stylus lifts or moves past the slop.
+  g_map_touch.active = y >= MAP_Y0 && y < MAP_VIEW_Y1;
+  g_map_touch.dragging = false;
+  g_map_touch.start_x = g_map_touch.last_x = x;
+  g_map_touch.start_y = g_map_touch.last_y = y;
 }
+
+static bool MapTouchMove(int x, int y) {
+  if (!g_map_touch.active) return false;
+  if (!g_map_touch.dragging && abs(x - g_map_touch.start_x) < kMapDragSlop && abs(y - g_map_touch.start_y) < kMapDragSlop)
+    return false;   // still a tap: keep last_* where it landed
+  g_map_touch.dragging = true;
+  const int sx = g_scroll_x, sy = g_scroll_y;
+  g_scroll_x += g_map_touch.last_x - x;
+  g_scroll_y += g_map_touch.last_y - y;
+  MapClampScroll();
+  g_map_touch.last_x = x;
+  g_map_touch.last_y = y;
+  if (g_scroll_x != sx || g_scroll_y != sy) g_map_centre = false;
+  return g_scroll_x != sx || g_scroll_y != sy;
+}
+
+static void MapTouchUp(void) {
+  if (!g_map_touch.active) return;
+  g_map_touch.active = false;
+#if DEBUG_TOOLS
+  int col, row;
+  if (!g_map_touch.dragging && MapCellAt(g_map_touch.start_x, g_map_touch.start_y, &col, &row)) {
+    g_sel_col = col;
+    g_sel_row = row;
+    g_warp_door = 0;
+  }
+#endif
+}
+
+// One map cell as the game draws it (its 8x8 pause-map tile) at MAP_CELL px. Smaller than
+// 8 each pixel averages the source pixels it covers (transparent ones are the background); bigger,
+// each source pixel is a block. Cells off the canvas are skipped by the caller.
+static void DrawMapTile(Surface s, int x, int y, uint16_t tile) {
+  uint16_t px[64];
+  SmMap_TilePixels(tile, px);
+  const int cell = MAP_CELL;
+  if (cell >= 8) {
+    for (int sy = 0; sy < 8; sy++) {
+      for (int sx = 0; sx < 8; sx++) {
+        const uint16_t c = px[sy * 8 + sx];
+        const uint32_t col = c ? RGB((c & 31) << 3, (c >> 5 & 31) << 3, (c >> 10 & 31) << 3) : COL_BG;
+        const int x0 = sx * cell / 8, y0 = sy * cell / 8;
+        UiFillRect(s, x + x0, y + y0, (sx + 1) * cell / 8 - x0, (sy + 1) * cell / 8 - y0, col);
+      }
+    }
+    return;
+  }
+  for (int dy = 0; dy < cell; dy++) {
+    const int y0 = dy * 8 / cell, y1 = ((dy + 1) * 8 + cell - 1) / cell;
+    for (int dx = 0; dx < cell; dx++) {
+      const int x0 = dx * 8 / cell, x1 = ((dx + 1) * 8 + cell - 1) / cell;
+      int r = 0, g = 0, b = 0, n = 0;
+      for (int yy = y0; yy < y1; yy++) {
+        for (int xx = x0; xx < x1; xx++) {
+          const uint16_t c = px[yy * 8 + xx];
+          if (c) { r += (c & 31) << 3; g += (c >> 5 & 31) << 3; b += (c >> 10 & 31) << 3; }
+          else { r += MAP_BG_R; g += MAP_BG_G; b += MAP_BG_B; }
+          n++;
+        }
+      }
+      UiFillRect(s, x + dx, y + dy, 1, 1, RGB(r / n, g / n, b / n));
+    }
+  }
+}
+
+static int FloorDiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+static int CeilDiv(int a, int b) { return -FloorDiv(-a, b); }
+
+// One of the game's menu sprites (a refill, a boss, the ship, an arrow's name) at the
+// map's scale. The source is the game's 8-px-per-cell picture: shrunk by averaging the
+// opaque pixels each one covers, enlarged by repeating them. Clipped by the canvas clip.
+static void DrawMapSprite(Surface s, const SmMapIcon *ic) {
+  static SmMapSprite spr;   // 6 KB: keep it off the stack
+  if (!SmMap_RenderSprite(ic->sprite, ic->chr, &spr)) return;
+  const int cell = MAP_CELL;
+  // Top-left of the image in map px.
+  const int sx0 = ic->x + spr.x0, sy0 = ic->y + spr.y0;
+  const int dx0 = FloorDiv(sx0 * cell, 8), dx1 = CeilDiv((sx0 + spr.w) * cell, 8);
+  const int dy0 = FloorDiv(sy0 * cell, 8), dy1 = CeilDiv((sy0 + spr.h) * cell, 8);
+  for (int dy = dy0; dy < dy1; dy++) {
+    const int cy = MAP_Y0 + dy - g_scroll_y;
+    if (cy < MAP_Y0 || cy >= MAP_VIEW_Y1) continue;
+    int ya = FloorDiv(dy * 8, cell), yb = cell >= 8 ? ya + 1 : CeilDiv((dy + 1) * 8, cell);
+    for (int dx = dx0; dx < dx1; dx++) {
+      const int cx = dx - g_scroll_x;
+      if (cx < 0 || cx >= SCREEN_W) continue;
+      const int xa = FloorDiv(dx * 8, cell), xb = cell >= 8 ? xa + 1 : CeilDiv((dx + 1) * 8, cell);
+      int r = 0, g = 0, b = 0, opaque = 0, total = 0;
+      for (int yy = ya; yy < yb; yy++) {
+        for (int xx = xa; xx < xb; xx++) {
+          total++;
+          const int ix = xx - sx0, iy = yy - sy0;
+          if (ix < 0 || iy < 0 || ix >= spr.w || iy >= spr.h) continue;
+          const uint16_t c = spr.px[iy * kSmSpriteMaxW + ix];
+          if (!c) continue;
+          r += (c & 31) << 3; g += (c >> 5 & 31) << 3; b += (c >> 10 & 31) << 3;
+          opaque++;
+        }
+      }
+      if (opaque * 2 >= total && opaque > 0) UiFillRect(s, cx, cy, 1, 1, RGB(r / opaque, g / opaque, b / opaque));
+    }
+  }
+}
+
+// Outline of a room's own cells (not its box, which also covers blank cells and the
+// cells of rooms drawn over it): an edge wherever the next cell is not the room's.
+static void DrawRoomOutline(Surface s, const SmRoom *room, uint32_t color) {
+  if (!room) return;
+  const int cell = MAP_CELL, t = cell >= 8 ? 2 : 1;   // edge thickness, inside the cell
+  for (int row = room->y + 1; row < room->y + 1 + room->h; row++) {
+    for (int col = room->x; col < room->x + room->w; col++) {
+      if (!SmMap_RoomOwnsCell(room, col, row)) continue;
+      const int x = MapPxX(col), y = MapPxY(row);
+      if (!SmMap_RoomOwnsCell(room, col - 1, row)) UiFillRect(s, x, y, t, cell, color);
+      if (!SmMap_RoomOwnsCell(room, col + 1, row)) UiFillRect(s, x + cell - t, y, t, cell, color);
+      if (!SmMap_RoomOwnsCell(room, col, row - 1)) UiFillRect(s, x, y, cell, t, color);
+      if (!SmMap_RoomOwnsCell(room, col, row + 1)) UiFillRect(s, x, y + cell - t, cell, t, color);
+    }
+  }
+}
+
+#if DEBUG_TOOLS
+// Where the warp's door is: its cell, with a thicker bar on the side its cap is on.
+static void DrawDoorMark(Surface s, const SmWarpDoorMark *d) {
+  const int cell = MAP_CELL, t = cell >= 8 ? 3 : 2;
+  const int x = MapPxX(d->col), y = MapPxY(d->row);
+  switch (d->side) {
+  case 0: UiFillRect(s, x, y, t, cell, MAP_COL_DOOR); break;
+  case 1: UiFillRect(s, x + cell - t, y, t, cell, MAP_COL_DOOR); break;
+  case 2: UiFillRect(s, x, y, cell, t, MAP_COL_DOOR); break;
+  default: UiFillRect(s, x, y + cell - t, cell, t, MAP_COL_DOOR); break;
+  }
+}
+#endif
 
 static void DrawMap(Surface s, const UiPerf *p) {
   const int area = ShownMapArea();
   const bool station = SmMap_HasMapStation(area);
   int total = 0, seen = 0;
+  int min_c = kSmMapCols, max_c = -1, min_r = kSmMapRows, max_r = -1;   // shown cells
   for (int row = 1; row < kSmMapRows; row++) {
     for (int col = 0; col < kSmMapCols; col++) {
       bool exists, explored;
@@ -253,19 +449,64 @@ static void DrawMap(Surface s, const UiPerf *p) {
       total++;
       if (explored) seen++;
       if (!explored && !station) continue;
-      UiFillRect(s, col * MAP_CELL, MAP_Y0 + (row - 1) * MAP_CELL, MAP_CELL - 1, MAP_CELL - 1,
-                 explored ? MAP_COL_EXPLORED : MAP_COL_KNOWN);
+      if (col < min_c) min_c = col;
+      if (col > max_c) max_c = col;
+      if (row < min_r) min_r = row;
+      if (row > max_r) max_r = row;
     }
   }
 
-  // Outline the room Samus is in, and mark Samus (blinking).
+  // Zoomed in, the view sits on Samus when he is in this area, else on the middle of
+  // what the area shows, until the player drags it.
   int sa, sc, sr;
-  if (SmMap_SamusCell(&sa, &sc, &sr) && sa == area) {
-    const SmRoom *r = SmMap_CurrentRoom();
-    if (r) UiFrameRect(s, r->x * MAP_CELL - 1, MAP_Y0 + r->y * MAP_CELL - 1, r->w * MAP_CELL + 1, r->h * MAP_CELL + 1, MAP_COL_ROOM);
-    if ((p->frames / 15) & 1)
-      UiFillRect(s, sc * MAP_CELL + 1, MAP_Y0 + (sr - 1) * MAP_CELL + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
+  const bool samus_here = SmMap_SamusCell(&sa, &sc, &sr) && sa == area;
+  if (g_map_centre) {
+    if (samus_here) MapCentreOn(sc, sr);
+    else if (max_c >= 0) MapCentreOn((min_c + max_c) / 2, (min_r + max_r) / 2);
+    else MapCentreOn(kSmMapCols / 2, kSmMapRows / 2);
   }
+  MapClampScroll();
+
+  UiClipY(MAP_Y0, MAP_VIEW_Y1);
+  for (int row = min_r; row <= max_r; row++) {
+    const int y = MapPxY(row);
+    if (y + MAP_CELL <= MAP_Y0 || y >= MAP_VIEW_Y1) continue;
+    for (int col = min_c; col <= max_c; col++) {
+      const int x = MapPxX(col);
+      if (x + MAP_CELL <= 0 || x >= SCREEN_W) continue;
+      bool exists, explored;
+      SmMap_Cell(area, col, row, &exists, &explored);
+      if (!exists || (!explored && !station)) continue;
+      DrawMapTile(s, x, y, SmMap_CellTile(area, col, row, explored));
+    }
+  }
+
+  // The sprites the game puts over the pause map. The list is in the game's order, where an
+  // earlier one is on top, so draw it backwards.
+  SmMapIcon icons[kSmMapMaxIcons];
+  const int icon_count = SmMap_Icons(area, icons, kSmMapMaxIcons);
+  for (int i = icon_count - 1; i >= 0; i--) DrawMapSprite(s, &icons[i]);
+
+  // Outline the room Samus is in, and mark Samus (blinking).
+  if (samus_here) {
+    DrawRoomOutline(s, SmMap_CurrentRoom(), MAP_COL_ROOM);
+    if ((p->frames / 15) & 1)
+      UiFillRect(s, MapPxX(sc) + 1, MapPxY(sr) + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
+  }
+#if DEBUG_TOOLS
+  {
+    // The room picked for a warp, and the door the warp will use.
+    const SmRoom *picked = SelectedRoom(area);
+    if (picked) {
+      DrawRoomOutline(s, picked, MAP_COL_SELECT);
+      SmWarpDoorMark door;
+      if (SmWarp_DoorOnMap(picked, g_warp_door, &door)) DrawDoorMark(s, &door);
+    } else if (g_sel_col >= 0) {
+      UiFrameRect(s, MapPxX(g_sel_col), MapPxY(g_sel_row), MAP_CELL, MAP_CELL, MAP_COL_SELECT);
+    }
+  }
+#endif
+  UiNoClip();
 
   for (int i = 0; i < kSmAreaCount; i++)
     UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, TrAreaShort(i));
@@ -274,10 +515,10 @@ static void DrawMap(Surface s, const UiPerf *p) {
   char follow[32];
   snprintf(follow, sizeof(follow), "%s: %s", Tr(kStrFollow), Tr(g_map_follow ? kStrOn : kStrOff));
   UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, follow);
+  const char *zoom_label[MAP_ZOOMS] = { "1X", "2X", "3X" };
+  UiDrawButton(s, ZoomRect(), COL_BTN, zoom_label[g_map_zoom]);
 
 #if DEBUG_TOOLS
-  if (g_sel_col >= 0)
-    UiFrameRect(s, g_sel_col * MAP_CELL - 1, MAP_Y0 + (g_sel_row - 1) * MAP_CELL - 1, MAP_CELL + 1, MAP_CELL + 1, MAP_COL_SELECT);
   const SmRoom *room = SelectedRoom(area);
   if (room) {
     const int doors = SmWarp_DoorCount(room);
@@ -1377,11 +1618,11 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom };
 }
 
 static void SaveConfig(void) {
@@ -1390,7 +1631,8 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide, o.language);
+          "language=%d\nmap_zoom=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom);
   fclose(f);
 }
 
@@ -1417,6 +1659,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
+    else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
   fclose(f);
@@ -1481,12 +1724,14 @@ void BottomUi_TouchDown(int x, int y) {
 }
 
 void BottomUi_TouchMove(int x, int y) {
-  (void)x;
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
+  if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
 }
 
 void BottomUi_TouchUp(void) {
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE) AchievementsTouchUp();
+  if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();
+  g_map_touch.active = false;
   g_ra_touch.active = false;
   g_dirty = 2;
 }

@@ -26,6 +26,35 @@ const SmRoom *SmMap_Rooms(int *count);
 // the player's own bit. Returns false for out-of-range coordinates.
 bool SmMap_Cell(int area, int col, int row, bool *exists, bool *explored);
 
+// The pause-map tilemap entry of a cell, as the game shows it (explored cells use
+// the explored palette). kSmMapBlankTile means nothing is drawn there.
+enum { kSmMapBlankTile = 0x1F };
+uint16_t SmMap_CellTile(int area, int col, int row, bool explored);
+
+// Decodes a tilemap entry's 8x8 tile (flips applied) to BGR555 with bit 15 set;
+// 0 = transparent.
+void SmMap_TilePixels(uint16_t tile, uint16_t bgr555[64]);
+
+// What the game's pause map draws as sprites over the tiles: refills, the map station,
+// bosses (a defeated one crossed out), the ship and the names beside the arrows that
+// leave the area. Save stations and items are tiles already. Positions are in the map's
+// own pixels (8 per cell, row 0 the empty margin); `sprite` is a menu spritemap and
+// `chr` the attribute bits the game ORs into its tiles (palette). Listed in the game's
+// order: an earlier one is drawn on top of a later one. Returns how many were filled in.
+typedef struct { uint16_t x, y; uint16_t sprite, chr; } SmMapIcon;
+enum { kSmMapMaxIcons = 32 };
+int SmMap_Icons(int area, SmMapIcon *out, int max);
+
+// A spritemap rendered to BGR555 with bit 15 set (0 = transparent). `x0, y0` is where the
+// image's top-left corner lies relative to the icon's position. False if it does not fit.
+enum { kSmSpriteMaxW = 96, kSmSpriteMaxH = 32 };
+typedef struct { int x0, y0, w, h; uint16_t px[kSmSpriteMaxW * kSmSpriteMaxH]; } SmMapSprite;
+bool SmMap_RenderSprite(int sprite, uint16_t chr, SmMapSprite *out);
+
+// Whether a cell belongs to `room` as drawn: inside its box, a cell the map draws, and
+// not one of a smaller room whose box overlaps. The box alone also covers blank cells.
+bool SmMap_RoomOwnsCell(const SmRoom *room, int col, int row);
+
 // True if the area's map station has been used, so every existing cell shows.
 bool SmMap_HasMapStation(int area);
 

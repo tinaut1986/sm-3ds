@@ -59,6 +59,26 @@ int SmWarp_DoorCount(const SmRoom *room) {
   return n;
 }
 
+bool SmWarp_DoorOnMap(const SmRoom *room, int which, SmWarpDoorMark *out) {
+  SmWarp_Init();
+  const int count = SmWarp_DoorCount(room);
+  if (count == 0) return false;
+  int pick = ((which % count) + count) % count;
+  for (int i = 0; i < g_door_count; i++) {
+    if (g_doors[i].dest != room->header || pick-- != 0) continue;
+    // DoorDef: +3 orientation, +4/+5 cap position in blocks. (0, 0) is a scripted transition.
+    const uint8_t *d = RomPtr(0x830000 | g_doors[i].door_def);
+    if (d[4] == 0 && d[5] == 0) return false;
+    const int col = room->x + d[4] / 16, row = room->y + 1 + d[5] / 16;
+    if (col >= room->x + room->w || row >= room->y + 1 + room->h) return false;
+    out->col = col;
+    out->row = row;
+    out->side = d[3] & 3;
+    return true;
+  }
+  return false;
+}
+
 bool SmWarp_Ready(void) {
   // Only between frames of normal gameplay. The game dispatcher remembers a state
   // function that is still running in coroutine_state_0; injecting a new state while

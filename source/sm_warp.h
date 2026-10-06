@@ -23,6 +23,14 @@ void SmWarp_Init(void);
 // Number of doors in the game that lead into `room`.
 int SmWarp_DoorCount(const SmRoom *room);
 
+// The map cell of door number `which` into `room` (as SmWarp_ToRoom picks it), and the
+// side of the cell its door cap is on: 0 left, 1 right, 2 top, 3 bottom (the door
+// definition's orientation says which way Samus goes through: 0 right, 1 left, 2 down,
+// 3 up, so the cap is on the left, right, top, bottom). False for a scripted transition
+// that has no door in the room.
+typedef struct { int col, row, side; } SmWarpDoorMark;
+bool SmWarp_DoorOnMap(const SmRoom *room, int which, SmWarpDoorMark *out);
+
 // Whether a warp could start right now.
 bool SmWarp_Ready(void);
 
