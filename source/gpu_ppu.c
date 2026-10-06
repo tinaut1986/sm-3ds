@@ -1334,20 +1334,23 @@ static bool SameBgConfig(const BgLayer *a, const BgLayer *b) {
          a->tileAdr == b->tileAdr && a->bigTiles == b->bigTiles;
 }
 
-// The HUD's rows as the first gameplay line `g` draws, keeping what HDMA changes per line
+// The HUD's rows as a gameplay line `g` draws, keeping what HDMA changes per line
 // (BG1/BG2, the windows' bounds): the room under the HUD gets the FX layer and the colour
 // math the rows below have (fog, rain, water, lava), as it would if the screen went on up there.
-// Where the FX layer would read the HUD's own tilemap rows (SM keeps both in one BG3 map, the
-// HUD in its first 4 rows) it is scrolled up by the HUD's height instead, so these lines read
-// the map's last rows, what the layer shows above its first screen row when it wraps, and the
-// HUD does not show through as a ghost (it is drawn from the HUD list).
-// The first line below the HUD is built the same way from the next one: a lava or water
-// layer's HDMA has not changed its scroll yet there, so it would show a stray line.
+// Not where the FX layer would read the HUD's own tilemap rows (SM keeps both in one BG3
+// map, the HUD in its first 4 rows): the layer's scroll puts its blank rows there (a lava
+// surface below the HUD), so the line keeps its own settings without BG3 (the HUD is drawn
+// from the HUD list). `g` is the line after the first one below the HUD: the first one is
+// still before the layer's HDMA (a stale scroll), so it is built from `g` too.
 static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLineState *g, int line) {
   const BgLayer *fx = &g->bgLayer[2], *hb = &hud->bgLayer[2];
   const int map_rows = fx->tilemapHigher ? 64 : 32, row = ((line + fx->vScroll) >> 3) & (map_rows - 1);
   const bool fx_on = ((g->screenEnabled[0] | g->screenEnabled[1]) & 4) != 0;
-  const bool reads_hud = fx_on && fx->tilemapAdr == hb->tilemapAdr && row < 4;
+  if (fx_on && fx->tilemapAdr == hb->tilemapAdr && row < 4) {
+    *dst = *hud;
+    dst->screenEnabled[0] &= ~4, dst->screenEnabled[1] &= ~4;
+    return;
+  }
   *dst = *g;
   dst->bgLayer[0] = hud->bgLayer[0];
   dst->bgLayer[1] = hud->bgLayer[1];
@@ -1355,7 +1358,6 @@ static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLi
   dst->window2left = hud->window2left, dst->window2right = hud->window2right;
   dst->forcedBlank = hud->forcedBlank;
   dst->brightness = hud->brightness;
-  if (reads_hud && line <= g_narrow_bg3_rows) dst->bgLayer[2].vScroll = (fx->vScroll - (g_narrow_bg3_rows + 1)) & (map_rows * 8 - 1);
 }
 
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason) {
@@ -1394,7 +1396,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     for (int l = kGpuRows + 1; l <= last; l++) work.line[l] = orig->line[kGpuRows];
     const int src = g < kGpuRows ? g + 1 : g;   // the line whose BG3 scroll and colour math the HUD's rows copy
     for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[src], l);
-    if (g_hud_synth && src != g) SynthHudLine(&work.line[g], &orig->line[g], &orig->line[src], g);
+    if (g_hud_synth && src != g && orig->line[g].bgLayer[2].vScroll != orig->line[src].bgLayer[2].vScroll) SynthHudLine(&work.line[g], &orig->line[g], &orig->line[src], g);
     cap = &work;
   }
   for (int l = 1; l <= last; l++)
