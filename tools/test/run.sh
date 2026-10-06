@@ -114,6 +114,9 @@ WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 2
 # The spike-shooting plant of Brinstar A408 sits just outside the normal view: its spikes (DAFE) must go out into the
 # margin (the game deleted them outside its own 256 px window, #22).
 WIDE=60 EPROJ_MARGIN=1 EPROJ_ID=DAFE run_gpu wide-spikes rooms 90 A408 &
+# Brinstar 9E52's yellow pipe bug flies left along the platform: it must go on into the left margin, not reset at the
+# normal view's edge (#39). WARP_AT puts the camera and Samus where the bug starts its flight.
+WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug rooms 150 9E52 &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
 # The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
@@ -188,6 +191,9 @@ echo "wide-spikes: the spike-shooting plant's spikes outside the normal view (A4
 gpu_checks wide-spikes
 expect wide-spikes.outside "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')"
 check wide-spikes "spikes live outside the normal view (frames > 0)" "$([ "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+echo "wide-pipebug: the yellow pipe bug of 9E52 keeps flying into the left margin (#39)"
+gpu_checks wide-pipebug
+check wide-pipebug "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
 echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
 gpu_checks wide-rows
 wide_checks wide-rows

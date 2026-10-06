@@ -131,6 +131,7 @@ static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, mar
 static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
 
 static int g_eproj_margin_frames, g_eproj_margin_max, g_eproj_left_first = -1, g_eproj_far_frames;
+static int g_enemy_margin_frames;
 
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
@@ -545,9 +546,20 @@ static void TestFrame(const char *label, bool check_capture) {
   g_frames++;
   if (getenv("INTRO_CURSOR_CHECK")) CheckIntroCursor(label);
   if (getenv("EDGE_CHECK")) CheckEdgeSprites(label);
+  if (getenv("ENEMY_MARGIN"))   // ENEMY_MARGIN=ptr: frames with an enemy of that kind more than 40 px left of the normal view
+    for (int i = 0; i < 32; i++)
+      if (gEnemyData(i * 64)->enemy_ptr == strtol(getenv("ENEMY_MARGIN"), NULL, 16) &&
+          (int16)(gEnemyData(i * 64)->x_pos - layer1_x_pos) < -40) {
+        g_enemy_margin_frames++;
+        break;
+      }
   if (getenv("EPROJ_MARGIN") && g_frames == 20)
     for (int i = 0; i < 16; i++)
       if (gEnemyData(i * 64)->enemy_ptr) printf("EPROJ_MARGIN enemy %d: %04X at %d,%d (camera %d,%d, Samus %d,%d)\n", i, gEnemyData(i * 64)->enemy_ptr, gEnemyData(i * 64)->x_pos, gEnemyData(i * 64)->y_pos, layer1_x_pos, layer1_y_pos, samus_x_pos, samus_y_pos);
+  if (getenv("ENEMY_LIST") && g_frames % atoi(getenv("ENEMY_LIST")) == 0)   // every enemy slot: id, place and screen x
+    for (int i = 0; i < 32; i++)
+      if (gEnemyData(i * 64)->enemy_ptr)
+        printf("ENEMY_LIST frame %d slot %d %04X at %d,%d screen x %d (camera %d,%d) props %04X ai %04X\n", g_frames, i, gEnemyData(i * 64)->enemy_ptr, gEnemyData(i * 64)->x_pos, gEnemyData(i * 64)->y_pos, (int16)(gEnemyData(i * 64)->x_pos - layer1_x_pos), layer1_x_pos, layer1_y_pos, gEnemyData(i * 64)->properties, gEnemyData(i * 64)->ai_handler_bits);
   if (getenv("EPROJ_LIST") && g_frames % atoi(getenv("EPROJ_LIST")) == 0)
     for (int i = 0; i < 18; i++)
       if (eproj_id[i]) printf("EPROJ_LIST frame %d slot %d id %04X at %d,%d (camera %d,%d)\n", g_frames, i, eproj_id[i], eproj_x_pos[i], eproj_y_pos[i], layer1_x_pos, layer1_y_pos);
@@ -847,6 +859,7 @@ static void Report(void) {
   if (g_music_rooms)
     printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
            g_music_wrong);
+  if (getenv("ENEMY_MARGIN")) printf("ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: %d\n", g_enemy_margin_frames);
   if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once), %d with one more than 128 px left of the view\n", g_eproj_margin_frames, g_eproj_margin_max, g_eproj_far_frames);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);

@@ -23,6 +23,8 @@
 # message box n first; GAME_LANG=n in UI language n, ui_lang.h). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # EPROJ_MARGIN=1 [EPROJ_ID=hex]: count the frames with an enemy projectile (of that id) outside the game's 256 px window
 # (WIDE keeps them alive in the margins); EPROJ_LIST=n lists every projectile each n-th tested frame.
+# ENEMY_LIST=n lists every enemy slot (pointer, place, screen x, properties) each n-th tested frame; ENEMY_MARGIN=ptr counts
+# the frames with an enemy of that kind more than 40 px left of the normal view (WIDE lets it walk into the margin).
 # STATE_SURVEY=n: every n-th tested frame and when the game state changes, what the frame holds per compositor level;
 # LEVEL_SPLIT=f1,f2,...: those tested frames as one image per level (level-FFFF-L15.ppm; -o10 = sprites): what each
 # non-gameplay screen is made of (P3.4, source/sm_planes.c SmPlanes_Screen).
