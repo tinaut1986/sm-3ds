@@ -15,9 +15,9 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.3` (so far: a charging bolt on the bottom screen's battery, and WIDE showing projectile and enemy pieces in the rows above the picture, #41, and HOME showing the game and not freezing the console after closing it, #20). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.2.3` (so far: a charging bolt on the bottom screen's battery, and WIDE showing projectile and enemy pieces in the rows above the picture, #41, HOME showing the game and not freezing the console after closing it, #20, PAUSE and TURBO out of OPTIONS, #43, the self-updater, #42, and any number of save states with a detail window, #44 #45). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** none open. (2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -386,7 +386,7 @@ Lessons from mzm that apply directly:
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater (issue #42; after mzm's `port_updater_3ds.c`, owner's request 2026-10-06).
-  Done 2026-10-06 on `feat/self-updater`, not yet checked on the console: `source/updater.c` (libcurl + mbedtls, the console's own
+  Done 2026-10-06 (merged into `release/v0.2.3`); the owner ran it on the 2DS and the check works, but no newer release has existed to install yet: `source/updater.c` (libcurl + mbedtls, the console's own
   TLS cannot talk to GitHub; worker thread; downloads the release's `.cia` to `update/sm-update.cia` in the data folder and installs
   it with `am:net`, over the running title or after deleting it, keeping the file for FBI if both fail), `updater_parse.c` (version
   comparison and release-list parsing, host-tested by `tools/updater-test`, in `make test`). OPTIONS gains AUTO UPDATE (`auto_update`
@@ -584,15 +584,14 @@ Lessons from mzm that apply directly:
   the bottom screen needs a Japanese UI translation (and a font with kana for it).
   *Done when:* the language is chosen in one place and the other follows, checked on the console.
 
-- [ ] **P4.11** Save states without a fixed number (issue #44, owner's request 2026-10-06). Done 2026-10-06 on `feat/save-states-list`, not
-  yet checked on the console: `source/states_store.c` (the list is `saves/save<id>.sav` found by scanning, newest first; ids 0-9 are the old
+- [x] **P4.11** Save states without a fixed number (issue #44, owner's request 2026-10-06). Done 2026-10-06, checked by the owner on the 2DS (merged): `source/states_store.c` (the list is `saves/save<id>.sav` found by scanning, newest first; ids 0-9 are the old
   slots, a new state takes one past the largest; the game side is `RtlSaveLoadFile` in `sm_rtl.c`, which takes the file), the STATES tab as
   a scrollable list of cards like the achievements, `+ NEW` to save, and a colour mark per state (8). Host test `tools/states-test`.
   *Done when:* on the console, many states are saved and listed, the list scrolls, a mark shows on its card, and the old ten still load.
   Left for later: a name typed with the keyboard (the mark was what was asked); saving in the background (serialise the state into memory, write the
   file on a thread) so the game does not stop while the SD card is written: today `BottomUi_Busy` draws PLEASE WAIT first, since the main loop
   is also what draws and nothing animates while it is blocked (the same for loading, deleting and the debug dumps).
-- [ ] **P4.12** A state's detail window (issue #45, owner's request 2026-10-06). Same branch and state: tapping a card opens a window with the
+- [x] **P4.12** A state's detail window (issue #45, owner's request 2026-10-06). Done with P4.11, checked by the owner on the 2DS: tapping a card opens a window with the
   screenshot of the top screen when it was saved (`saveN.img`, 200x120 RGB565, taken from the GPU's top target or the CPU's shadow buffer),
   the date, area and room, energy, reserve, missiles, supers, power bombs, play time and the build that saved it, the marks, and LOAD /
   SAVE OVER / DELETE with a second tap each (delete removes `.sav`, `.txt`, `.rap` and `.img`).
