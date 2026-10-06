@@ -293,6 +293,10 @@ Lessons from mzm that apply directly:
   costs ~1.1 ms; after a palette change decode only the visible tiles. The X-ray scope
   was seen on the console (#38, closed). Since 2026-10-05 the frame decodes into a shadow and copies
   the changed rows after the GPU is done (`370f21a`): its cost on the 2DS has not been measured.
+  Measured 2026-10-06 (2DS, logs of `v0.2.2-dev.111`, 509 samples, Landing Site, Brinstar, Norfair, Maridia): shadow copy 0.02 ms
+  (max 0.11; the old full copy was 0.75), VRAM diff 0.43 (p95 1.5), sprites 0.82 (p95 4.2, the spikes are palette changes), lines+bands
+  2.3 (p95 3.2), BG 1.6, fallback 0 frames. Shown fps: 52-58 in most rooms, 44-49 in the Norfair rooms AF14, AFFB, B1E5 (draw 9-12 ms).
+  So the shadow costs nothing; what is left are the Norfair heat rooms and the sprite decode spikes.
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
@@ -376,7 +380,7 @@ Lessons from mzm that apply directly:
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
-- [ ] **P4.4** RetroAchievements (softcore only).
+- [x] **P4.4** RetroAchievements (softcore only).
   Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
   The existing SNES set runs with one adaptation (below): rcheevos' "System RAM" is `g_ram` (same layout as the
