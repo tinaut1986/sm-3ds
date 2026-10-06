@@ -584,6 +584,19 @@ Lessons from mzm that apply directly:
   the bottom screen needs a Japanese UI translation (and a font with kana for it).
   *Done when:* the language is chosen in one place and the other follows, checked on the console.
 
+- [ ] **P4.11** Save states without a fixed number (issue #44, owner's request 2026-10-06). Done 2026-10-06 on `feat/save-states-list`, not
+  yet checked on the console: `source/states_store.c` (the list is `saves/save<id>.sav` found by scanning, newest first; ids 0-9 are the old
+  slots, a new state takes one past the largest; the game side is `RtlSaveLoadFile` in `sm_rtl.c`, which takes the file), the STATES tab as
+  a scrollable list of cards like the achievements, `+ NEW` to save, and a colour mark per state (8). Host test `tools/states-test`.
+  *Done when:* on the console, many states are saved and listed, the list scrolls, a mark shows on its card, and the old ten still load.
+  Left for later: a name typed with the keyboard (the mark was what was asked); saving in the background (serialise the state into memory, write the
+  file on a thread) so the game does not stop while the SD card is written: today `BottomUi_Busy` draws PLEASE WAIT first, since the main loop
+  is also what draws and nothing animates while it is blocked (the same for loading, deleting and the debug dumps).
+- [ ] **P4.12** A state's detail window (issue #45, owner's request 2026-10-06). Same branch and state: tapping a card opens a window with the
+  screenshot of the top screen when it was saved (`saveN.img`, 200x120 RGB565, taken from the GPU's top target or the CPU's shadow buffer),
+  the date, area and room, energy, reserve, missiles, supers, power bombs, play time and the build that saved it, the marks, and LOAD /
+  SAVE OVER / DELETE with a second tap each (delete removes `.sav`, `.txt`, `.rap` and `.img`).
+  *Done when:* on the console the screenshot matches what was on screen, and delete leaves no files behind.
 - [ ] **P4.10** Texts of the game still in English (left over from P4.8): the ones drawn as sprites
   (PLANET ZEBES on the file-select map, the ending's mode 7 THE OPERATION WAS COMPLETED SUCCESSFULLY
   and CLEAR TIME), the pause screen's RESERVE TANK and MODE AUTO/MANUAL (not seen yet), the beams'

@@ -9,6 +9,8 @@
 #include "bottom_ui.h"
 #include "ui_draw.h"
 #include "updater.h"
+#include "states_store.h"
+#include <sys/stat.h>
 #include "ui_lang.h"
 #include "cheats.h"
 #include "debug_tools.h"
@@ -16,6 +18,8 @@
 #include "sm_map.h"
 static uint8_t fb[2][400 * 240 * 4];
 static u64 g_now = 100000;   // advanced between shots so tap flashes and toasts expire
+void gfxFlushBuffers(void) {}
+void gfxScreenSwapBuffers(gfxScreen_t screen, bool hasStereo) { (void)screen, (void)hasStereo; }
 u8 *gfxGetFramebuffer(gfxScreen_t s, gfx3dSide_t side, u16 *w, u16 *h) { if (w) *w = 240; if (h) *h = s == GFX_TOP ? 400 : 320; return fb[s]; }
 u64 osGetTime(void) { return g_now; }
 u64 svcGetSystemTick(void) { return 0; }
@@ -98,6 +102,24 @@ int main(int argc, char **argv) {
       map_tiles_explored[idx >> 3] |= 0x80 >> (idx & 7);
     }
   }
+  // Fourteen states with different marks, areas and times, a screenshot on every other one.
+  mkdir("saves", 0777);
+  static uint16_t shot[kStateShotW * kStateShotH];
+  for (int i = 0; i < kStateShotH; i++)
+    for (int j = 0; j < kStateShotW; j++) shot[i * kStateShotW + j] = (uint16_t)((j * 31 / kStateShotW) << 11 | (i * 63 / kStateShotH) << 5 | 12);
+  for (int i = 0; i < 14; i++) {
+    StateInfo si = { .id = i, .has_info = i != 5, .saved_at = 1759400000 + i * 7200 + (i % 3) * 86400, .area = (unsigned)(i % 6),
+                     .room = 0x10 + i * 3, .health = 99 + i * 20, .max_health = 299, .reserve = i % 2 ? 50 : 0, .missiles = 5 + i,
+                     .max_missiles = 45, .supers = i % 4, .max_supers = 10, .pbs = i % 3, .max_pbs = 10, .hours = (unsigned)i / 2,
+                     .minutes = (unsigned)(i * 7) % 60, .mark = i % kStateMarks };
+    snprintf(si.version, sizeof(si.version), "v0.2.3-dev.%d+abc1234", i);
+    char name[32];
+    snprintf(name, sizeof(name), "saves/save%d.sav", i);
+    FILE *f = fopen(name, "wb");
+    if (f) fclose(f);
+    if (si.has_info) States_WriteInfo(&si);
+    if (i % 2 == 0) States_WriteShot(i, shot);
+  }
   BottomUi_Init(&rom);
 
   TapTab(kMap);
@@ -154,8 +176,19 @@ int main(int argc, char **argv) {
   Tap(160, 220);                     // close
 #endif
   TapTab(kStates);
-  Tap(260, 38 + 2 * 19 + 5);         // arm save on slot 2
-  Shot("states, slot 2 save armed");
+  Shot("states");
+  BottomUi_TouchDown(150, 160);      // drag the list up by 90 px
+  BottomUi_TouchMove(150, 70);
+  BottomUi_TouchUp();
+  Shot("states, scrolled");
+  Tap(150, 46 + 5);                  // the card at the top: its detail window
+  Shot("state detail window");
+  Tap(62 + 3 * 30 + 5, 172 + 5);     // a mark
+  Tap(12 + 2 * 76 + 5, 198 + 5);     // DELETE: armed
+  Shot("state detail window, delete armed");
+  Tap(12 + 3 * 76 + 5, 198 + 5);     // CLOSE
+  BottomUi_Busy();
+  Shot("states, please wait (a save or a dump in progress)");
   extern bool g_preview_ra_toast;
   TapTab(kAchievements);
   Shot("achievements");

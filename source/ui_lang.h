@@ -16,7 +16,7 @@ typedef enum {
   kStrOn, kStrOff,
   kStrFollow, kStrCells, kStrMapMark,
   kStrEnergy, kStrMax, kStrReserve, kStrAuto, kStrManual, kStrItems, kStrBeams, kStrMapStations, kStrRoom,
-  kStrSaveStates, kStrEmpty, kStrSavedNoDetails, kStrTapTwice,
+  kStrSaveStates, kStrSavedNoDetails,
   kStrSavedSlot, kStrSaveFailed, kStrLoadedSlot, kStrLoadFailed, kStrGameReset,
   kStrFrameSkip, kStrAudio, kStrFpsOverlay, kStrDisplay, kStrPixelPerfect,
   kStrScaled, kStrWideView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
@@ -29,6 +29,7 @@ typedef enum {
   kStrAutoUpdate, kStrUpdates, kStrUpdTap, kStrUpdChecking, kStrUpdUpToDate, kStrUpdNew, kStrUpdInstalled,
   kStrUpdError, kStrUpdAsk, kStrUpdAsk2, kStrUpdInstalling, kStrUpdRestart, kStrUpdFailed, kStrUpdKept,
   kStrYes, kStrNo, kStrOk,
+  kStrNewState, kStrStatesNone, kStrNoImage, kStrMark, kStrTime, kStrLoad, kStrSaveOver, kStrDelete, kStrStateDeleted, kStrWait,
   kStrCount
 } UiStr;
 

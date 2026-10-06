@@ -37,6 +37,7 @@
 #include "game_text.h"
 #include "version.h"
 #include "updater.h"
+#include "states_store.h"
 #include "build_config.h"
 
 enum Button {
@@ -150,6 +151,18 @@ static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
     }
 }
 
+// The top screen as the player sees it, shrunk for a state's screenshot (states_store.c): what the
+// GPU presented last, or what the CPU drew. False when there is nothing to take.
+static uint16_t g_state_shot[kStateShotW * kStateShotH];
+static bool g_top_by_gpu;   // the GPU presents the top screen (see the main loop)
+
+static bool CaptureStateShot(void) {
+  const uint32_t *top = g_top_by_gpu ? GpuPpu3ds_ReadTop() : UiDraw_Screen(GFX_TOP).px;
+  if (!top) return false;
+  States_MakeShot(top, g_state_shot);
+  return true;
+}
+
 // The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
 // one 400x240 image per eye). The CPU path then shows the same image to both eyes.
 static float Stereo3dSlider(void) {
@@ -163,7 +176,6 @@ static float Stereo3dSlider(void) {
 // top screen is currently being presented by citro3d rather than by DrawPpuFrame.
 static PpuLineCapture g_line_capture;
 static GpuFrame g_gpu_frame;
-static bool g_top_by_gpu;
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
@@ -217,6 +229,7 @@ static void GpuCheck(void) {
     differ += d > 0;
     far += d > 8;
   }
+  BottomUi_Busy();
   const int slot = Debug_DumpScreen(g_pixels);
   if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
   Debug_Log("GPU check -> set %04d: %d px differ, %d by more than 8; %s", slot, differ, far,
@@ -771,13 +784,19 @@ int main(int argc, char** argv) {
       RetroAch_GameReset();
     }
     if (g_ui.req_save_state) {
+      BottomUi_Busy();
       GameTextScreens_PutBack();
-      const bool ok = RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
-      BottomUi_StateSaved(g_ui.save_slot, ok);
+      char state_file[48];
+      snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+      const bool ok = RtlSaveLoadFile(kSaveLoad_Save, state_file, g_ui.save_slot);
+      BottomUi_StateSaved(g_ui.save_slot, ok, ok && CaptureStateShot() ? g_state_shot : NULL);
       if (ok) RetroAch_StateSaved(g_ui.save_slot);
     }
     if (g_ui.req_load_state) {
-      const bool ok = RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+      BottomUi_Busy();
+      char state_file[48];
+      snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+      const bool ok = RtlSaveLoadFile(kSaveLoad_Load, state_file, g_ui.save_slot);
       BottomUi_StateLoaded(g_ui.save_slot, ok);
       if (ok) RetroAch_StateLoaded(g_ui.save_slot);
     }
@@ -832,10 +851,12 @@ int main(int argc, char** argv) {
       RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
       if (capture) {
+        BottomUi_Busy();
         Debug_FrameCaptureEnd(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
       if (dump) {
+        BottomUi_Busy();
         Debug_DumpScreen(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }

@@ -7,6 +7,8 @@ typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t
 typedef enum { GFX_TOP, GFX_BOTTOM } gfxScreen_t;
 typedef enum { GFX_LEFT, GFX_RIGHT } gfx3dSide_t;
 u8 *gfxGetFramebuffer(gfxScreen_t screen, gfx3dSide_t side, u16 *width, u16 *height);
+void gfxFlushBuffers(void);
+void gfxScreenSwapBuffers(gfxScreen_t screen, bool hasStereo);
 u64 osGetTime(void);
 u64 svcGetSystemTick(void);
 void gspWaitForVBlank(void);

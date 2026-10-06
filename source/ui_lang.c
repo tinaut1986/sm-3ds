@@ -30,11 +30,8 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrRoom] = { "ROOM", "SALA", "SALA", "SALLE", "SALA" },
   // States tab.
   [kStrSaveStates] = { "SAVE STATES", "ESTADOS GUARDADOS", "ESTATS DESATS", "ÉTATS SAUVEGARDÉS", "ESTADOS SALVOS" },
-  [kStrEmpty] = { "- EMPTY -", "- VACÍO -", "- BUIT -", "- VIDE -", "- VAZIO -" },
   [kStrSavedNoDetails] = { "SAVED (NO DETAILS)", "GUARDADO (SIN DETALLES)", "DESAT (SENSE DETALLS)",
                            "SAUVÉ (SANS DÉTAILS)", "SALVO (SEM DETALHES)" },
-  [kStrTapTwice] = { "TAP TWICE TO CONFIRM", "TOCA DOS VECES PARA CONFIRMAR", "TOCA DUES VEGADES PER CONFIRMAR",
-                     "TOUCHEZ DEUX FOIS POUR CONFIRMER", "TOQUE DUAS VEZES PARA CONFIRMAR" },
   [kStrSavedSlot] = { "Saved to slot %d", "Guardado en la ranura %d", "Desat a la ranura %d",
                       "Sauvé dans l'emplacement %d", "Salvo no espaço %d" },
   [kStrSaveFailed] = { "Could not save slot %d", "No se pudo guardar la ranura %d", "No s'ha pogut desar la ranura %d",
@@ -125,6 +122,16 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrYes] = { "YES", "SÍ", "SÍ", "OUI", "SIM" },
   [kStrNo] = { "NO", "NO", "NO", "NON", "NÃO" },
   [kStrOk] = { "OK", "OK", "OK", "OK", "OK" },
+  [kStrNewState] = { "+ NEW", "+ NUEVO", "+ NOU", "+ NOUVEAU", "+ NOVO" },
+  [kStrStatesNone] = { "NO STATES YET: TAP + NEW", "SIN ESTADOS: TOCA + NUEVO", "SENSE ESTATS: TOCA + NOU", "AUCUN ÉTAT: TOUCHEZ + NOUVEAU", "SEM ESTADOS: TOQUE + NOVO" },
+  [kStrNoImage] = { "NO IMAGE", "SIN IMAGEN", "SENSE IMATGE", "PAS D'IMAGE", "SEM IMAGEM" },
+  [kStrMark] = { "MARK", "MARCA", "MARCA", "MARQUE", "MARCA" },
+  [kStrTime] = { "TIME", "TIEMPO", "TEMPS", "TEMPS", "TEMPO" },
+  [kStrLoad] = { "LOAD", "CARGAR", "CARREGAR", "CHARGER", "CARREGAR" },
+  [kStrSaveOver] = { "SAVE OVER", "GUARDAR", "DESAR", "ÉCRASER", "SOBREPOR" },
+  [kStrDelete] = { "DELETE", "BORRAR", "ESBORRAR", "SUPPRIMER", "APAGAR" },
+  [kStrStateDeleted] = { "STATE %d DELETED", "ESTADO %d BORRADO", "ESTAT %d ESBORRAT", "ÉTAT %d SUPPRIMÉ", "ESTADO %d APAGADO" },
+  [kStrWait] = { "PLEASE WAIT...", "ESPERA...", "ESPERA...", "PATIENTEZ...", "AGUARDE..." },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };

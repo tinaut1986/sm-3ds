@@ -479,6 +479,11 @@ bool RtlSaveLoad(int cmd, int slot) {
   } else {
     sprintf(name, "saves/save%d.sav", slot);
   }
+  return RtlSaveLoadFile(cmd, name, slot);
+}
+
+// The same with the file given: the 3DS port keeps any number of states (source/states_store.c).
+bool RtlSaveLoadFile(int cmd, const char *name, int slot) {
   printf("*** %s slot %d\n",
     cmd == kSaveLoad_Save ? "Saving" : cmd == kSaveLoad_Load ? "Loading" : "Replaying", slot);
   if (cmd != kSaveLoad_Save) {

@@ -54,6 +54,9 @@ check dsp-fuzz "4 runs identical" "$( [ "$(grep -c '^OK:' "$OUT/dsp-fuzz.log")" 
 echo "stereo-depth: the stereo depth mapping against the SNES compositor's order"
 WORK=$OUT/stereo-test "$ROOT/tools/stereo-test/run.sh" > "$OUT/stereo-test.log" 2>&1
 check stereo-depth "0 failed" "$(grep -q ', 0 failed$' "$OUT/stereo-test.log"; echo $?)"
+echo "states: the save-state store (list, ids, info, screenshot, removal)"
+WORK=$OUT/states-test "$ROOT/tools/states-test/run.sh" > "$OUT/states-test.log" 2>&1
+check states "states_test: OK" "$(grep -q '^states_test: OK$' "$OUT/states-test.log"; echo $?)"
 echo "updater: version comparison and release-list parsing of the self-updater"
 WORK=$OUT/updater-test "$ROOT/tools/updater-test/run.sh" > "$OUT/updater-test.log" 2>&1
 check updater "updater_parse_test: OK" "$(grep -q '^updater_parse_test: OK$' "$OUT/updater-test.log"; echo $?)"

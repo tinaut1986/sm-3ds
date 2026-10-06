@@ -213,6 +213,7 @@ enum {
 };
 
 bool RtlSaveLoad(int cmd, int slot);
+bool RtlSaveLoadFile(int cmd, const char *name, int slot);
 void RtlCheat(char c);
 void RtlApuLock();
 void RtlApuUnlock();
