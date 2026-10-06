@@ -18,7 +18,7 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.2` (tag `v0.2.1` shipped as a beta on 2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked; before it `v0.2.0` on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `perf/audio-native-rate` (P2.6 step 1) was merged into `release/v0.2.2` after the owner checked it on both consoles. `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
+**Branches:** none open (`perf/dsp-profile`, the underrun counter and the P2.6 measurements, merged after the owner heard no pop on the 2DS). `perf/audio-native-rate` (P2.6 step 1) was merged into `release/v0.2.2` after the owner checked it on both consoles. `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before"); the Old 3DS/2DS check is still pending, list in P1.3's status. `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
 were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
 priorities in 9AD9, A6A1, A011 and the spikes' row at the WIDE edge (#33, #24, #28), the ash following what it covers (9CB3, #35),
@@ -296,8 +296,15 @@ Lessons from mzm that apply directly:
   2. [ ] A cheaper DSP (host run over every room, 2026-10-06: echo on in 100 % of the
      frames, 1.25 voices sounding on average, so silent-voice and echo-off skips would
      save almost nothing; `dsp_cycleBlock` already batches and has a one-tap FIR; the
-     console build is -O3 ARM mode. Measure where the 13 ms go on the 2DS before
-     changing code: split the `dsp` figure of `audio_prof` into voices/BRR, echo, mixing): skip voices that are silent or in release at zero, skip the echo
+     console build is -O3 ARM mode). Measured on the 2DS 2026-10-06 (wall time per 16.7 ms
+     block, ~14 ms): voices 7-13 ms (BRR decoding 0.2-0.4, up to 5 when notes start), the
+     mix and echo figures were inflated by the clock reads, SPC 0.2. Nothing was heard as a
+     gap and the new underrun counter (no wave buffer queued when one is refilled) read 0
+     over ~95 s, so the 2DS is tight but not failing. NOTE: that instrumentation (clock
+     reads inside `dsp_cycleBlock`, which runs one sample at a time when the echo may
+     feed voices) made the intro pop on the 2DS; builds without it are clean (bisected by
+     the owner). Do not time per sample. If it is worth doing, next: `dsp_getSample`
+     (Gaussian) and `dsp_decodeBrr`, bit-exact under `dsp-fuzz`: skip voices that are silent or in release at zero, skip the echo
      and its FIR when the echo is off or its feedback and volume are 0, integer-only inner
      loop (ARM11 assembly if it pays). Profile with `audio_prof` first; `dsp-fuzz` and
      `audio-rooms` keep the output bit-identical.
