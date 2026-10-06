@@ -336,6 +336,7 @@ static dspHookCookie g_dsp_hook;
 static Result g_ndsp_rc;                // ndspInit failed: no dspfirm.cdc dumped
 static bool g_audio_ok;                 // NDSP is up and the thread runs
 static volatile bool g_audio_quit;
+static volatile int g_audio_underruns;  // times the DSP had nothing queued when a buffer was refilled
 static volatile bool g_audio_paused = true;   // silence instead of the game's sound
 
 static void AudioFrameFinished(void *arg) {
@@ -353,12 +354,21 @@ static void AudioDspHook(DSP_HookType hook) {
 
 static void AudioThreadMain(void *arg) {
   const int bytes = kAudioBufFrames * 2 * sizeof(int16);
-  int next = 0;
+  int next = 0, filled = 0;
+  bool started = false;   // the ring has been filled once since the sound last started
   while (!g_audio_quit) {
     ndspWaveBuf *wb = &g_wave[next];
     if (wb->status != NDSP_WBUF_FREE) {
       LightEvent_Wait(&g_wave_done);
       continue;
+    }
+    // None of the other buffers still queued or playing: the DSP ran dry (a gap in the sound).
+    // Not counted while paused, nor in the first refills, when nothing is queued yet.
+    if (!g_audio_paused && started) {
+      bool queued = false;
+      for (int i = 0; i < kAudioBufs; i++)
+        queued |= g_wave[i].status == NDSP_WBUF_QUEUED || g_wave[i].status == NDSP_WBUF_PLAYING;
+      if (!queued) g_audio_underruns++;
     }
     uint8 *dst = (uint8 *)wb->data_vaddr;
     if (g_audio_paused) memset(dst, 0, bytes);
@@ -366,6 +376,8 @@ static void AudioThreadMain(void *arg) {
     DSP_FlushDataCache(dst, bytes);
     ndspChnWaveBufAdd(0, wb);
     next = (next + 1) % kAudioBufs;
+    if (!g_audio_paused && ++filled >= kAudioBufs) started = true;
+    if (g_audio_paused) filled = 0, started = false;
   }
 }
 
@@ -598,9 +610,10 @@ static void LogPeriodic(const UiPerf *p) {
               TicksToMs(st->t_shadow), g_gpu_frame.band_count, g_gpu_frame.quad_count);
   }
   Debug_Log("audio: block %.1f ms (dsp %.1f spc %.1f lock %.1f) | callbacks %d, slowest %.1f ms, slower than "
-            "their buffer %d, late starts %d",
+            "their buffer %d, late starts %d, underruns %d",
             p->audio_ms, p->audio_part_ms[2], p->audio_part_ms[1], p->audio_part_ms[0], g_cb_count, g_cb_max_ms,
-            g_cb_slow, g_cb_gaps);
+            g_cb_slow, g_cb_gaps, g_audio_underruns);
+  g_audio_underruns = 0;
   g_cb_count = g_cb_slow = g_cb_gaps = 0;
   g_cb_max_ms = 0;
 }
