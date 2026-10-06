@@ -473,6 +473,8 @@ void Updater_Init(bool auto_check, bool beta) {
     if (auto_check) StartJob(JOB_AUTO_CHECK);
 }
 
+void Updater_SetBeta(bool beta) { sBeta = beta; }
+
 void Updater_CheckNow(void) {
     if (sPrompt == UPD_PROMPT_NONE) StartJob(JOB_CHECK);
 }

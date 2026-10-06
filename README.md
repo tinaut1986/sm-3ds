@@ -65,9 +65,12 @@ The 3DS buttons map to the SNES buttons of the same name (D-pad, A, B, X, Y,
 L, R, Start, Select). The game's own controller settings still apply. The
 bottom screen is operated by touch: save states on the States tab (as many as you like:
 + NEW saves one, a tap on a state opens it with its screenshot and what Samus had, a colour
-mark, and LOAD, SAVE OVER and DELETE, each confirmed with a second tap); frame skip, audio, FPS overlay, 804 MHz mode
-(New 3DS), automatic updates and reset on the Options tab (UPDATES checks for a new
-version on demand; a newer one asks before installing).
+mark, and LOAD, SAVE OVER and DELETE, each confirmed with a second tap). The Options tab has frame
+pacing (AUTO, LOCK 30 or NO SKIP), audio (with a loudspeaker to switch it quickly), the FPS counter and the
+corner it sits in, the 804 MHz mode (New 3DS), the language, the image (PIXEL P. or SCALED) and view (ORIGINAL or
+WIDE), the updates (AUTO or NO, STABLE releases or + BETAS, and a button to look now; a newer one asks before
+installing), the HUD (it can hide, on the top screen, the half the open bottom tab shows: the energy and weapons on STATUS,
+the minimap on MAP) and reset.
 
 ### Languages
 

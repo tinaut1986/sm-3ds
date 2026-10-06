@@ -1250,3 +1250,15 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-06: `v0.3.0` tagged on `main` as the stable release (the owner asked for the next version up; a minor bump, so it was confirmed, and
   "3.0.0" was read as v0.3.0). The release branch was renamed `release/v0.3.1`. The self-updater's first real test is the next release after
   this one (#42 stays open until a build installs a newer one).
+- 2026-10-06: OPTIONS regrouped (owner's request). A slot of the grid is one button or two half buttons (IMAGE | VIEW, UPDATE | CHANNEL, FPS | CPU);
+  AUDIO keeps a full button with a loudspeaker shortcut at its side (the button itself is meant to open a window with a volume for each kind of
+  sound one day; for now a tap on either switches the sound). Frame skip became FRAMES with three values: AUTO (drop the drawing of a late frame,
+  the old "frame skip on"), LOCK 30 (one frame in two is drawn, the logic stays at 60 Hz: a steady 30 on a console that cannot hold 60; after mzm's
+  "lock 30") and NO SKIP (the old "off"). `config.ini` keeps `pacing` (the old `frameskip` is still read), `fps_overlay` is 0-4 (off and the four
+  corners; the old 1 is the top-left corner) and `update_beta` (default on in pre-release builds). Not checked on the console yet.
+- 2026-10-06: OPTIONS -> HUD (owner's request, as mzm's AUTO-HIDE HUD): with it on, the STATUS tab hides the HUD's status half on the top screen
+  (energy, reserve, ammunition and the selected weapon: tile columns 0-25 of its four rows) and the MAP tab its minimap (columns 26-31);
+  the cells are blanked in VRAM just before the PPU draws (`SmWide_HideHud`, `sm_wide.c`; the game rewrites rows 1-3 every frame, row 0
+  holds the minimap's top border and is put back). The game's RAM is untouched (the `hud-hide-*` tests keep the WRAM hash). Since the weapon
+  chosen with SELECT is then not on the top screen, the STATUS tab marks it (`hud_item_index`: missiles, super missiles, power bombs on their
+  panels, grapple and X-ray on their cells). Off by default. Not checked on the console yet.

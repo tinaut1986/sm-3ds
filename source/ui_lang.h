@@ -18,18 +18,20 @@ typedef enum {
   kStrEnergy, kStrMax, kStrReserve, kStrAuto, kStrManual, kStrItems, kStrBeams, kStrMapStations, kStrRoom,
   kStrSaveStates, kStrSavedNoDetails,
   kStrSavedSlot, kStrSaveFailed, kStrLoadedSlot, kStrLoadFailed, kStrGameReset,
-  kStrFrameSkip, kStrAudio, kStrFpsOverlay, kStrDisplay, kStrPixelPerfect,
-  kStrScaled, kStrWideView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
+  kStrPacing, kStrAudio, kStrDisplay, kStrPixelP,
+  kStrScaled, kStrView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
   kStrResetQuestion, kStrResetLost1, kStrResetLost2, kStrReset, kStrCancel,
   kStrRaAchievements, kStrRaLogin, kStrRaLogout, kStrRaDisabled, kStrRaNoAccount, kStrRaConnecting, kStrRaOnline,
   kStrRaOffline, kStrRaLoginError, kStrRaSummary, kStrRaLoading, kStrRaNoList, kStrRaUnlocked,
   kStrRaNotify, kStrRaTop, kStrRaBottom, kStrRaSound, kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints,
   kStrRaSortRecent, kStrRaPoints, kStrRaLockedState, kStrRaUnlockedState, kStrRaMissable, kStrRaProgression,
   kStrRaWin, kStrClose,
-  kStrAutoUpdate, kStrUpdates, kStrUpdTap, kStrUpdChecking, kStrUpdUpToDate, kStrUpdNew, kStrUpdInstalled,
+  kStrUpdate, kStrUpdates, kStrUpdTap, kStrUpdChecking, kStrUpdUpToDate, kStrUpdNew, kStrUpdInstalled,
   kStrUpdError, kStrUpdAsk, kStrUpdAsk2, kStrUpdInstalling, kStrUpdRestart, kStrUpdFailed, kStrUpdKept,
   kStrYes, kStrNo, kStrOk,
   kStrNewState, kStrStatesNone, kStrNoImage, kStrMark, kStrTime, kStrLoad, kStrSaveOver, kStrDelete, kStrStateDeleted, kStrWait,
+  kStrPaceLock, kStrPaceNoSkip, kStrViewOriginal, kStrViewWide, kStrChannel, kStrChanStable, kStrChanBeta,
+  kStrHud, kStrHudHidden, kStrHudShown,
   kStrCount
 } UiStr;
 

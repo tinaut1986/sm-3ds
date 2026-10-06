@@ -16,6 +16,10 @@
 // the 224. All 0 = off (the game runs untouched). `hud_over_room`: the WIDE view proper,
 // which shows the room under the HUD; without it the margin is only the 3D's edge columns
 // (kStereoEdgePx) and the HUD's rows stay as the game draws them.
+// Hide the HUD's status half (energy, reserve, ammunition, the selected weapon) and/or its minimap
+// on the top screen: what the bottom screen's tab shows instead. Called every frame; both false =
+// the HUD as the game draws it (and the game untouched). Only VRAM changes.
+void SmWide_HideHud(bool status, bool map);
 void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room);
 
 // The last frame's margins: 2 * margin_x in all, but leaning away from a room edge that

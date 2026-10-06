@@ -115,6 +115,9 @@ WIDE=60 run_gpu wide-rooms rooms 10 &
 # The 3D's edge columns without WIDE (4 px margins, the HUD in its band): the 256 px view must come out the same.
 WIDE=4 WIDE_EDGE=1 run_gpu edge-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# OPTIONS -> HUD: the status half or the minimap of the HUD not drawn (SmWide_HideHud), Landing Site.
+HIDE_HUD=1 run_gpu hud-hide-status rooms 30 91F8 &
+HIDE_HUD=2 run_gpu hud-hide-map rooms 30 91F8 &
 # The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
 WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
 # The spike-shooting plant of Brinstar A408 sits just outside the normal view: its spikes (DAFE) must go out into the
@@ -193,6 +196,11 @@ wide_checks wide-rooms
 echo "edge-rooms: every room with the 3D's 4 px edge columns (no WIDE), 10 frames each"
 gpu_checks edge-rooms
 wide_checks edge-rooms
+echo "hud-hide-status, hud-hide-map: one half of the HUD not drawn (OPTIONS -> HUD), Landing Site"
+for t in hud-hide-status hud-hide-map; do
+  gpu_checks $t
+  check $t "the hidden half is black (lit pixels 0) and the other one is drawn" "$(grep -q 'HIDE_HUD frames 30, lit pixels in the hidden halves 0, in the shown ones [1-9]' "$OUT/$t.log"; echo $?)"
+done
 echo "wide-spikes: the spike-shooting plant's spikes outside the normal view (A408) with WIDE"
 gpu_checks wide-spikes
 expect wide-spikes.outside "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')"

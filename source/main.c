@@ -609,8 +609,8 @@ static void LogPeriodic(const UiPerf *p) {
               g_ui.pixel_perfect ? "pixel perfect" : "scaled", g_ui.wide ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
   }
   if (++seconds % 5) return;
-  Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | frameskip %s | room %04X",
-            p->game_fps, p->fps, p->frame_ms, p->logic_ms, p->draw_ms, g_ui.frameskip ? "on" : "off",
+  Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | pacing %s | room %04X",
+            p->game_fps, p->fps, p->frame_ms, p->logic_ms, p->draw_ms, g_ui.pacing == kPaceAuto ? "auto" : g_ui.pacing == kPaceLock30 ? "lock 30" : "no skip",
             (unsigned)room_ptr);
   if (g_ui.gpu_render)
   {
@@ -677,7 +677,7 @@ int main(int argc, char** argv) {
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
   // Pre-release builds (the ones with the debug tools) follow the betas, the others the releases.
-  Updater_Init(g_ui.auto_update, DEBUG_TOOLS != 0);
+  Updater_Init(g_ui.auto_update, g_ui.update_beta);
   GameText_Init();
 
   // Setup audio
@@ -812,7 +812,8 @@ int main(int argc, char** argv) {
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
-      bool draw = !turbo_skip && !(g_ui.frameskip && skip_render);
+      // FRAMES: AUTO and LOCK 30 skip the drawing of a late frame, LOCK 30 also draws one frame in two.
+      bool draw = !turbo_skip && !(g_ui.pacing != kPaceNoSkip && skip_render) && !(g_ui.pacing == kPaceLock30 && (frameCtr & 1));
       // Dumps and frame captures need this frame's CPU-rendered pixels, so the frame is
       // drawn, and drawn by the CPU (the GPU check draws it both ways).
       bool capture = false, dump = g_ui.req_dump, gpu_check = g_ui.req_gpu_check && g_ui.gpu_render;
@@ -847,6 +848,10 @@ int main(int argc, char** argv) {
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
       Cheats_BeforeFrame();
+      {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
+        const int hidden = BottomUi_HudHidden();
+        SmWide_HideHud(hidden & 1, hidden & 2);
+      }
       is_replay = RtlRunFrame(inputs);
       RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
@@ -904,7 +909,7 @@ int main(int argc, char** argv) {
           SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
-          GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
+          GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);

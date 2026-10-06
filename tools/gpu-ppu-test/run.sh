@@ -12,6 +12,8 @@
 # bands, WIDE_INFO=1 the room's scroll colours, WIDE_DUMP_ROOM=hex dumps only that room's frames,
 # WIDE_DUMP_FROM=n only from tested frame n on. SAMUS_HEALTH=n: her health in the rooms mode's
 # tested frames (99 otherwise; below 30 Ceres Ridley gives up and flies off).
+# HIDE_HUD=n (1 the HUD's status half, 2 its minimap, 3 both): they are not drawn (SmWide_HideHud); in gameplay frames the CPU
+# renderer's picture must be black in the hidden half of lines 0-30 (prints HIDE_HUD ... lit pixels).
 # WIDE_EDGE=1 (with WIDE=4): the margins of the 3D without WIDE, which show only the room's edge columns: the HUD stays in
 # its band and the game does not draw the room under it (SmWide_SetView's hud_over_room off). Same checks.
 # WIDE_Y=N: N extra rows above and below (PIXEL PERFECT), leaning off a room's top or bottom;
