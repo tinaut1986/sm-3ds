@@ -60,6 +60,12 @@ static void Tap(int x, int y) {
   BottomUi_TouchUp();
 }
 
+static void Drag(int x0, int y0, int x1, int y1) {
+  BottomUi_TouchDown(x0, y0);
+  BottomUi_TouchMove(x1, y1);
+  BottomUi_TouchUp();
+}
+
 // Tab x positions: 4 + slot * 34, slots in drawing order.
 #if DEBUG_TOOLS
 enum { kMap = 0, kStatus = 1, kDebug = 2, kStates = 3, kAchievements = 4, kOptions = 5 };
@@ -95,6 +101,16 @@ int main(int argc, char **argv) {
   TapTab(kMap);
   Tap(24 * 5 + 2, 26 + 3 * 5 + 2);   // pick a map cell
   Shot("map, a room picked");
+  Tap(21 * 5 + 2, 23 + 8 * 5 + 2);   // a room whose box overlaps its neighbours (92FD)
+  Shot("map, a room that is not a rectangle picked");
+  Tap(24 * 5 + 2, 23 + 3 * 5 + 2);   // back to the first one
+  Tap(192 + 15, 198 + 6);            // zoom 2X
+  Shot("map, zoom 2X");
+  Drag(200, 100, 100, 80);           // scroll
+  Shot("map, zoom 2X dragged");
+  Tap(192 + 15, 198 + 6);            // zoom 3X
+  Shot("map, zoom 3X");
+  Tap(192 + 15, 198 + 6);            // back to 1X
   TapTab(kStatus);
   Shot("status");
 #if DEBUG_TOOLS
@@ -109,6 +125,10 @@ int main(int argc, char **argv) {
   TapTab(kMap);
   Tap(2 + 2 * 45 + 5, 183 + 5);      // show Norfair
   Shot("map, Norfair all explored");
+  Tap(192 + 15, 198 + 6);            // zoom 2X, icons with letters
+  Shot("map, Norfair zoom 2X");
+  Tap(192 + 15, 198 + 6);
+  Tap(192 + 15, 198 + 6);            // back to 1X
   TapTab(kDebug);
   Shot("debug");
   Tap(160, 210);
