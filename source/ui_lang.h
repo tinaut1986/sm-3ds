@@ -26,6 +26,9 @@ typedef enum {
   kStrRaNotify, kStrRaTop, kStrRaBottom, kStrRaSound, kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints,
   kStrRaSortRecent, kStrRaPoints, kStrRaLockedState, kStrRaUnlockedState, kStrRaMissable, kStrRaProgression,
   kStrRaWin, kStrClose,
+  kStrAutoUpdate, kStrUpdates, kStrUpdTap, kStrUpdChecking, kStrUpdUpToDate, kStrUpdNew, kStrUpdInstalled,
+  kStrUpdError, kStrUpdAsk, kStrUpdAsk2, kStrUpdInstalling, kStrUpdRestart, kStrUpdFailed, kStrUpdKept,
+  kStrYes, kStrNo, kStrOk,
   kStrCount
 } UiStr;
 

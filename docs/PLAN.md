@@ -385,7 +385,17 @@ Lessons from mzm that apply directly:
   Status: the live map and items/equipment exist (P1.9 A and C, debug-flavoured).
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
-- [ ] **P4.3** Self-updater.
+- [ ] **P4.3** Self-updater (issue #42; after mzm's `port_updater_3ds.c`, owner's request 2026-10-06).
+  Done 2026-10-06 on `feat/self-updater`, not yet checked on the console: `source/updater.c` (libcurl + mbedtls, the console's own
+  TLS cannot talk to GitHub; worker thread; downloads the release's `.cia` to `update/sm-update.cia` in the data folder and installs
+  it with `am:net`, over the running title or after deleting it, keeping the file for FBI if both fail), `updater_parse.c` (version
+  comparison and release-list parsing, host-tested by `tools/updater-test`, in `make test`). OPTIONS gains AUTO UPDATE (`auto_update`
+  in `config.ini`, on by default: a check at boot, silent when it fails) and UPDATES (tap = check now); a newer build raises a prompt
+  over any tab (install? / installing bar / restart? / failed). Builds with the debug tools follow the pre-releases (Beta), the
+  others the releases. The CI image needs `dkp-pacman -S 3ds-curl 3ds-mbedtls 3ds-zlib` (added to the workflow).
+  *Known limit:* the TLS certificate is not verified (no CA bundle, as in mzm): someone on the same network could serve another CIA.
+  *Done when:* on the console, UPDATES finds a newer release and installs it, the game restarts into it, and the boot check stays quiet
+  without Wi-Fi. (The old text of this task: "Self-updater.")
 - [x] **P4.4** RetroAchievements (softcore only).
   Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.

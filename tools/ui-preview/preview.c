@@ -8,6 +8,7 @@
 #include "src/variables.h"
 #include "bottom_ui.h"
 #include "ui_draw.h"
+#include "updater.h"
 #include "ui_lang.h"
 #include "cheats.h"
 #include "debug_tools.h"
@@ -186,9 +187,38 @@ int main(int argc, char **argv) {
   TapTab(kOptions);
   Tap(8 + 5, 30 + 2 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(240, 137);                     // RESET GAME
+  Tap(240, 171);                     // RESET GAME
   Shot("options, reset window");
   Tap(216, 148);                     // cancel
+  // The updater: its cell in every state, and the prompts over the tab.
+  extern UpdState g_preview_upd_state;
+  extern UpdPrompt g_preview_upd_prompt;
+  extern int g_preview_upd_progress;
+  extern bool g_preview_upd_kept;
+  extern const char *g_preview_upd_message;
+  Tap(8 + 5, 30 + 4 * 34 + 5);       // UPDATES: check
+  if (g_preview_upd_state != UPD_CHECKING) { fprintf(stderr, "UPDATES did not start a check\n"); return 1; }
+  Shot("options, checking for updates");
+  g_preview_upd_state = UPD_UP_TO_DATE;
+  Shot("options, up to date");
+  g_preview_upd_state = UPD_AVAILABLE;
+  g_preview_upd_prompt = UPD_PROMPT_ASK_INSTALL;
+  Shot("update prompt: install?");
+  g_preview_upd_prompt = UPD_PROMPT_PROGRESS;
+  g_preview_upd_state = UPD_DOWNLOADING;
+  g_preview_upd_progress = 40;
+  Shot("update prompt: installing");
+  g_preview_upd_prompt = UPD_PROMPT_ASK_RESTART;
+  g_preview_upd_state = UPD_INSTALLED;
+  Shot("update prompt: restart?");
+  g_preview_upd_prompt = UPD_PROMPT_ERROR;
+  g_preview_upd_state = UPD_ERROR;
+  g_preview_upd_message = "AM FINISH OW 0xC8A04402";
+  g_preview_upd_kept = true;
+  Shot("update prompt: failed");
+  Tap(160, 148);                     // OK
+  Shot("options, update error");
+  g_preview_upd_state = UPD_IDLE;
   // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
   // last option cell (left column, fourth row) and cycles.
   for (int lang = 1; lang < kLangCount; lang++) {
@@ -200,7 +230,7 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(8 + 5, 30 + 5);
-    Tap(240, 137);                   // RESET GAME
+    Tap(240, 171);                   // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel
