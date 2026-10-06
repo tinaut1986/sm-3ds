@@ -18,8 +18,8 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.2` (tag `v0.2.1` shipped as a beta on 2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked; before it `v0.2.0` on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open (`perf/dsp-profile`, the underrun counter and the P2.6 measurements, merged after the owner heard no pop on the 2DS). `perf/audio-native-rate` (P2.6 step 1) was merged into `release/v0.2.2` after the owner checked it on both consoles. `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
-New 3DS ("as before"); the Old 3DS/2DS check is still pending, list in P1.3's status. `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
+**Branches:** none open. `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
+New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
 were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
 priorities in 9AD9, A6A1, A011 and the spikes' row at the WIDE edge (#33, #24, #28), the ash following what it covers (9CB3, #35),
 no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements after cheats (#27, #29), the PLANE TINT views
@@ -156,12 +156,12 @@ Lessons from mzm that apply directly:
   The game `chdir`s to the data folder, so `saves/sm.srm` lands there; the game
   writes SRAM when saving at a station, so no extra flush on exit was needed.
   Save states (Options tab, slots 0-9) also work after the state-size fix.
-- [ ] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
+- [x] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
   (from mzm), citro3d presentation. Drop the `SDL` submodule.
   *Done when:* same features as upstream, SDL gone, FPS not worse than P0.3.
   Note: SDL currently puts the audio thread on the system core (30 % cap) and
   delivers touch as finger events; keep both behaviours.
-  Status 2026-10-06 (`feat/libctru-input-audio`, merged; New 3DS checked by the owner, Old 3DS/2DS not yet): input
+  Status 2026-10-06 (`feat/libctru-input-audio`, merged; checked by the owner on a New 3DS and on the 2DS): input
   (`hidScanInput`, key edges, `hidTouchRead`), time (system tick) and audio (NDSP, one
   channel, 3 x 2048-frame buffers, thread on core 1 one priority above the main one) no
   longer go through SDL; `libSDL2` is not linked, `make sdl` is gone, the CIA is 0.5 MB
@@ -285,37 +285,40 @@ Lessons from mzm that apply directly:
   costs ~1.1 ms; after a palette change decode only the visible tiles; check the X-ray
   scope on hardware (never seen there). *Done when:* each is either measured and cut on
   the 2DS or noted here as not worth it, and the X-ray scope has been seen on the console.
-- [ ] **P2.6** Audio cost, second pass (2026-10-06). On the 2DS a 16.7 ms block of sound
-  costs 10-14 ms (DSP ~13) on a core that grants 30 %: `slower than their buffer` shows 2-15
-  times per 5 s there (it did with SDL too; New 3DS: 4 ms, none). Ideas, cheapest first:
-  1. [x] Output at the S-DSP's own 32 kHz and let NDSP resample (no CPU resampling, a
-     fifth fewer frames, `dsp_getSamples` copies when it is asked for 534). Branch
-     `perf/audio-native-rate`; to hear on the console (pitch must not change, the unlock
-     chime too). Checked by the owner on both consoles 2026-10-06: sounds the same, and the
-     2DS costs the same (the resampling loop was never the cost).
-  2. [ ] A cheaper DSP (host run over every room, 2026-10-06: echo on in 100 % of the
-     frames, 1.25 voices sounding on average, so silent-voice and echo-off skips would
-     save almost nothing; `dsp_cycleBlock` already batches and has a one-tap FIR; the
-     console build is -O3 ARM mode). Measured on the 2DS 2026-10-06 (wall time per 16.7 ms
-     block, ~14 ms): voices 7-13 ms (BRR decoding 0.2-0.4, up to 5 when notes start), the
-     mix and echo figures were inflated by the clock reads, SPC 0.2. Nothing was heard as a
-     gap and the new underrun counter (no wave buffer queued when one is refilled) read 0
-     over ~95 s, so the 2DS is tight but not failing. NOTE: that instrumentation (clock
-     reads inside `dsp_cycleBlock`, which runs one sample at a time when the echo may
-     feed voices) made the intro pop on the 2DS; builds without it are clean (bisected by
-     the owner). Do not time per sample. If it is worth doing, next: `dsp_getSample`
-     (Gaussian) and `dsp_decodeBrr`, bit-exact under `dsp-fuzz`: skip voices that are silent or in release at zero, skip the echo
-     and its FIR when the echo is off or its feedback and volume are 0, integer-only inner
-     loop (ARM11 assembly if it pays). Profile with `audio_prof` first; `dsp-fuzz` and
-     `audio-rooms` keep the output bit-identical.
-  3. [ ] A quality setting for Old 3DS/2DS (linear instead of Gaussian interpolation,
-     simpler echo); changes the sound, so an Options toggle, off on New 3DS.
-  4. [ ] New 3DS only: the audio thread on core 2 (full time, no 30 % cap). Does not help
-     the 2DS, which is where the problem is.
-  5. [ ] Margin instead of savings: a fourth wave buffer or a queue of rendered blocks, so
-     one slow block does not become a gap (costs memory and ~16 ms of latency).
-  *Done when:* the 2DS log shows no `slower than their buffer` over a few minutes of play,
-  or what remains is noted here as not worth it.
+- [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
+  16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
+  30 %, but nothing is heard as a gap and the underrun counter (no wave buffer queued when
+  one is refilled, `underruns` in the log's `audio:` line) reads 0, so the margin is
+  thin, not failing. "slower than their buffer" (1-30 per 5 s) overstates it: three
+  buffers are queued, a 54 ms callback does not empty them. Done:
+  1. Output at the S-DSP's own 32 kHz, NDSP resamples (checked on both consoles: same
+     sound, same cost: the resampling loop was never the cost).
+  2. Measured where the time goes (2DS, per block): voices 7-13 ms (BRR decoding 0.2-0.4,
+     up to 5 when notes start), SPC 0.2; the mix and echo figures were inflated by the
+     clock reads. On the host, over every room: echo on 100 % of the frames, 1.25 voices
+     sounding on average, so skipping silent voices or the echo saves almost nothing
+     (`dsp_cycleBlock` already batches, has a one-tap FIR and skips silent voices).
+     **Do not time inside `dsp_cycleBlock`**: it runs one sample at a time when the echo
+     may feed voices, and the clock reads (system calls) made the intro pop on the 2DS.
+  Ideas left, only if a real gap shows up (`underruns` > 0 or heard), cheapest first:
+  - A fourth wave buffer (`kAudioBufs`): absorbs spikes up to ~150 ms, costs ~50 ms of
+    latency. Preferred over touching priorities.
+  - A higher priority for the audio thread (now one above the main thread, 0x2F; the
+    highest an application may use is 0x19, 0x18 is video). Risk: on the system core it
+    would take turns from services (HOME, sleep, Wi-Fi) and the app has hung on exit
+    before; and it does not raise the 30 % cap, so it may do nothing. If tried, a middle
+    value (~0x28) and check closing with HOME.
+  - A cheaper DSP: `dsp_getSample` (Gaussian) and `dsp_decodeBrr`, bit-exact under
+    `dsp-fuzz` and `audio-rooms`; ARM11 assembly if it pays. Profile on the host or with
+    a counter per block, never per sample.
+  - A quality setting for Old 3DS/2DS (linear interpolation, simpler echo): changes the
+    sound, so an Options toggle, off on New 3DS.
+  - New 3DS only: the audio thread on core 2 (no 30 % cap); does not help the 2DS.
+  - Volume controls (Options): master 0-200 % through `ndspChnSetMix`, free of CPU (above
+    100 % it clips); the unlock chime on its own is trivial. Music and effects separately
+    only if the driver keeps them on fixed voices (not checked): a per-voice-group
+    multiplier in `dsp_cycleBlock` is a few tenths of a ms; rendering them apart would
+    double the cost, so no.
 
 ## Phase 3: stereoscopic 3D
 
@@ -1175,3 +1178,6 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   were), NDSP resamples. `RetroAch_MixAudio` takes the rate; the unlock chime (32 kHz) now plays 1:1. `dsp_getSamples` returns a
   straight copy for 534 frames, bit-identical to what the nearest-sample loop gave at step 1.0. The host audio tests render 736
   frames, so they do not cover the 534 path: the check for it is the console (P2.6 step 1).
+- 2026-10-06: P2.6 closed without further audio work: no gaps heard, `underruns 0` on the 2DS, so the thin margin is left as it is (the owner's
+  call). Raising the audio thread's priority was weighed and not done (it may starve system services on the system core and the 30 % cap
+  stays); a fourth buffer is the first thing to try if a gap ever appears. Ideas are listed in the task.
