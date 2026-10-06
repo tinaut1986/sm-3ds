@@ -63,9 +63,11 @@ Everything else the game writes lives in the same folder:
 
 The 3DS buttons map to the SNES buttons of the same name (D-pad, A, B, X, Y,
 L, R, Start, Select). The game's own controller settings still apply. The
-bottom screen is operated by touch: save states on the States tab (tap a button
-twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
-(New 3DS) and reset on the Options tab.
+bottom screen is operated by touch: save states on the States tab (as many as you like:
++ NEW saves one, a tap on a state opens it with its screenshot and what Samus had, a colour
+mark, and LOAD, SAVE OVER and DELETE, each confirmed with a second tap); frame skip, audio, FPS overlay, 804 MHz mode
+(New 3DS), automatic updates and reset on the Options tab (UPDATES checks for a new
+version on demand; a newer one asks before installing).
 
 ### Languages
 
@@ -87,8 +89,9 @@ app is restarted.
 ## Building
 
 Needs devkitARM with libctru, citro2d/citro3d (the
-[devkitPro](https://devkitpro.org/wiki/Getting_Started) `3ds-dev` group), plus
-`cmake`, `git`, `curl` and Python 3. `makerom` and `bannertool` are committed
+[devkitPro](https://devkitpro.org/wiki/Getting_Started) `3ds-dev` group) and the
+`3ds-curl 3ds-mbedtls 3ds-zlib` portlibs (`dkp-pacman -S 3ds-curl 3ds-mbedtls 3ds-zlib`; the
+self-updater needs them), plus `cmake`, `git`, `curl` and Python 3. `makerom` and `bannertool` are committed
 in `tools/bin/` (Linux x86-64). No ROM is needed to build.
 
 ```sh

@@ -38,7 +38,6 @@ typedef struct {
 // Options the main loop reads every frame.
 typedef struct {
   bool paused;
-  bool turbo;            // skip 15 of 16 renders while on (fast-forward)
   bool frameskip;        // when late, drop rendering (not logic) to hold game speed
   bool audio_on;
   bool fps_overlay;      // small FPS counter on the top screen
@@ -46,6 +45,7 @@ typedef struct {
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   bool pixel_perfect;    // top screen 256x224 at 1:1; otherwise scaled to 274x240
   int plane_tint;        // debug tint (GPU renderer): 0 off, 1 by plane, 2 by drawing order, 3 by stereo depth
+  bool auto_update;      // look for a newer build at boot (config.ini); the check only asks
   bool wide;             // WIDE view: more of the room on the sides in gameplay (GPU renderer)
   int save_slot;        // 0..9, for save states
   // One-shot requests, consumed by the main loop.
@@ -64,6 +64,10 @@ bool BottomUi_Init(const UiRomInfo *rom);
 void BottomUi_Exit(void);
 
 // Touch: x,y in bottom-screen pixels (0..319, 0..239).
+// Before something that blocks the main loop for a while (writing a state or a dump to the SD
+// card): shows PLEASE WAIT on the bottom screen at once, since nothing draws until it is done.
+void BottomUi_Busy(void);
+
 void BottomUi_TouchDown(int x, int y);
 void BottomUi_TouchMove(int x, int y);
 void BottomUi_TouchUp(void);
@@ -78,7 +82,7 @@ void BottomUi_Toast(const char *msg);
 
 // The main loop reports what it did with req_save_state / req_load_state /
 // req_reset, so the States tab can describe the slot and forget stale debug state.
-void BottomUi_StateSaved(int slot, bool ok);
+void BottomUi_StateSaved(int slot, bool ok, const uint16_t *shot);   // `shot`: the top screen, 200x120 RGB565, or NULL
 void BottomUi_StateLoaded(int slot, bool ok);
 void BottomUi_GameReset(void);
 

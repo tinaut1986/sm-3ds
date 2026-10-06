@@ -15,9 +15,9 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.3` (nothing on it yet). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.3.1` (nothing yet). Last stable: `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** none open. (2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -195,10 +195,10 @@ Lessons from mzm that apply directly:
   for players (install, ROM, data folder) and builders.
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
-  Status 2026-10-01: done except remapping. Options tab: pause, turbo,
-  frameskip, audio, FPS overlay, 804 MHz, save state slots, reset;
+  Status 2026-10-01: done except remapping. Options tab: frameskip, audio, FPS overlay, 804 MHz,
+  display, WIDE, language, reset (pause and turbo cells removed 2026-10-06, #43);
   `config.ini` in the data folder keeps tab, frameskip, audio, overlay, 804 MHz
-  and slot (not pause/turbo/cheats on purpose).
+  and slot (not pause/cheats on purpose).
 - [x] **P1.8** Debug tooling like mzm's.
   Done 2026-09-30, used on hardware to diagnose real bugs (load-state assert,
   teleport crash, stale door drawing, audio lock stall): log to SD with marks,
@@ -298,6 +298,11 @@ Lessons from mzm that apply directly:
   (max 0.11; the old full copy was 0.75), VRAM diff 0.43 (p95 1.5), sprites 0.82 (p95 4.2, the spikes are palette changes), lines+bands
   2.3 (p95 3.2), BG 1.6, fallback 0 frames. Shown fps: 52-58 in most rooms, 44-49 in the Norfair rooms AF14, AFFB, B1E5 (draw 9-12 ms).
   So the shadow costs nothing; what is left are the Norfair heat rooms and the sprite decode spikes.
+  Added 2026-10-06: since the framebuffers became 24-bit (#20) the bottom UI is drawn in 32 bits into a buffer per screen and
+  converted by `UiDraw_Present` each time it changes (~77k pixels; estimated 1-2 ms on the 2DS, not measured). Measure it
+  (fps in the Norfair rooms against `v0.2.2`, or a counter around `UiDraw_Present`). Drawing everything natively in 24 bits was
+  weighed and not done: 3-byte writes are slower by CPU, and RGB8 render targets lose the alpha the renderer may use; revisit
+  only if the conversion shows up in the measurement.
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
@@ -380,7 +385,17 @@ Lessons from mzm that apply directly:
   Status: the live map and items/equipment exist (P1.9 A and C, debug-flavoured).
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
-- [ ] **P4.3** Self-updater.
+- [ ] **P4.3** Self-updater (issue #42; after mzm's `port_updater_3ds.c`, owner's request 2026-10-06).
+  Done 2026-10-06 (merged into `release/v0.2.3`); the owner ran it on the 2DS and the check works, but no newer release has existed to install yet: `source/updater.c` (libcurl + mbedtls, the console's own
+  TLS cannot talk to GitHub; worker thread; downloads the release's `.cia` to `update/sm-update.cia` in the data folder and installs
+  it with `am:net`, over the running title or after deleting it, keeping the file for FBI if both fail), `updater_parse.c` (version
+  comparison and release-list parsing, host-tested by `tools/updater-test`, in `make test`). OPTIONS gains AUTO UPDATE (`auto_update`
+  in `config.ini`, on by default: a check at boot, silent when it fails) and UPDATES (tap = check now); a newer build raises a prompt
+  over any tab (install? / installing bar / restart? / failed). Builds with the debug tools follow the pre-releases (Beta), the
+  others the releases. The CI image needs `dkp-pacman -S 3ds-curl 3ds-mbedtls 3ds-zlib` (added to the workflow).
+  *Known limit:* the TLS certificate is not verified (no CA bundle, as in mzm): someone on the same network could serve another CIA.
+  *Done when:* on the console, UPDATES finds a newer release and installs it, the game restarts into it, and the boot check stays quiet
+  without Wi-Fi. (The old text of this task: "Self-updater.")
 - [x] **P4.4** RetroAchievements (softcore only).
   Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
@@ -569,6 +584,18 @@ Lessons from mzm that apply directly:
   the bottom screen needs a Japanese UI translation (and a font with kana for it).
   *Done when:* the language is chosen in one place and the other follows, checked on the console.
 
+- [x] **P4.11** Save states without a fixed number (issue #44, owner's request 2026-10-06). Done 2026-10-06, checked by the owner on the 2DS (merged): `source/states_store.c` (the list is `saves/save<id>.sav` found by scanning, newest first; ids 0-9 are the old
+  slots, a new state takes one past the largest; the game side is `RtlSaveLoadFile` in `sm_rtl.c`, which takes the file), the STATES tab as
+  a scrollable list of cards like the achievements, `+ NEW` to save, and a colour mark per state (8). Host test `tools/states-test`.
+  *Done when:* on the console, many states are saved and listed, the list scrolls, a mark shows on its card, and the old ten still load.
+  Left for later: a name typed with the keyboard (the mark was what was asked); saving in the background (serialise the state into memory, write the
+  file on a thread) so the game does not stop while the SD card is written: today `BottomUi_Busy` draws PLEASE WAIT first, since the main loop
+  is also what draws and nothing animates while it is blocked (the same for loading, deleting and the debug dumps).
+- [x] **P4.12** A state's detail window (issue #45, owner's request 2026-10-06). Done with P4.11, checked by the owner on the 2DS: tapping a card opens a window with the
+  screenshot of the top screen when it was saved (`saveN.img`, 200x120 RGB565, taken from the GPU's top target or the CPU's shadow buffer),
+  the date, area and room, energy, reserve, missiles, supers, power bombs, play time and the build that saved it, the marks, and LOAD /
+  SAVE OVER / DELETE with a second tap each (delete removes `.sav`, `.txt`, `.rap` and `.img`).
+  *Done when:* on the console the screenshot matches what was on screen, and delete leaves no files behind.
 - [ ] **P4.10** Texts of the game still in English (left over from P4.8): the ones drawn as sprites
   (PLANET ZEBES on the file-select map, the ending's mode 7 THE OPERATION WAS COMPLETED SUCCESSFULLY
   and CLEAR TIME), the pause screen's RESERVE TANK and MODE AUTO/MANUAL (not seen yet), the beams'
@@ -1207,3 +1234,19 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   sprites the game adds on top (refills, map station, bosses; `$82:C7CB` tables) are ours, as plain letter blocks. Zoom 1X/2X/3X
   = 5/8/12 px a cell (`map_zoom` in `config.ini`); 1X shows the 64 columns of an area in 320 px, the 8x8 tile averaged down.
   Picking a room (debug) resolves on release so a drag can scroll.
+- 2026-10-06: Closing the game from HOME froze the console for the next application (FBI, ftpd; #20), and HOME showed the
+  game's screens black. Two causes, both found by elimination on the 2DS (a `bisect.txt` that stopped the game after each
+  subsystem's set-up, since removed; every stage was clean until citro3d, and the CPU renderer never froze it):
+  (1) citro3d ends a frame asynchronously (the swap is a callback when its GPU queue finishes) and HOME takes the GPU away,
+  so a frame in flight is never acknowledged, and every wait on the queue (`C3D_RenderTargetDelete`, `C3D_Fini`) never
+  returns; skipping the teardown, as the code did since 2026-10-01, left the GPU half done for the next application.
+  `AptHook` (`gpu_ppu_3ds.c`) drains the queue with an empty frame while the app still has the GPU, and the real close tears
+  citro3d down on a thread with a timeout. Not one more frame runs after the quit event. Tried and not the cause: the 3D
+  mode left on, `AffinityMask`, tearing citro3d down in the suspend hook (it then restarted wrongly on return: black).
+  (2) The framebuffers were 32-bit (RGBA8, inherited from the upstream frontend): HOME cannot capture those. Both screens are
+  now 24-bit like mzm's; the CPU drawing keeps its 32-bit pixels in a buffer per screen (`UiDraw_Screen`), converted by
+  `UiDraw_Present` right before the swap. Why mzm never had either problem was not established (it already used 24 bits and its
+  GPU queue is probably empty when HOME is pressed). `debug/sm-exit.txt` now also records the GPU steps of the exit.
+- 2026-10-06: `v0.3.0` tagged on `main` as the stable release (the owner asked for the next version up; a minor bump, so it was confirmed, and
+  "3.0.0" was read as v0.3.0). The release branch was renamed `release/v0.3.1`. The self-updater's first real test is the next release after
+  this one (#42 stays open until a build installs a newer one).

@@ -146,8 +146,9 @@ build if a `.smc`/`.sfc` is present in `romfs/`.
 
 ## Build
 
-Toolchain lives in `/opt/devkitpro` (devkitARM, libctru, citro2d/3d; CI uses
-the `devkitpro/devkitarm:20260610` image, same as mzm). `bannertool` and
+Toolchain lives in `/opt/devkitpro` (devkitARM, libctru, citro2d/3d, and the portlibs
+`3ds-curl 3ds-mbedtls 3ds-zlib` for the self-updater; CI uses
+the `devkitpro/devkitarm:20260610` image, same as mzm, and installs those with `dkp-pacman`). `bannertool` and
 `makerom` are committed in `tools/bin/` (copied from mzm).
 
 ```sh

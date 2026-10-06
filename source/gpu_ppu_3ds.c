@@ -880,11 +880,17 @@ static void Calibrate(void) {
            g_readback_flipped ? "bottom-up" : "top-down");
 }
 
+static aptHookCookie g_apt_cookie;
+static void AptHook(APT_HookType type, void *param);
+
 bool GpuPpu3ds_Init(void) {
   if (g_ready) return true;
   if (g_failed) return false;
   g_failed = true;   // until everything below worked
   if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 4)) return false;   // two eyes
+  static bool hooked;
+  if (!hooked) aptHook(&g_apt_cookie, AptHook, NULL);   // the cookie must be in the list once
+  hooked = true;
   g_dvlb = DVLB_ParseFile((u32 *)gpu_ppu_shbin, gpu_ppu_shbin_size);
   if (!g_dvlb) return false;
   shaderProgramInit(&g_prog);
@@ -908,8 +914,10 @@ bool GpuPpu3ds_Init(void) {
   g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
   g_rt_top_right = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
   if (!g_rt_main || !g_rt_sub || !g_rt_top || !g_rt_top_right) return false;
-  C3D_RenderTargetSetOutput(g_rt_top, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
-  C3D_RenderTargetSetOutput(g_rt_top_right, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
+  // The top screen's framebuffer is 24-bit (gfxInit in main.c): the readbacks keep RGBA8.
+  const u32 top_flags = (DISPLAY_TRANSFER_FLAGS & ~GX_TRANSFER_OUT_FORMAT(7)) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8);
+  C3D_RenderTargetSetOutput(g_rt_top, GFX_TOP, GFX_LEFT, top_flags);
+  C3D_RenderTargetSetOutput(g_rt_top_right, GFX_TOP, GFX_RIGHT, top_flags);
 
   SetTexOffset(kTexOffXCalib);
   Mtx_OrthoTilt(&g_proj_top, 0, 400, 240, 0, 1, -1, true);
@@ -935,14 +943,80 @@ bool GpuPpu3ds_Ready(void) { return g_ready; }
 
 const char *GpuPpu3ds_CalibrationText(void) { return g_calib_text; }
 
+// citro3d's teardown, run on a helper thread so that a wait that never ends (closing from the
+// HOME menu stops citro3d's vblank handling, see below) costs the exit a timeout and not the
+// console: the process ends with the thread still stuck.
+extern void ExitStep(const char *what);   // main.c: debug/sm-exit.txt, flushed per line
+
+static void ExitStepLog(const char *what) {
+  char line[48];
+  snprintf(line, sizeof(line), "gpu %s", what);
+  ExitStep(line);
+}
+
+// citro3d ends a frame asynchronously: the screen swap is done by a callback when its GPU
+// command queue finishes. HOME (or the lid) takes the GPU away, and a frame still in flight is
+// then never acknowledged: its swap does not happen (HOME's background was black), and every
+// later wait on the queue (C3D_RenderTargetDelete, C3D_Fini: C3Di_WaitAndClearQueue) never
+// returns, so closing from the HOME menu hung, and leaving citro3d as it was froze the next
+// application (FBI, #20). This hook, called while the GPU is still ours (APT calls hooks newest
+// first, so before libctru's own), drains the queue with an empty frame: C3D_FrameBegin waits
+// for it. On a thread with a timeout, in case the order is the other one.
+static void DrainThread(void *arg) {
+  (void)arg;
+  if (C3D_FrameBegin(0)) C3D_FrameEnd(0);
+}
+
+static void AptHook(APT_HookType type, void *param) {
+  (void)param;
+  if ((type != APTHOOK_ONSUSPEND && type != APTHOOK_ONSLEEP) || !g_ready) return;
+  ExitStepLog("hook: draining the GPU queue");
+  Thread t = threadCreate(DrainThread, NULL, 16 * 1024, 0x30, -2, false);
+  if (!t) {
+    ExitStepLog("hook: drain thread failed");
+    return;
+  }
+  // A timeout comes back as 0x09401BFE, a positive code: only 0 is the thread having ended.
+  const Result r = threadJoin(t, 500ULL * 1000 * 1000);
+  ExitStepLog(r == 0 ? "hook: GPU queue drained" : "hook: drain timed out");
+  if (r == 0) threadFree(t);
+}
+
+// The teardown itself, for the app closing: on a thread with a timeout, so that a wait that
+// never ends costs a second at exit and not the console.
+static void TeardownThread(void *arg) {
+  (void)arg;
+  ExitStepLog("targets");
+  C3D_RenderTargetDelete(g_rt_top_right);
+  C3D_RenderTargetDelete(g_rt_top);
+  C3D_RenderTargetDelete(g_rt_sub);
+  C3D_RenderTargetDelete(g_rt_main);
+  ExitStepLog("textures");
+  C3D_TexDelete(&g_main_tex);
+  C3D_TexDelete(&g_sub_tex);
+  C3D_TexDelete(&g_overlay_tex);
+  C3D_TexDelete(&g_toast_tex);
+  ExitStepLog("shader");
+  shaderProgramFree(&g_prog);
+  DVLB_Free(g_dvlb);
+  ExitStepLog("C3D_Fini");
+  C3D_Fini();
+  ExitStepLog("C3D_Fini returned");
+}
+
 void GpuPpu3ds_Exit(void) {
+  // Called when the app closes. The queue was drained by AptHook when HOME suspended the app, so
+  // the deletes below find nothing to wait for.
   if (!g_ready) return;
-  // Nothing of citro3d is torn down: closing from the HOME menu hung on "Closing
-  // software" in every call that waits for the GPU queue (an empty frame first, then
-  // C3D_RenderTargetDelete; 2DS logs, 2026-10-01). After HOME, citro3d's APT suspend
-  // hook has stopped its vblank handling and the queue never drains. The app is exiting:
-  // the system reclaims the GPU memory with the process, and gfxExit stops
-  // the GSP event thread that citro3d's callbacks run on.
-  Debug_Log("exit: citro3d left as is");
   g_ready = false;
+  aptUnhook(&g_apt_cookie);
+  Thread t = threadCreate(TeardownThread, NULL, 32 * 1024, 0x30, -2, false);
+  if (!t) {
+    ExitStepLog("teardown thread failed");
+    return;
+  }
+  // A timeout comes back as 0x09401BFE, a positive code: only 0 is the thread having ended.
+  const Result r = threadJoin(t, 1000ULL * 1000 * 1000);
+  ExitStepLog(r == 0 ? "thread joined" : "teardown timed out, left as is");
+  if (r == 0) threadFree(t);
 }

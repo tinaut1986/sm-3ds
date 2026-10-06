@@ -278,6 +278,15 @@ void DrawSpritemapWithBaseTile(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, u
   oam_next_ptr = idx;
 }
 
+// 3DS port, WIDE view: the drawers below hide a piece whose y is above line 0 (the original wraps
+// it to the bottom of the OAM's 8 bits). With extra rows above the picture (PIXEL PERFECT) the
+// pieces down to -g_rtl_wide_extra_top are on screen, at y mod 256, as the object's own position
+// (y_r18, 16-bit and signed in the callers that use these) says.
+static inline bool WidePieceInTopRows(uint16 base_y, uint8 offset) {
+  const int y = (int16)base_y + (int8)offset;
+  return y < 0 && y >= -(int)g_rtl_wide_extra_top;
+}
+
 void DrawSpritemapWithBaseTile2(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, uint16 r3, uint16 r0) {  // 0x818B22
   const uint8 *pp = RomPtrWithBank(db, j);
   int idx = oam_next_ptr;
@@ -289,7 +298,7 @@ void DrawSpritemapWithBaseTile2(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, 
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)r18_y;
-    const bool shown = !(y & 0x100) == !sign8(pp[2]);
+    const bool shown = WidePieceInTopRows(r18_y, pp[2]) || !(y & 0x100) == !sign8(pp[2]);
     oam->ycoord = shown ? y : 0xf0;
     RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = r3 | (r0 + GET_WORD(pp + 3));
@@ -310,7 +319,7 @@ void DrawSpritemapWithBaseTileOffscreen(uint8 db, uint16 j, uint16 r20_x, uint16
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)r18_y;
-    const bool shown = !(y & 0x100) != !sign8(pp[2]);
+    const bool shown = WidePieceInTopRows(r18_y, pp[2]) || !(y & 0x100) != !sign8(pp[2]);
     oam->ycoord = shown ? y : 0xf0;
     RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = r3 | (r0 + GET_WORD(pp + 3));
@@ -331,7 +340,7 @@ void DrawEprojSpritemapWithBaseTile(uint8 db, uint16 j, uint16 x_r20, uint16 y_r
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)y_r18;
-    const bool shown = !(y & 0x100) == !sign8(pp[2]);
+    const bool shown = WidePieceInTopRows(y_r18, pp[2]) || !(y & 0x100) == !sign8(pp[2]);
     oam->ycoord = shown ? y : 0xf0;
     RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r28 | (chr_r26 + GET_WORD(pp + 3));
@@ -352,7 +361,7 @@ void DrawEprojSpritemapWithBaseTileOffscreen(uint8 db, uint16 j, uint16 x_r20, u
     oam->xcoord = x;
     oam_ext[idx >> 5] |= (((x & 0x100) >> 8) | (*(int16 *)pp < 0) * 2) << (2 * ((idx >> 2) & 7));
     int y = pp[2] + (uint8)y_r18;
-    const bool shown = !(y & 0x100) != !sign8(pp[2]);
+    const bool shown = WidePieceInTopRows(y_r18, pp[2]) || !(y & 0x100) != !sign8(pp[2]);
     oam->ycoord = shown ? y : 0xf0;
     RtlOamTag(idx, x, y, !shown);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&oam->charnum = chr_r28 | (chr_r26 + GET_WORD(pp + 3));

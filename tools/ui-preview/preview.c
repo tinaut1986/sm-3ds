@@ -7,6 +7,10 @@
 #include "src/sm_rtl.h"
 #include "src/variables.h"
 #include "bottom_ui.h"
+#include "ui_draw.h"
+#include "updater.h"
+#include "states_store.h"
+#include <sys/stat.h>
 #include "ui_lang.h"
 #include "cheats.h"
 #include "debug_tools.h"
@@ -14,6 +18,8 @@
 #include "sm_map.h"
 static uint8_t fb[2][400 * 240 * 4];
 static u64 g_now = 100000;   // advanced between shots so tap flashes and toasts expire
+void gfxFlushBuffers(void) {}
+void gfxScreenSwapBuffers(gfxScreen_t screen, bool hasStereo) { (void)screen, (void)hasStereo; }
 u8 *gfxGetFramebuffer(gfxScreen_t s, gfx3dSide_t side, u16 *w, u16 *h) { if (w) *w = 240; if (h) *h = s == GFX_TOP ? 400 : 320; return fb[s]; }
 u64 osGetTime(void) { return g_now; }
 u64 svcGetSystemTick(void) { return 0; }
@@ -24,7 +30,7 @@ void osSetSpeedupEnable(bool e) {}
 Result ptmuInit(void) { return 0; }
 void ptmuExit(void) {}
 Result PTMU_GetBatteryLevel(u8 *out) { *out = 3; return 0; }
-Result PTMU_GetBatteryChargeState(u8 *out) { *out = 0; return 0; }
+Result PTMU_GetBatteryChargeState(u8 *out) { *out = 1; return 0; }
 u8 osGetWifiStrength(void) { return 2; }
 void NORETURN Die(const char *e) { exit(1); }
 void Warning(const char *e) {}
@@ -33,7 +39,7 @@ static void Dump(const char *name) {
   FILE *f = fopen(name, "wb");
   fprintf(f, "P6\n320 240\n255\n");
   for (int y = 0; y < 240; y++) for (int x = 0; x < 320; x++) {
-    const uint8_t *p = &fb[GFX_BOTTOM][(x * 240 + (239 - y)) * 4];   // A,B,G,R
+    const uint8_t *p = &((const uint8_t *)UiDraw_Screen(GFX_BOTTOM).px)[(x * 240 + (239 - y)) * 4];   // A,B,G,R
     fputc(p[3], f); fputc(p[2], f); fputc(p[1], f);
   }
   fclose(f);
@@ -96,6 +102,24 @@ int main(int argc, char **argv) {
       map_tiles_explored[idx >> 3] |= 0x80 >> (idx & 7);
     }
   }
+  // Fourteen states with different marks, areas and times, a screenshot on every other one.
+  mkdir("saves", 0777);
+  static uint16_t shot[kStateShotW * kStateShotH];
+  for (int i = 0; i < kStateShotH; i++)
+    for (int j = 0; j < kStateShotW; j++) shot[i * kStateShotW + j] = (uint16_t)((j * 31 / kStateShotW) << 11 | (i * 63 / kStateShotH) << 5 | 12);
+  for (int i = 0; i < 14; i++) {
+    StateInfo si = { .id = i, .has_info = i != 5, .saved_at = 1759400000 + i * 7200 + (i % 3) * 86400, .area = (unsigned)(i % 6),
+                     .room = 0x10 + i * 3, .health = 99 + i * 20, .max_health = 299, .reserve = i % 2 ? 50 : 0, .missiles = 5 + i,
+                     .max_missiles = 45, .supers = i % 4, .max_supers = 10, .pbs = i % 3, .max_pbs = 10, .hours = (unsigned)i / 2,
+                     .minutes = (unsigned)(i * 7) % 60, .mark = i % kStateMarks };
+    snprintf(si.version, sizeof(si.version), "v0.2.3-dev.%d+abc1234", i);
+    char name[32];
+    snprintf(name, sizeof(name), "saves/save%d.sav", i);
+    FILE *f = fopen(name, "wb");
+    if (f) fclose(f);
+    if (si.has_info) States_WriteInfo(&si);
+    if (i % 2 == 0) States_WriteShot(i, shot);
+  }
   BottomUi_Init(&rom);
 
   TapTab(kMap);
@@ -152,8 +176,19 @@ int main(int argc, char **argv) {
   Tap(160, 220);                     // close
 #endif
   TapTab(kStates);
-  Tap(260, 38 + 2 * 19 + 5);         // arm save on slot 2
-  Shot("states, slot 2 save armed");
+  Shot("states");
+  BottomUi_TouchDown(150, 160);      // drag the list up by 90 px
+  BottomUi_TouchMove(150, 70);
+  BottomUi_TouchUp();
+  Shot("states, scrolled");
+  Tap(150, 46 + 5);                  // the card at the top: its detail window
+  Shot("state detail window");
+  Tap(62 + 3 * 30 + 5, 172 + 5);     // a mark
+  Tap(12 + 2 * 76 + 5, 198 + 5);     // DELETE: armed
+  Shot("state detail window, delete armed");
+  Tap(12 + 3 * 76 + 5, 198 + 5);     // CLOSE
+  BottomUi_Busy();
+  Shot("states, please wait (a save or a dump in progress)");
   extern bool g_preview_ra_toast;
   TapTab(kAchievements);
   Shot("achievements");
@@ -183,22 +218,51 @@ int main(int argc, char **argv) {
   Tap(230, 95);                      // ORDER: next
   Shot("achievements, settings changed");
   TapTab(kOptions);
-  Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
+  Tap(8 + 5, 30 + 2 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(160, 178);
+  Tap(240, 171);                     // RESET GAME
   Shot("options, reset window");
   Tap(216, 148);                     // cancel
+  // The updater: its cell in every state, and the prompts over the tab.
+  extern UpdState g_preview_upd_state;
+  extern UpdPrompt g_preview_upd_prompt;
+  extern int g_preview_upd_progress;
+  extern bool g_preview_upd_kept;
+  extern const char *g_preview_upd_message;
+  Tap(8 + 5, 30 + 4 * 34 + 5);       // UPDATES: check
+  if (g_preview_upd_state != UPD_CHECKING) { fprintf(stderr, "UPDATES did not start a check\n"); return 1; }
+  Shot("options, checking for updates");
+  g_preview_upd_state = UPD_UP_TO_DATE;
+  Shot("options, up to date");
+  g_preview_upd_state = UPD_AVAILABLE;
+  g_preview_upd_prompt = UPD_PROMPT_ASK_INSTALL;
+  Shot("update prompt: install?");
+  g_preview_upd_prompt = UPD_PROMPT_PROGRESS;
+  g_preview_upd_state = UPD_DOWNLOADING;
+  g_preview_upd_progress = 40;
+  Shot("update prompt: installing");
+  g_preview_upd_prompt = UPD_PROMPT_ASK_RESTART;
+  g_preview_upd_state = UPD_INSTALLED;
+  Shot("update prompt: restart?");
+  g_preview_upd_prompt = UPD_PROMPT_ERROR;
+  g_preview_upd_state = UPD_ERROR;
+  g_preview_upd_message = "AM FINISH OW 0xC8A04402";
+  g_preview_upd_kept = true;
+  Shot("update prompt: failed");
+  Tap(160, 148);                     // OK
+  Shot("options, update error");
+  g_preview_upd_state = UPD_IDLE;
   // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
-  // last option cell (left column, fifth row) and cycles.
+  // last option cell (left column, fourth row) and cycles.
   for (int lang = 1; lang < kLangCount; lang++) {
     TapTab(kOptions);
-    Tap(8 + 5, 30 + 4 * 34 + 5);
+    Tap(8 + 5, 30 + 3 * 34 + 5);     // LANGUAGE
     if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
-    Tap(8 + 5, 30 + 1 * 34 + 5);     // FRAME SKIP off: its toast
+    Tap(8 + 5, 30 + 5);              // FRAME SKIP off: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
-    Tap(8 + 5, 30 + 1 * 34 + 5);
+    Tap(8 + 5, 30 + 5);
     Tap(240, 171);                   // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);

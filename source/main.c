@@ -36,6 +36,8 @@
 #include "retro_ach.h"
 #include "game_text.h"
 #include "version.h"
+#include "updater.h"
+#include "states_store.h"
 #include "build_config.h"
 
 enum Button {
@@ -133,8 +135,7 @@ static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
     if (layout != last_layout || clear_sides) clear_frames = 2;
     last_layout = layout;
 
-    UiDraw_WaitSwapShown();
-    uint32_t *fb = (uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
+    uint32_t *fb = UiDraw_Screen(GFX_TOP).px;   // converted by UiDraw_Present with the swap
     if (clear_frames > 0) {
         clear_frames--;
         for (int i = 0; i < FB_W * FB_H; i++) fb[i] = 0xFFu;
@@ -148,7 +149,18 @@ static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (r[dy][sx] << 8) | 0xFFu;
     }
-    if (gfxIs3D()) memcpy(gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL), fb, FB_W * FB_H * 4);   // flat
+}
+
+// The top screen as the player sees it, shrunk for a state's screenshot (states_store.c): what the
+// GPU presented last, or what the CPU drew. False when there is nothing to take.
+static uint16_t g_state_shot[kStateShotW * kStateShotH];
+static bool g_top_by_gpu;   // the GPU presents the top screen (see the main loop)
+
+static bool CaptureStateShot(void) {
+  const uint32_t *top = g_top_by_gpu ? GpuPpu3ds_ReadTop() : UiDraw_Screen(GFX_TOP).px;
+  if (!top) return false;
+  States_MakeShot(top, g_state_shot);
+  return true;
 }
 
 // The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
@@ -164,7 +176,6 @@ static float Stereo3dSlider(void) {
 // top screen is currently being presented by citro3d rather than by DrawPpuFrame.
 static PpuLineCapture g_line_capture;
 static GpuFrame g_gpu_frame;
-static bool g_top_by_gpu;
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
@@ -218,6 +229,7 @@ static void GpuCheck(void) {
     differ += d > 0;
     far += d > 8;
   }
+  BottomUi_Busy();
   const int slot = Debug_DumpScreen(g_pixels);
   if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
   Debug_Log("GPU check -> set %04d: %d px differ, %d by more than 8; %s", slot, differ, far,
@@ -567,7 +579,11 @@ static void ShowRomError(const RomInfo *info) {
 // one write and a flush.
 static FILE *g_exit_file;
 
-static void ExitStep(const char *what) {
+// The updater asks to quit after installing, to relaunch the new build (aptSetChainloaderToSelf).
+static volatile bool g_quit_request;
+void Main_RequestQuit(void) { g_quit_request = true; }
+
+void ExitStep(const char *what) {
   if (!g_exit_file) {
     mkdir("debug", 0777);
     g_exit_file = fopen("debug/sm-exit.txt", "w");
@@ -640,7 +656,8 @@ int main(int argc, char** argv) {
 
   g_start_tick = svcGetSystemTick();
   osSetSpeedupEnable(true);   // New 3DS 804 MHz from the start; the Options toggle takes over later
-  gfxInit(GSP_RGBA8_OES, GSP_RGBA8_OES, false);
+  // 24-bit framebuffers: HOME shows black instead of the game's screen when they are 32-bit (#20).
+  gfxInit(GSP_BGR8_OES, GSP_BGR8_OES, false);
   hidInit();
 
   Result rc = romfsInit();
@@ -659,6 +676,8 @@ int main(int argc, char** argv) {
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
+  // Pre-release builds (the ones with the debug tools) follow the betas, the others the releases.
+  Updater_Init(g_ui.auto_update, DEBUG_TOOLS != 0);
   GameText_Init();
 
   // Setup audio
@@ -729,9 +748,11 @@ int main(int argc, char** argv) {
     RetroAch_Update();
 
     hidScanInput();
-    if (!aptMainLoop()) {
-      ExitStep("quit event");
+    if (!aptMainLoop() || g_quit_request) {
+      ExitStep(g_quit_request ? "quit requested" : "quit event");
       running = false;
+      // Not one more frame: the system has taken the GPU (HOME's close), and a frame would wait for it.
+      break;
     }
     {
       // The HID key bits are the Button numbers (A = 0 ... Y = 11).
@@ -756,7 +777,6 @@ int main(int argc, char** argv) {
       audio_running = want_audio;
       g_audio_paused = !audio_running;
     }
-    g_turbo = g_ui.turbo;
 
     if (g_ui.req_reset) {
       RtlReset(1);
@@ -764,13 +784,19 @@ int main(int argc, char** argv) {
       RetroAch_GameReset();
     }
     if (g_ui.req_save_state) {
+      BottomUi_Busy();
       GameTextScreens_PutBack();
-      const bool ok = RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
-      BottomUi_StateSaved(g_ui.save_slot, ok);
+      char state_file[48];
+      snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+      const bool ok = RtlSaveLoadFile(kSaveLoad_Save, state_file, g_ui.save_slot);
+      BottomUi_StateSaved(g_ui.save_slot, ok, ok && CaptureStateShot() ? g_state_shot : NULL);
       if (ok) RetroAch_StateSaved(g_ui.save_slot);
     }
     if (g_ui.req_load_state) {
-      const bool ok = RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+      BottomUi_Busy();
+      char state_file[48];
+      snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+      const bool ok = RtlSaveLoadFile(kSaveLoad_Load, state_file, g_ui.save_slot);
       BottomUi_StateLoaded(g_ui.save_slot, ok);
       if (ok) RetroAch_StateLoaded(g_ui.save_slot);
     }
@@ -825,10 +851,12 @@ int main(int argc, char** argv) {
       RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
       if (capture) {
+        BottomUi_Busy();
         Debug_FrameCaptureEnd(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
       if (dump) {
+        BottomUi_Busy();
         Debug_DumpScreen(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
@@ -932,8 +960,10 @@ int main(int argc, char** argv) {
     if (presented && !g_top_by_gpu) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
-      if (record) RecordTop((const uint32_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL), frameCtr, t_logic, t_draw);
+      if (record) RecordTop(UiDraw_Screen(GFX_TOP).px, frameCtr, t_logic, t_draw);
       BottomUi_Frame(&perf);
+      UiDraw_Present(GFX_TOP, gfxIs3D());
+      UiDraw_Present(GFX_BOTTOM, false);
       gfxFlushBuffers();
       gfxSwapBuffers();
       UiDraw_Swapped();
@@ -947,6 +977,7 @@ int main(int argc, char** argv) {
       if (BottomUi_Frame(&perf)) {
         // Nothing new on the top screen from us (skipped frame, or the
         // GPU presents it), but the UI changed: swap the bottom screen only.
+        UiDraw_Present(GFX_BOTTOM, false);
         gfxFlushBuffers();
         gfxScreenSwapBuffers(GFX_BOTTOM, false);
         UiDraw_Swapped();
