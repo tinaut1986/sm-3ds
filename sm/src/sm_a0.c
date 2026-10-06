@@ -3002,7 +3002,9 @@ PairU16 EnemyFunc_ACA8(Point16U base_pt, Point16U samus_pt) {  // 0xA0ACA8
 
 uint16 CheckIfEnemyIsOnScreen(void) {  // 0xA0AD70
   EnemyData *v0 = gEnemyData(cur_enemy_index);
-  return (int16)(v0->x_pos - layer1_x_pos) < 0 || (int16)(layer1_x_pos + 256 - v0->x_pos) < 0 || 
+  // 3DS port (WIDE): the margins count as screen, or the pipe bugs and the like reset at the normal view's edge.
+  const uint16 ml = g_rtl_wide_margin_left, mr = g_rtl_wide_margin_right;
+  return (int16)(v0->x_pos - layer1_x_pos + ml) < 0 || (int16)(layer1_x_pos + 256 + mr - v0->x_pos) < 0 || 
       (int16)(v0->y_pos - layer1_y_pos) < 0 || (int16)(layer1_y_pos + 256 - v0->y_pos) < 0;
 }
 
