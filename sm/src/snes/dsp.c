@@ -650,6 +650,11 @@ void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val) {
 
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame) {
   // resample from 534 samples per frame to wanted value
+  if (samplesPerFrame == 534) {   // the DSP's own rate: nothing to resample
+    memcpy(sampleData, dsp->sampleBuffer, 534 * 2 * sizeof(int16_t));
+    dsp->sampleOffset = 0;
+    return;
+  }
   double adder = 534.0 / samplesPerFrame;
   double location = 0.0;
   for(int i = 0; i < samplesPerFrame; i++) {

@@ -100,5 +100,5 @@ void RetroAch_SetSort(RaSort sort, bool descending);
 // A sample notice (and the sound), to see where it shows.
 void RetroAch_ShowPreview(void);
 // Adds the unlock sound, when one is playing, to `frames` frames of 16-bit stereo audio at
-// 44100 Hz. Called from the audio thread.
-void RetroAch_MixAudio(int16_t *out, int frames);
+// `rate` Hz. Called from the audio thread.
+void RetroAch_MixAudio(int16_t *out, int frames, int rate);

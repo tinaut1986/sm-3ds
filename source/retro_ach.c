@@ -982,14 +982,14 @@ void RetroAch_ShowPreview(void) {
 }
 
 // The unlock sound: mzm's (ra_unlock_sound_data.c), mono at 32000 Hz, resampled to the
-// output's 44100 Hz by nearest sample.
+// output rate by nearest sample (the same 32000 Hz now: it plays 1:1).
 extern const uint32_t gRaUnlockSoundRate, gRaUnlockSoundFrames;
 extern const int16_t gRaUnlockSoundPcm[];
 
-void RetroAch_MixAudio(int16_t *out, int frames) {
+void RetroAch_MixAudio(int16_t *out, int frames, int rate) {
   int pos = g_sound_pos;
   if (pos < 0) return;
-  const uint32_t step = (uint32_t)(((uint64_t)gRaUnlockSoundRate << kSoundFrac) / 44100);
+  const uint32_t step = (uint32_t)(((uint64_t)gRaUnlockSoundRate << kSoundFrac) / (uint32_t)rate);
   for (int i = 0; i < frames; i++, pos += (int)step) {
     const uint32_t k = (uint32_t)pos >> kSoundFrac;
     if (k >= gRaUnlockSoundFrames) {

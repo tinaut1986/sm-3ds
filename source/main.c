@@ -288,12 +288,21 @@ static volatile float g_cb_max_ms;
 static volatile int g_cb_count, g_cb_slow, g_cb_gaps;
 static volatile u64 g_cb_last;
 
+// NDSP output: one channel, a ring of wave buffers refilled by a thread that waits for
+// the DSP to hand one back. The S-DSP's own rate (32 kHz, 534 frames per game frame) goes
+// out as it is and NDSP resamples it in hardware: no resampling on the CPU, and a buffer
+// is exactly three of the DSP's blocks (about 50 ms, as before).
+enum {
+  kAudioRate = 32000, kDspBlockFrames = 534,
+  kAudioBufs = 3, kAudioBufFrames = 3 * kDspBlockFrames, kAudioStack = 128 * 1024
+};
+
 // Fills `len` bytes (stereo s16) of the NDSP buffer; runs on the audio thread.
 static void AudioCallback(uint8 *stream, int len) {
   const u64 cb_start = svcGetSystemTick();
   uint8 *const stream_start = stream;
   const int stream_len = len;
-  const float buffer_ms = len * 1000.0f / (44100 * 4);   // stereo s16
+  const float buffer_ms = len * 1000.0f / (kAudioRate * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
   RecursiveLock_Lock(&g_audio_mutex);
@@ -312,18 +321,12 @@ static void AudioCallback(uint8 *stream, int len) {
     len -= n;
   }
   RecursiveLock_Unlock(&g_audio_mutex);
-  RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4);   // the achievement sound, if playing
+  RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4, kAudioRate);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
   g_cb_slow += cb_ms > buffer_ms;
   g_cb_count++;
 }
-
-// NDSP output: one channel, a ring of wave buffers refilled by a thread that waits for
-// the DSP to hand one back. Same layout as the SDL driver it replaces (3 buffers of
-// 2048 frames, thread just above the main one), so the latency and the thread's
-// placement on the system core do not change.
-enum { kAudioRate = 44100, kAudioBufs = 3, kAudioBufFrames = 2048, kAudioStack = 128 * 1024 };
 
 static ndspWaveBuf g_wave[kAudioBufs];
 static uint8 *g_wave_mem;               // linear memory, kAudioBufs blocks
@@ -610,7 +613,7 @@ int main(int argc, char** argv) {
   g_ppu_render_flags = kPpuRenderFlags_Height240 
                      | kPpuRenderFlags_NewRenderer
                      | kPpuRenderFlags_4x4Mode7;
-  g_config.audio_freq = kDefaultFreq;
+  g_config.audio_freq = kAudioRate;
   g_config.audio_channels = kDefaultChannels;
   g_config.audio_samples = kDefaultSamples;
 
@@ -653,7 +656,7 @@ int main(int argc, char** argv) {
   SpcPlayer_Initialize(g_spc_player);
 
   g_audio_channels = 2;
-  g_frames_per_block = (534 * kAudioRate) / 32000;
+  g_frames_per_block = kDspBlockFrames;
   g_audiobuffer = (uint8 *)malloc(g_frames_per_block * g_audio_channels * sizeof(int16));
 
   // The audio thread runs on the system core, which an application only gets a share
