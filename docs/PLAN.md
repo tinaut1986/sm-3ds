@@ -10,20 +10,28 @@ change (what goes where: the table in CLAUDE.md).
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
-## Status (2026-10-02)
+## Status (2026-10-06)
 
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.1.4`. Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
-tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.2.3` (nothing on it yet). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches waiting for the owner's check on the console** (merge into the release line
-with `--no-ff` only after they confirm, closing the issues that turned out fine): none.
+**Branches:** none open. `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
+`feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
+New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
+were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
+priorities in 9AD9, A6A1, A011 and the spikes' row at the WIDE edge (#33, #24, #28), the ash following what it covers (9CB3, #35),
+no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements after cheats (#27, #29), the PLANE TINT views
+(#30), Ridley's room E0B5, and Kraid (arms in WIDE, garbage strip). The fog (BG3 on the main screen with the scene on the
+subscreen) was seen working by the owner. Still unchecked there: the fps after decoding into a shadow (P2.5), the Ceres
+elevator shaft (#34, left pending: a Mode 7 room is one layer, see the issue), Ridley's depth ramp. The
+achievements: 19 of the set's now unlock (#37, checked by the owner), through a table that belongs to the set as it is (P4.4). The rest of what the earlier merges need
+from the console is in its task (P4.4, P4.8, P3.2).
 
 **Priority** (owner's order; the reasons are in the decisions log):
-P0.3 → P4.5 open issues (before Phase 3: stereo is designed with the margins already
-there) → Phase 3 (P3.1 first) → P1.3 → P2.5 → P1.9 E, P1.7, P0.4 when useful.
+P3.3 only as depth bugs turn up (#23, #34) → P2.5 (the measurements) → P4.9 → P1.10, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -117,7 +125,7 @@ Lessons from mzm that apply directly:
 - [x] **P0.2** Build upstream and run it.
   Done 2026-09-30: the upstream build (ROM baked into romfs) booted on a New 3DS.
   Superseded by P1.1; that build no longer exists. Azahar never tried.
-- [ ] **P0.3** Measure the baseline.
+- [x] **P0.3** Measure the baseline.
   *Spec:* FPS in fixed spots (Ceres intro, Landing Site, Brinstar, a Norfair
   heat room, Maridia water) on Old 3DS/2DS and New 3DS, with and without audio
   and `FULL_NATIVE`. Record in a table below.
@@ -125,6 +133,8 @@ Lessons from mzm that apply directly:
   Status 2026-10-01: Landing Site on both, title/intro/Ceres on the 2DS (see the
   table). Tools: the debug log (every 5 s: speed, work, logic, GPU build/submit, audio)
   and Debug tab -> PERF (`debug/sm-perf-NN.csv`).
+  Done 2026-10-03: every spot on both consoles, audio off on the 2DS; `FULL_NATIVE=0`
+  not measured (decisions log).
 - [ ] **P0.4** Establish game-logic correctness on PC.
   *Spec:* build the PC version from `sm/` on Linux; play or replay with the
   native-vs-ROM comparison on; note mismatches. Check whether snesrev's
@@ -147,17 +157,28 @@ Lessons from mzm that apply directly:
   The game `chdir`s to the data folder, so `saves/sm.srm` lands there; the game
   writes SRAM when saving at a station, so no extra flush on exit was needed.
   Save states (Options tab, slots 0-9) also work after the state-size fix.
-- [ ] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
+- [x] **P1.3** Replace SDL2 with libctru directly: `hid` input, NDSP audio
   (from mzm), citro3d presentation. Drop the `SDL` submodule.
   *Done when:* same features as upstream, SDL gone, FPS not worse than P0.3.
   Note: SDL currently puts the audio thread on the system core (30 % cap) and
   delivers touch as finger events; keep both behaviours.
-- [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
+  Status 2026-10-06 (`feat/libctru-input-audio`, merged; checked by the owner on a New 3DS and on the 2DS): input
+  (`hidScanInput`, key edges, `hidTouchRead`), time (system tick) and audio (NDSP, one
+  channel, 3 x 2048-frame buffers, thread on core 1 one priority above the main one) no
+  longer go through SDL; `libSDL2` is not linked, `make sdl` is gone, the CIA is 0.5 MB
+  smaller; the `SDL` submodule is gone (the key codes `sm/src/config.c` reads are vendored in
+  `third_party/sdl_keys/`). To check on the console: buttons
+  and circle pad, touch on every bottom tab, sound (music, effects, the achievement
+  chime, pause and resume, no crackle at 268 MHz on an Old 3DS), fps as before, HOME and
+  closing the software, sleep mode and wake-up (sound back).
+- [x] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
   a texture, scale with citro3d.
   *Done when:* no per-pixel CPU copy remains in the frontend.
   Status 2026-10-01: with the GPU renderer (on by default) citro3d draws and presents
   the top screen; the table-driven CPU copy (`DrawPpuFrame`) is only used for frames
   drawn by the CPU renderer (refused by the GPU path, or the renderer switched off).
+  Closed 2026-10-06 (owner): the aim is that the GPU refuses no frame, so the CPU copy is not worth
+  working on; if a refused frame shows up it is a renderer bug (the Debug tab says which state).
 - [x] **P1.5** New 3DS 804 MHz + L2, frame pacing, FPS/perf overlay.
   Done 2026-09-30, checked on hardware: 804 MHz at boot (Options toggle, saved),
   vblank-locked pacing with adaptive frameskip, FPS/timing overlay on the top
@@ -185,7 +206,7 @@ Lessons from mzm that apply directly:
   frame-time recorder CSV with the audio split, `__assert_func`/`Unreachable()`
   crash note with file:line. All in `debug/` of the data folder, fetch over FTP.
   Follow-ups go to P1.9 E.
-- [ ] **P1.9** Bottom UI in the style of mzm's, rewritten for SM data.
+- [x] **P1.9** Bottom UI in the style of mzm's, rewritten for SM data.
   Stages A-D done and checked on hardware (2026-10-01):
   - **A. Status:** energy/tanks/reserve, ammo bars, item and beam grids,
     area/room/time, raw boss bits. 5x7 font from mzm.
@@ -207,9 +228,13 @@ Lessons from mzm that apply directly:
     (SCREEN DUMP, FRAME DUMP, log, mark, perf, PPU render, give all, heal).
     `DEBUG_TOOLS=1` gates the debug parts (`build/build_config.h`). See
     `docs/debug-tools.md`.
-  - **E. Debug tab, still open:** a scene recorder (many frames), PC-side viewers
-    for the dump files, mzm's low-energy tab tint. The PPU/HDMA dump is done
-    (FRAME DUMP, F).
+  - **E. Debug tab:** done. The PPU/HDMA dump (FRAME DUMP, F), the scene recorder
+    (`tools/scene-rec/decode.py` on the PC) and the PC-side tools (`tools/layer-workbench`,
+    `tools/frame-capture`, `tools/ui-preview`) exist. mzm's low-energy tint is its own task, P1.10.
+- [ ] **P1.10** Low-energy tint (as mzm's, which tints the screen by how low Samus's energy is).
+  *Spec:* look at how `../mzm` does it (colour, thresholds, which screen; the bottom screen's tab in
+  mzm's case, owner wants it as mzm) and port it with SM's energy and tanks, with an Options switch if mzm has one.
+  *Done when:* the tint appears and fades with the energy on the console and is off at full energy.
 
 ## Phase 2: performance (target 60 fps on Old 3DS)
 
@@ -218,10 +243,11 @@ Lessons from mzm that apply directly:
   `snes_handle_pos_stuff` ran 154k times per frame and only acts at hPos 0, 512
   and 1024; `snes_handle_scanline` visits just those (bit-identical on the host,
   4000 frames). Table-driven top-screen copy (5.0 -> 2.8 ms).
-- [ ] **P2.1** Profile. Split frame time into game logic, PPU, audio, present;
+- [x] **P2.1** Profile. Split frame time into game logic, PPU, audio, present;
   write `docs/perf.md` with the numbers.
-  Status: the split exists (perf CSV, the debug log, decisions log) with Old 3DS
-  numbers; `docs/perf.md` not written (the decisions log has the numbers).
+  Closed 2026-10-06: the split exists (perf CSV, the debug log) and its numbers live in the P0.3
+  table ("Baseline measurements") and the decisions log; `docs/perf.md` is not written, a second
+  copy would only go stale.
 - [x] **P2.2** Audio cost. Done 2026-10-01: the S-DSP is ~40 % cheaper with the output
   bit-identical (decisions log); 2DS audio blocks take 10-14 ms of the 16.7 ms budget,
   no late callbacks in play, no crackling. A quality setting was not needed.
@@ -251,12 +277,13 @@ Lessons from mzm that apply directly:
   scroll), a Brinstar room with BG2 parallax, a Norfair heat room, Maridia water
   (FX layer), a dark room, a boss (Kraid, Ridley), Ceres (Mode 7) and the pause
   map.
-- [ ] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
+- [x] **P2.4** Implement P2.3 incrementally; a frame-diff tool against the
   CPU PPU (like mzm's `tests/rec_render.c`, `tools/compare_render.py`).
   Status 2026-10-01: frame-diff tool is `tools/gpu-ppu-test` (host, in `make test`) and
   GPU CHECK (console). Host: every room, a new game through Ceres exploding, power bombs,
   file select identical to the CPU renderer, nothing refused; New 3DS: 6 sets, max
-  error 8. Open for "done": the remaining P0.3 spots on Old 3DS.
+  error 8. The P0.3 spots were measured on the 2DS on 2026-10-03 (shown 44-58 fps with frameskip, speed 56-60);
+  what is left of "Old 3DS at the target" is the per-frame cost in P2.5. Closed 2026-10-06.
   *Done when:* gameplay rooms render on the GPU pixel-identical to the CPU
   path, and Old 3DS reaches the target in the P0.3 spots.
   Note: the host harness's PPU/VRAM does not match the console's yet (seen while
@@ -264,21 +291,87 @@ Lessons from mzm that apply directly:
 
 - [ ] **P2.5** GPU renderer leftovers (moved from the old "Next up", 2026-10-02).
   *Spec:* sprites are decoded every frame (~0.5 ms on the 2DS) and the line analysis
-  costs ~1.1 ms; after a palette change decode only the visible tiles; check the X-ray
-  scope on hardware (never seen there). *Done when:* each is either measured and cut on
-  the 2DS or noted here as not worth it, and the X-ray scope has been seen on the console.
+  costs ~1.1 ms; after a palette change decode only the visible tiles. The X-ray scope
+  was seen on the console (#38, closed). Since 2026-10-05 the frame decodes into a shadow and copies
+  the changed rows after the GPU is done (`370f21a`): its cost on the 2DS has not been measured.
+  Measured 2026-10-06 (2DS, logs of `v0.2.2-dev.111`, 509 samples, Landing Site, Brinstar, Norfair, Maridia): shadow copy 0.02 ms
+  (max 0.11; the old full copy was 0.75), VRAM diff 0.43 (p95 1.5), sprites 0.82 (p95 4.2, the spikes are palette changes), lines+bands
+  2.3 (p95 3.2), BG 1.6, fallback 0 frames. Shown fps: 52-58 in most rooms, 44-49 in the Norfair rooms AF14, AFFB, B1E5 (draw 9-12 ms).
+  So the shadow costs nothing; what is left are the Norfair heat rooms and the sprite decode spikes.
+  *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
+- [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
+  16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
+  30 %, but nothing is heard as a gap and the underrun counter (no wave buffer queued when
+  one is refilled, `underruns` in the log's `audio:` line) reads 0, so the margin is
+  thin, not failing. "slower than their buffer" (1-30 per 5 s) overstates it: three
+  buffers are queued, a 54 ms callback does not empty them. Done:
+  1. Output at the S-DSP's own 32 kHz, NDSP resamples (checked on both consoles: same
+     sound, same cost: the resampling loop was never the cost).
+  2. Measured where the time goes (2DS, per block): voices 7-13 ms (BRR decoding 0.2-0.4,
+     up to 5 when notes start), SPC 0.2; the mix and echo figures were inflated by the
+     clock reads. On the host, over every room: echo on 100 % of the frames, 1.25 voices
+     sounding on average, so skipping silent voices or the echo saves almost nothing
+     (`dsp_cycleBlock` already batches, has a one-tap FIR and skips silent voices).
+     **Do not time inside `dsp_cycleBlock`**: it runs one sample at a time when the echo
+     may feed voices, and the clock reads (system calls) made the intro pop on the 2DS.
+  Ideas left, only if a real gap shows up (`underruns` > 0 or heard), cheapest first:
+  - A fourth wave buffer (`kAudioBufs`): absorbs spikes up to ~150 ms, costs ~50 ms of
+    latency. Preferred over touching priorities.
+  - A higher priority for the audio thread (now one above the main thread, 0x2F; the
+    highest an application may use is 0x19, 0x18 is video). Risk: on the system core it
+    would take turns from services (HOME, sleep, Wi-Fi) and the app has hung on exit
+    before; and it does not raise the 30 % cap, so it may do nothing. If tried, a middle
+    value (~0x28) and check closing with HOME.
+  - A cheaper DSP: `dsp_getSample` (Gaussian) and `dsp_decodeBrr`, bit-exact under
+    `dsp-fuzz` and `audio-rooms`; ARM11 assembly if it pays. Profile on the host or with
+    a counter per block, never per sample.
+  - A quality setting for Old 3DS/2DS (linear interpolation, simpler echo): changes the
+    sound, so an Options toggle, off on New 3DS.
+  - New 3DS only: the audio thread on core 2 (no 30 % cap); does not help the 2DS.
+  - Volume controls (Options): master 0-200 % through `ndspChnSetMix`, free of CPU (above
+    100 % it clips); the unlock chime on its own is trivial. Music and effects separately
+    only if the driver keeps them on fixed voices (not checked): a per-voice-group
+    multiplier in `dsp_cycleBlock` is a few tenths of a ms; rendering them apart would
+    double the cost, so no.
 
 ## Phase 3: stereoscopic 3D
 
-- [ ] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
+- [x] **P3.1** Depth model as a pure function of SNES PPU state (BG mode,
   per-layer and per-tile priority, OBJ priority, which layer carries HUD/FX),
   with exhaustive host tests like `../mzm/platform/3ds/tests/stereo_depth_test.c`.
-- [ ] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
+  Design: `docs/stereo-design.md` (planes, whole-pixel offsets, the platform-thickness
+  plane, drawing twice; agreed with the owner 2026-10-03).
+  Done on the host 2026-10-03: `source/stereo_depth.{h,c}`, `tools/stereo-test` (in
+  `make test`). Nothing to see on the console until P3.2.
+- [x] **P3.2** Wire depth into the GPU renderer: HUD to the front plane,
   Samus/enemies at play plane, BG1 foreground, BG2 mid, BG3 FX/backdrop far.
-- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors),
-  a debug depth tint like mzm's.
-- [ ] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
-  (flat or with deliberate depth).
+  First cut 2026-10-03 (branch `feat/stereo`, to check on the New 3DS): each eye drawn
+  from the one frame build with every quad moved by its plane's whole-pixel offset
+  (gpu_ppu_3ds.c `QuadDx`), right-eye top target, `gfxSet3D` while the slider is up, the
+  CPU path flat in both eyes. Edge columns without WIDE (2026-10-05, branch
+  `feat/stereo-edge-columns`, checked by the owner): with the slider up in gameplay the frame
+  gets `kStereoMaxPx` (4) margin columns a side, built like WIDE's but without its HUD over the
+  room, and the present step crops them (`GpuPpu_SetCropToView`): a shifted layer no longer
+  leaves backdrop at the view's edge. Colour windows stay unshifted: the power bomb looks right
+  (owner, 2026-10-06), not worth doing. Left open on purpose, for whoever has an Old 3DS (an
+  Old 3DS or XL has the 3D screen; the 2DS does not): the second eye pushes every quad's vertices
+  again, which is CPU work on the 268 MHz core. Measure first: fps in Landing Site with the slider
+  up against down; if it drops a lot, share the vertices between the eyes (`DrawEye`, `PushQuad`
+  in `gpu_ppu_3ds.c`), otherwise note it as not worth it. Not needed on the New 3DS (`wait for GPU 0.0`). No option to turn it off: the slider is the switch
+  (owner, 2026-10-05).
+- [ ] **P3.3** Per-sprite and per-room overrides (enemy IDs, bosses, doors). The workbench
+  (`tools/layer-workbench`, issue #33) and its `.inc` are the way: exporter, viewer and the layer rules
+  (`SM_LAYER_PLANE`, read by the renderer through `sm_planes.c`) exist; block fixes (`SM_PLANE_FIX`) are read too
+  (`GpuPpu_SetSlotPlanes`: the fixed tiles go to a texture per plane, host-checked, not yet on the console). First rules: `E0B5` BG2 and `DF45` sprites (#34), `9D19` BG3 (#35), unchecked on the console.
+  The debug depth tint (Debug tools -> PLANE TINT, `docs/debug-tools.md`) is in the release line (the owner has not looked at it closely yet).
+- [x] **P3.4** Non-gameplay screens: title, file select, map/pause, cutscenes
+  (flat or with deliberate depth). Owner's rule (2026-10-06): text in front of everything.
+  Done 2026-10-06 (checked by the owner): the title's sprites, file
+  select, the intro's text, the pause screens and game over have their text and interface on the `HUD`
+  plane and the art behind flat (`docs/stereo-design.md`, "Screens outside gameplay"; `SmPlanes_Screen`,
+  host test `stereo-depth`). The message boxes inside gameplay (save prompt, item texts: BG3 tilemap
+  `0x5800`) go on `HUD` too (`GpuPpu_SetMessageBoxMap`, tags their quads; a room's hand rules do not move
+  them). Not yet: the options menu, file-select map, ending and credits (flat).
 
 ## Phase 4: features
 
@@ -288,8 +381,31 @@ Lessons from mzm that apply directly:
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
 - [ ] **P4.3** Self-updater.
-- [ ] **P4.4** RetroAchievements (softcore only).
-- [ ] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
+- [x] **P4.4** RetroAchievements (softcore only).
+  Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
+  rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
+  The existing SNES set runs with one adaptation (below): rcheevos' "System RAM" is `g_ram` (same layout as the
+  SNES WRAM), "Cartridge RAM" `g_sram`; the game hash is the JU ROM's MD5, a constant.
+  **The port is a reimplementation, not the original code** (`sm/` is hand-written C checked against the ROM, see CLAUDE.md), so
+  the sets are adapted to the one that exists now (2026-10-05, 134 achievements) and **must be adapted again if it changes**:
+  19 of its achievements (every item pick-up, four bosses, two map downloads) also ask for two 16-bit words of the original's
+  direct-page scratch ($0032, $0034) to hold a pair of numbers when the event happens, which the C code keeps in locals;
+  `retro_ach.c` (`kDpTags`) writes the pair in the frame of the event. The port saves the set it downloads as
+  `debug/ra-set.json`; `tools/ra-tags/dp_tags.py` compares it with the table (issue #37). Anything else a new set reads from
+  outside the game's own variables (the stack, other scratch) would need the same.
+  Progress goes with save states (`saves/saveN.rap`). Cheats and the teleport do not pause
+  it (see the decisions log, 2026-10-04). Settings as mzm's (SETTINGS window, kept in `retroachievements.ini`): the
+  notice on the bottom or top screen with a sample, the unlock sound (mzm's, mixed into the
+  game's audio), the list's order and direction. A response may grow to 4 MB (the set is
+  over 64 KB: the first build cut it there, "Invalid JSON" on the console).
+  2026-10-03 (owner's request): the tab looks like mzm's windows: the settings on top, then
+  the set as cards with badges, type and lock glyphs, dragged with the stylus or by its bar;
+  a tap opens the achievement (badge at 64 px, state and date, type, description). Badges
+  are downloaded on the worker thread and kept in `badges/` in the data folder.
+  *Done when:* logged in on the console, the list loads with its badges, dragging scrolls
+  without opening cards and a tap opens one, an unlock in play shows the notice (with its
+  badge) and appears on the RA site.
+- [x] **P4.5** Display options: PIXEL PERFECT / SCALED, and WIDE (more of the room on
   the sides), both in the OPTIONS tab and saved in `config.ini`, like mzm's display
   style and aspect settings (`../mzm/platform/3ds/source/platform_gpu_3ds.c`,
   `port_wide_view.c`).
@@ -404,12 +520,60 @@ Lessons from mzm that apply directly:
   repeated, no frozen or popping enemies, no sprite on the wrong side; WIDE off
   keeps `make test` hashes; 2DS still ~60 fps in Landing Site with WIDE on.
 
-- [ ] **P4.6** FRAME SKIP off warns. It is on by default (`frameskip` in `config.ini`) and
+- [x] **P4.6** FRAME SKIP off warns. It is on by default (`frameskip` in `config.ini`) and
   keeps heavy scenes playable (the Ceres escape shaft ran at 20-30 fps without it); players
   who do not know what it does may switch it off and blame the port. Turning it off in
   OPTIONS shows a short toast ("FRAME SKIP OFF: heavy rooms may slow down"); turning it on
   says nothing. The option stays (useful for debugging and for those who prefer it).
   *Done when:* the toast shows on every switch to off, not at boot with it saved off.
+
+- [x] **P4.7** Bottom-screen languages (owner's request, 2026-10-02): English, Spanish,
+  Catalan, French, Portuguese. OPTIONS -> LANGUAGE cycles them, `language` in `config.ini`
+  (index, append-only order); with no saved choice the console's language is used when the UI
+  has it (Catalan never comes from there: the 3DS has none). Only player-facing text is
+  translated (`source/ui_lang.c`): the DEBUG tab, the debug tools and the DEBUG_TOOLS-only
+  parts stay English. The game's names (items, beams, ammo, areas: Status tab, map and
+  states) are translated too since 2026-10-03 (owner's request), short forms of the same
+  names as the message boxes (P4.8; `TrItem` and the others in `ui_lang.c`). Strings are UTF-8;
+  the font draws accents as marks above the plain capital. `tools/ui-preview` renders the
+  tabs in every language and fails if a translation changes a format string's conversions.
+  *Done when:* checked on the console in each language, nothing cut or overlapping.
+
+- [x] **P4.8** The game's own texts in the UI language (owner's request, 2026-10-02), with the
+  ROM file untouched and RetroAchievements valid: only VRAM changes, never the game's RAM
+  (`source/game_text.c`, hook `g_rtl_message_box_hook` in `sm_85.c`; `source/game_text_screens.c`
+  for the rest; host tests `msgbox-es`, `newgame-es`, `pause-es`, `gameover-es` check the WRAM
+  hash equals English).
+  Done: the message boxes (item names and their instruction lines, map/energy/missile
+  stations, the save prompt and its YES/NO). Titles use the box's capitals, accents are marks
+  in the blank cell above (cedilla below), the box widens for a longer text; the instruction
+  line is drawn with a lowercase font of ours into the characters of the English words, put
+  back when the box closes.
+  2026-10-03, the other screens (`game_text_screens.c`): option menus (OPTION MODE, controller
+  and special settings), file select (data copy/clear and their prompts, the ENERGY/TIME
+  pictures), the intro (THE LAST METROID page and the six typed story pages, the typed share of
+  the translation following the English), the HUD's ENERGY, the pause screen (equipment names,
+  headers, MAP/EXIT buttons, the Wrecked Ship title), game over, the credits' headings with
+  SEE YOU NEXT MISSION and the item rate (names stay). Checked on the PC in all languages.
+  How to add a screen: `tools/game-text/README.md`.
+  Ticked 2026-10-06 (owner: the screens and boxes are translated and checked); what was left
+  open moved to P4.10.
+
+- [ ] **P4.9** One language setting for the port and the game (owner's request, 2026-10-03; after
+  P4.8). Today the game's own OPTION MODE choice (ENGLISH TEXT / JAPANESE TEXT, the Japanese
+  subtitles of the intro) and the bottom screen's LANGUAGE are separate. Two ways, to pick:
+  (a) keep both in step: LANGUAGE on the bottom screen gains JAPANESE, which sets the game's
+  Japanese text flag, and choosing JAPANESE TEXT in the game's menu sets LANGUAGE (and English
+  text puts back the last non-Japanese language); (b) the game's menu line becomes one
+  language entry that opens a list of the port's languages, Japanese among them. Either way
+  the bottom screen needs a Japanese UI translation (and a font with kana for it).
+  *Done when:* the language is chosen in one place and the other follows, checked on the console.
+
+- [ ] **P4.10** Texts of the game still in English (left over from P4.8): the ones drawn as sprites
+  (PLANET ZEBES on the file-select map, the ending's mode 7 THE OPERATION WAS COMPLETED SUCCESSFULLY
+  and CLEAR TIME), the pause screen's RESERVE TANK and MODE AUTO/MANUAL (not seen yet), the beams'
+  names (drawn, not seen with beams collected).
+  *Done when:* each is translated or noted as not worth it, checked on the console.
 
 ## Phase 5: completion
 
@@ -423,13 +587,15 @@ Lessons from mzm that apply directly:
 
 ## Baseline measurements (P0.3)
 
+Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5 with audio), D055 54.9 (52.7), Landing Site 54.9 (52.3-54.0), work within ±1.5 ms. The audio thread is not what makes the frameskip drop frames there.
+
 | Spot | Old 3DS | New 3DS | Notes |
 |---|---|---|---|
-| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer | | 2026-10-01 |
-| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer) | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
-| Brinstar | | | |
-| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | | numbers pending from the log |
-| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after | | numbers pending from the log |
+| Title / intro / Ceres | 2DS, GPU renderer (mode 7): 50-55 fps (owner, overlay). Was 22-30 with the CPU renderer. Log 2026-10-03 (268 MHz, audio on, WIDE on): speed 56.6-59.6, shown 44.4 (E0B5) to 55.2 (DF45), work 11-15 ms (draw 7-12); audio callbacks slower than their buffer 46-303 per room (crackles likely), against 0-40 elsewhere | GPU renderer: speed 59.6-59.7 in DF45-E021, 58.4 E06B, 58.6 E0B5 (Ridley, with the escape); work 5-8 ms (logic ~2, draw 3-5 = build 2-4 + submit ~1) | 2DS 2026-10-01. N3DS 2026-10-03 from the debug logs (5 s windows; the last window before a quit, 300-800 ms, left out), 804 MHz, audio on, frameskip on |
+| Landing Site | 2DS, GPU renderer, no frameskip: 59.8 fps, work ~11 ms (logic 5.3, draw 5.0 = build 3.0 + submit 1.0), audio clean. CPU renderer: speed ~49, shown ~16 | 60 fps, work 13.7 ms avg / 15.4 p95 (CPU renderer). GPU renderer (91F8, 2026-10-03): speed 59.8, work 4.9 ms (logic 1.9, draw 2.4 = build 1.5 + submit 0.4); other Crateria rooms 59.0-60.0, work 3-5 ms | N3DS 2026-09-30, all on, 804 MHz; logic ~1 ms, PPU ~8.4, top copy 2.8. 2DS 2026-10-01 |
+| Brinstar | 2DS 2026-10-03, 268 MHz, audio on (9E9F, 9F11, 9F64, A107): speed 59.1-59.7, shown 53.8-58.1, work 9-11 ms (logic 1.8-4.1, draw 5.7-7.8) | GPU renderer: speed 58.9-59.9 over 9AD9-A107 (9E9F morph ball room 58.9), work 4-5 ms (logic 1.2-2.0, draw 2.1-3.1); audio callbacks slower than their buffer: 0-1 per room | N3DS 2026-10-03, same logs |
+| Norfair heat room | 2DS, demo (AFFB): ~36 fps before per-line quads (build 15-17 ms composing rows); owner reports 50-55 after | B1E5, GPU renderer: speed 59.8-60.0 over 50 s, work 5.0-5.4 ms (logic 1.9, draw 2.8-3.2; build 1.4-2.0, submit 0.6-0.8), audio clean. A heat room (owner: it took health, lava, Samus jumped in); 238-260 quads: a layer drawn one quad per line (per-line scroll), as AFFB and A923 on the host (~209 quads each, GPU equal to the CPU renderer) | 2DS: A923 2026-10-03, 268 MHz, audio on: speed 58.4, shown 46.5 (frameskip), work 14.6 ms (logic 6.3, draw 8.6 = build 6.2 + submit 1.5), 284 quads |
+| Maridia water | 2DS (D340): 40-50 fps with submit ~7 ms before the priority ordering; owner reports fine after. D055 2026-10-03: speed 58.5, shown 52.7, work 12.7 ms avg / 16.5 max (logic 5.7, draw 6.1), 223 quads | D017, GPU renderer: speed 59.9 over 25 s, work 4.8-5.2 ms (logic 1.9, draw 2.6-2.9), 414-451 quads in one band (per-line scroll), audio clean | numbers pending from the log |
 
 ## Decisions log
 
@@ -882,3 +1048,162 @@ Lessons from mzm that apply directly:
   the snesrev escape-beam fix, WIDE round 2) and merged in that order. Issues #1-#6 and
   #8-#14 closed with it; #7 (vertical lean) stays open as an enhancement, and P4.6
   (FRAME SKIP off warning) was added at the owner's request.
+- 2026-10-03: The owner asked to merge the whole stack of topic branches (one CIA carried
+  them all for testing) into `release/v0.1.4` once #16 (FX over the HUD's rows) was seen
+  fixed. Merged branch by branch with `--no-ff`, oldest first. The tasks stay unticked until
+  each is checked on its own (Done when), as do #7 and #18.
+- 2026-10-03: P0.3 closed from the debug logs of both consoles. `FULL_NATIVE=0` (the ROM on
+  the emulated CPU) was not measured: every build is FULL_NATIVE and that path is only a
+  host debugging aid. On the 2DS, switching audio off barely moves the shown fps (A923
+  46.5 -> 44.3, D055 52.7 -> 54.9): the game runs at ~58-59 while frames shown drop to
+  44-55 because work is 12-16 ms, close to the 16.7 ms budget, and draw is the larger part.
+  Ceres on the 2DS has 46-303 audio callbacks slower than their buffer per room (0-40
+  elsewhere). Both are P2 material, after Phase 3 in the owner's order. #7 confirmed by the
+  owner (Ridley's room: the walls go on up to the top edge, no black band) and closed;
+  #18 stays open for the X-ray scope (the security eyes were confirmed). The debug log's
+  settings line now carries the display mode and WIDE (it did not, so these runs' WIDE
+  state came from the owner: on).
+- 2026-10-03: Item names (message boxes and the Status tab) follow Nintendo's own Spanish
+  and French where it has them, at the owner's request ("BOLA SALTARINA" read wrong): Zero
+  Mission's (Morfosfera, Supersalto, Salto en barrena, Aceleración, Rayo recarga, Rayo de
+  ondas, Traje climático, Bomba de energía; Costume Varia, Méga Saut, Attaque en Vrille,
+  Rayon à Vague, Bombe de Puissance), then the later games' (Rotosalto for the Spring Ball;
+  the Spanish wiki's "Saltosfera" has no official source we could find; Rayo enganche, Visor
+  de rayos X, Salto espacial, Traje gravitatorio, Tanque de reserva). The 2012 fan
+  translation ("Super Metroid [Esp]") uses the same set except Ataque en barrena and Rayo
+  ancho. Spazer has no official Spanish name: Rayo múltiple, as the Spanish Metroid wiki.
+  Catalan follows the Spanish choices. Portuguese: the only official Metroid in it is Prime 4
+  (PT-BR, 2025, hardly any of these items); Morfosfera as its Brazilian guides, Salto Esfera
+  as the 2013 PT-BR fan translation (denim, spyblack), the rest as before. Super Metroid itself never had an official Spanish or French text.
+- 2026-10-03: The game's screens other than the message boxes are translated by reading the
+  English back from VRAM, not by hooking each screen's code: the PPU keeps a copy of VRAM as the
+  game wrote it (`g_ppu_vram_shadow`, set in `ppu.c`'s data port) and `g_rtl_game_text_hook`
+  (before the PPU draws) finds the current screen's English phrases there by their letters and
+  writes over them; what was changed and is no longer wanted is put back from the copy. One
+  engine covers all the fonts (a letter is a char, or a top and a bottom char, often sharing
+  halves: menu B, V, Y, Z exist that way; Q is O's top over a drawn bottom). Letters a screen lacks are
+  drawn into chars no tilemap on screen uses, never a tilemap's or the sprites' bytes nor the
+  font's own letters (the credits' last screen reuses B and D: those letters are a copy).
+  Pictured words (pause screen names, ENERGY) are redrawn with a 3 px font of ours.
+  The game's RAM is never touched (RetroAchievements), and save states are written with the
+  game's own VRAM (`GameTextScreens_PutBack`).
+- 2026-10-03: The owner made stereo 3D the next minor: `release/v0.1.4` (never tagged)
+  renamed to `release/v0.2.0`. For the design they asked for (1) text and HUD with depth
+  in whole pixels, so they never ghost as in mzm before its rounding, and (2) mzm's
+  platform thickness kept (scenery slightly nearer than Samus and enemies); mzm's
+  menu/map/cutscene override lists are not to be copied, SM's screens are looked at on
+  their own.
+- 2026-10-03: Achievement badges are downloaded at runtime (rcheevos' `badge_url`, cached as
+  PNG in `badges/`, decoded with the stb_image already built for `sm/src/glsl_shader.c`)
+  rather than baked into the source as mzm's 55 are: SM's set is larger, a set update needs
+  no new build, and the repo carries no RA artwork. Locked badges are the same image drawn
+  grey (no `_lock` download). Loads wait behind rcheevos' calls on the one worker thread;
+  the badge the UI is drawing goes first.
+- 2026-10-03: `v0.2.0` tagged as a beta on `release/v0.2.0` (stereo, circle pad as D-pad,
+  `feat/item-names`, `feat/ra-cards` merged at the owner's request after they tried the CIA
+  on both consoles); the line is now `release/v0.2.1`. The tasks stay unticked until the
+  owner checks each one in detail.
+- 2026-10-04: Debug captures made for playtesting (owner's request). (1) PLANE TINT, as mzm's
+  depth tint: the quad's own texel mixed 78% towards its plane's flat colour in a second TEV
+  stage, so the scene stays readable and the offsets still move each colour; names and
+  colours live in `stereo_depth.c` (pure, host-tested). (2) REPORT window before SCREEN DUMP,
+  FRAME DUMP and stopping SCENE REC: the game pauses, a reason or typed text becomes
+  `sm-<kind>-NNNN-note.txt`, CANCEL writes nothing (a recording being stopped has a play button that keeps it running and a cross that discards it). (3) Dumps and
+  recordings no longer rotate: each takes the next number (4 digits), the owner deletes what
+  has been handled (Claude asks after each one, then removes it over FTP). Rotating hid
+  captures: ten slots were gone after a day of notes. The dump is of the frame after the pause.
+- 2026-10-04: Cheats, the teleport and save states no longer pause RetroAchievements: the port is softcore
+  only and RA's softcore mode allows all three (the first cut stopped evaluating after any of them until
+  restart; the owner noticed when an item picked up after a teleport did not unlock, `sm-dump-0002`, #29).
+- 2026-10-04: BG3 effects follow what they cover (`fix/stereo-fx-follows-owner`): they reach the screen by colour math, either
+  as the subscreen added over the scene (ash: the effect takes the depth of the pixels it is added to) or as the main BG3
+  with the scene on the subscreen (fog, water: BG3 goes on `FRONT`), so a plane fixed by layer put them in front of
+  what they were drawn on in some rooms and behind it in others (the owner's report). Host-side nothing can check the
+  GPU passes (the reference renderer has no stereo): to look at on the console. The workbench shows BG3 (needs the
+  rooms exported again).
+- 2026-10-05: 19 achievements of the RA set never unlocked (#37: Morph Ball, Varia, every beam and suit, four bosses, two maps): next to
+  the item bit they ask that the 16-bit words at $0032 and $0034 hold a pair of numbers per event (`0x 000032=42`, `0x 000034=14`
+  for the Morph Ball): direct-page scratch the original asm leaves there in that frame, kept in locals by the C code. Read off the
+  downloaded set (`debug/ra-set.json`, saved by the port); `retro_ach.c` writes the pair in the frame the bit, boss bit or map byte
+  changes and puts the old bytes back (`kDpTags`). The table is for the set as it is (2026-10-05): if the set changes the table must be
+  adapted again, `tools/ra-tags/dp_tags.py ra-set.json source/retro_ach.c` says what differs. Checked on the console by the owner: they unlock.
+- 2026-10-05: The garbage strip in Kraid's body (A59F, GLITCH OR GARBAGE dumps 0005, 0009, 0010) was the translated HUD: `HudScreen` wrote
+  the letters of "ENERGY" into BG3 chars 0x0b-0x0d at a fixed VRAM word 0x4000, but in Kraid's room BG3's chars are at 0x2000 and
+  0x4000 is BG2's tilemap (VRAM 0x4058-0x406F, 24 words, with any UI language but English). Both text hooks now take the address
+  from the room's BG3 (`bgLayer[2].tileAdr`). Reproduced on the host from the console's save state with GAME_LANG=1.
+- 2026-10-04: `SM_TILE_PRIO` (workbench: "Draw the selection with priority"): a tile fix only moved a tile's depth, and a wall the game
+  draws at priority 0 was still crossed by Samus's weapon (A6A1: 3D in front, drawn behind the sprite). It sets the priority a tile is
+  drawn with (the texture, and compositor level, it goes to); GPU renderer only, and the host test compares without it
+  (`PRIO_FIXES=1` keeps it). Ash on the subscreen now takes one plane in front of the sprites too, not each pixel's owner's:
+  it jumped in front of Samus only while she crossed the layer it was on.
+- 2026-10-04: Block fixes were placed by `2*bx` in the tilemap, which only holds when the room's scroll offset
+  (`bg1_x_offset`, `bg2_x_scroll`) is a multiple of the tilemap's size: after a door it is the screen the room was
+  entered at (256 in B1E5), and the fixes landed on other tiles (A6A1 on the console). The game, and SmWide's `FillLayer`,
+  put block bx at tilemap block `vx0 + bx - lx0` (vx0 from position + offset): checked against WRAM and VRAM (B1E5 from 0 to
+  896 of 896 tiles). The rule `SM_LAYER_PLANE(0x9D19, 3, 0, FRONT)` (#35) was removed: it set the plane of an effect
+  that now follows what it covers.
+- 2026-10-04: The wait before texel writes (#19) cost a whole GPU frame on every frame that decoded anything (sprites' atlas,
+  animated tiles: "build 18.5, wait for GPU 16.4 ms", the New 3DS at 40 fps in every room, from the owner's perf). Texels
+  are now decoded into a copy in ordinary memory and the changed rows are copied to the GPU's texture after
+  `C3D_FrameBegin` has waited, so the CPU builds the frame while the GPU draws the last one and the GPU never samples a
+  texture being written. Costs the textures' size again in the heap (~4 MB, more with mode 7).
+- 2026-10-04: `fix/gpu-texture-race` (#19) was thought lost; it was on its own branch. Its commit `d88a5a7` is in
+  `feat/plane-fixes` now (the owner checked it on the console: no flashing in A66A with WIDE), plus a wait before the
+  block fixes' texture clears, which write texels earlier than `DecodeTile`.
+- 2026-10-04: Block fixes (`SM_PLANE_FIX`) reach the renderer (#33, `feat/plane-fixes`). The dropped attempt (#28) was
+  not a failure of the mechanism: its rule was wrong (the plane by the block type under each tile). A fix names a block
+  of the level by hand, and a block is found in the tilemap at `(2*bx + i, 2*by + j)` modulo the tilemap's size, the
+  one nearest the camera when several share a slot: checked against WRAM and VRAM of rooms with BG1 and BG2 as level
+  data, every visible tile matching. The workbench had stale defaults (BG2 MID, BG3 FAR), from before the BG2
+  priority 1 and BG3 changes of v0.2.1: fixed to `StereoDepth_Plane`'s, so fixes saved before may be redundant or
+  point at the wrong plane.
+- 2026-10-04: Tried and dropped, never merged: a rule sending BG1 priority 0 to a plane by the type of the
+  block under each tile (#28, #24). On the console `sm-dump-0004` (`9C5E`) showed all the scenery behind
+  Samus, although the block lookup was right on that dump's WRAM and VRAM (checked offline) and GPU and
+  CPU frames were identical on the host in every room: the cause was never found. Per-room and per-tile
+  depth is chosen by hand instead, with a layer workbench like mzm's and a `.inc` (#33); PLANE TINT is the
+  way to see the result on the console.
+- 2026-10-03: Fireflea room (9C5E) looked flat in 3D. A scene recording and `STEREO_PLANES`
+  with `ONLY_LEVEL` showed its whole level is BG2 priority 1 (BG1 holds only the door cap),
+  and BG2 was all on `MID` (-3 px): floors behind Samus and level with the background.
+  BG2 priority 1 draws over Samus, so it joins BG1 priority 1 on `PLAY`; `MID` is now BG2
+  priority 0 only. The accepted "BG2 always mid" exceptions in stereo-test are gone.
+- 2026-10-03: Falling ash (room 9CB3) read as behind the background: it is BG3 priority 0, which
+  sat on `FAR` (-4) under BG2's `MID` (-3). The two swapped: BG2 priority 0 (background) is
+  `FAR`, BG3 priority 0 FX is `MID`. stereo-test pins "BG2 prio 0 over BG3 prio 0, farther"
+  as accepted. The Fireflea room's thorns (reported behind, should be at Samus's depth) are
+  not located yet: not in BG1/BG2 at the room's left end in the host runs.
+- 2026-10-05: P4.5 and P3.1 ticked at the owner's word that both work on the console. #18 (the X-ray
+  scope in WIDE) is closed, which was the last thing P4.5 waited on, and it also meets P2.5's
+  "X-ray scope seen on the console"; P2.5 keeps only the 2DS measurements. P3.1's host model has
+  been in use on the console since v0.2.0. Priority is now Phase 3 (P3.2 onward) → P1.3 → P2.5.
+- 2026-10-05: no OPTIONS entry to turn the 3D off (P3.2): the slider is the switch.
+- 2026-10-06: P3.2 ticked. Colour windows are left unshifted (the power bomb looks right) and the
+  second eye's vertex re-push is kept in the task as a to-measure item for an Old 3DS: the owner has
+  none, so it waits for someone's feedback or hardware.
+- 2026-10-06: P3.4 ticked with the options menu, the file-select map, the ending and the credits left flat:
+  nobody has asked for depth there. Each is one case in `ScreenPlane` plus a line in `stereo-test` when wanted.
+- 2026-10-06: P1.3 first half: SDL is out of the runtime (input, touch, ticks, mutexes, audio), `main.c` talks to libctru. Kept the SDL
+  driver's behaviour on purpose so nothing shifts: audio thread on core 1 (asked at 80/70/50 %, 30 % as last resort), priority one
+  above main, 3 buffers of 2048 frames, silence while paused, `osSetSpeedupEnable(true)` at start (SDL's `main` did it). The pause
+  keeps feeding silent buffers, as SDL did. `sm/src/opengl.c` is no longer built (it only called SDL's GL). `sm/src/config.c` still
+  needs SDL's key codes (vendored in `third_party/sdl_keys/`, zlib) and `SDL_GetKeyFromName` (stubbed in `main.c`); with that the
+  `SDL` submodule is removed and `make sdl` / `git clone --recurse-submodules` are no longer needed. The
+  host tests give the same 26 FAILs with and without the change (wide-rows, wide-xray*, intro-cursor-*; checked against
+  `release/v0.2.2`), so they say nothing about this branch.
+- 2026-10-06: Audio goes out at 32 kHz (the S-DSP's rate), 3 buffers of 3 DSP blocks (1602 frames, ~50 ms, as the 2048 at 44.1 kHz
+  were), NDSP resamples. `RetroAch_MixAudio` takes the rate; the unlock chime (32 kHz) now plays 1:1. `dsp_getSamples` returns a
+  straight copy for 534 frames, bit-identical to what the nearest-sample loop gave at step 1.0. The host audio tests render 736
+  frames, so they do not cover the 534 path: the check for it is the console (P2.6 step 1).
+- 2026-10-06: P2.6 closed without further audio work: no gaps heard, `underruns 0` on the 2DS, so the thin margin is left as it is (the owner's
+  call). Raising the audio thread's priority was weighed and not done (it may starve system services on the system core and the 30 % cap
+  stays); a fourth buffer is the first thing to try if a gap ever appears. Ideas are listed in the task.
+- 2026-10-06: PLAN tidy-up with the owner. Ticked: P1.4 (the aim is a GPU that refuses no frame, so the CPU copy is not worked on), P1.9 (its
+  stage E is done; the low-energy tint is now P1.10), P2.1 (numbers stay in the P0.3 table, no `docs/perf.md`), P2.4 (P0.3 spots measured
+  on 2026-10-03), P4.6, P4.7, P4.8 (what was open in it is P4.10). The fog was seen working (not recorded before). Priority line: P1.3 is
+  done, so P2.5's measurements come next, then P4.9. P0.4, P1.7, P4.9 and the rest stay open.
+- 2026-10-06: Map tab (#31, part of P4.1) is drawn from the game's own pause-map tilemap and tile graphics
+  (`$B68000`, palettes `$B6F000`), not from the room list: walls, doors and the save/item marks are already tiles, so only the
+  sprites the game adds on top (refills, map station, bosses; `$82:C7CB` tables) are ours, as plain letter blocks. Zoom 1X/2X/3X
+  = 5/8/12 px a cell (`map_zoom` in `config.ini`); 1X shows the 64 columns of an area in 320 px, the 8x8 tile averaged down.
+  Picking a room (debug) resolves on release so a drag can scroll.

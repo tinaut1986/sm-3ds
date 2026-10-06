@@ -124,10 +124,26 @@ extern bool g_rtl_wide_hud_over_room;
 // 3DS port, WIDE view: rows shown above and below the 224 (PIXEL PERFECT). Widens the
 // sprite pieces' bottom cut (DrawSpritemap) and the enemies' top on-screen check.
 extern uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+// Whether a sprite at screen x (the game's 16-bit sum, as in `((x + 128) & 0xFE00) == 0`) is drawn:
+// -128 <= x < 384, widened by the WIDE margins (a margin may be wider than the 128 px the test allows
+// on the left, 128 on the right). The original test with WIDE off.
+static inline bool RtlSpriteXInRange(uint16 x) {
+  const int16 v = (int16)x;
+  return ((x + 128) & 0xFE00) == 0 || (v >= -128 - (int)g_rtl_wide_margin_left && v < 384 + (int)g_rtl_wide_margin_right);
+}
 // 3DS port, WIDE view: the power bomb's half-width for each table entry (the entry is the
 // distance from the explosion's centre line), as computed before the window is cut to the
 // screen's 0..255, so the margins can show the explosion's real outline.
 extern uint8 g_rtl_pb_half_width[256];
+// 3DS port, WIDE view: the last cone CalculateXrayHdmaTableInner (sm_91.c) drew into a
+// window table (the X-ray scope, the security eyes' beam): its apex on the screen and its
+// angles (SM's: 256 a turn, 0 up, 64 right), so the margins can show the cone the game cut
+// to 0..255. `table` is the WRAM offset of the window table it filled (0x9800: the X-ray's,
+// window 2; the eyes' window 1 otherwise). `fresh` is set there and cleared by the reader.
+typedef struct { int16 x, y; uint16 center, half_width, table; bool fresh; } RtlXrayCone;
+extern RtlXrayCone g_rtl_xray_cone;
+extern uint16 *g_rtl_xray_out;
+void RtlXrayBuildBlock(uint16 *out, uint16 r18, uint16 dst_r22, uint16 block, bool left);
 // 3DS port, WIDE view: the room (room_ptr) in which an enemy last wrote its own tilemap to
 // BG2 (Spore Spawn, Kraid, Mother Brain...): BG2 is not level background data there.
 extern uint16 g_rtl_enemy_bg2_room;
@@ -148,11 +164,27 @@ static inline void RtlOamSetAnchor(int x, int y) {
   g_rtl_oam_anchor_y = (int16)y;
 }
 static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anchor_y = kRtlOamUnknown; }
+// 3DS port, translated message boxes (source/game_text.c): called with 1 once a message
+// box's tilemap is in VRAM (drawn, or rewritten by the save prompt's YES/NO toggle) and with
+// 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.
+// The game's RAM is left alone: only VRAM changes.
+extern void (*g_rtl_message_box_hook)(int shown);
+extern uint16 g_rtl_message_box_vram;
 // 3DS port, WIDE view: OAM entries that belong to the HUD (the Ceres escape timer). The
 // view leans off a room edge while the HUD keeps its place on the screen, so the renderer
 // moves these with the HUD. Set while g_rtl_oam_hud_drawing is (DrawTimer).
 extern uint8 g_rtl_oam_hud[128];
 extern bool g_rtl_oam_hud_drawing;
+// What the renderer reads: g_rtl_oam_x/y/hud of the OAM the NMI last uploaded
+// (RtlOamShown). While a door transition scrolls, the game frame that started it waits
+// mid-way: its start reset the tags, but OAM in RAM (and so in the PPU) still holds the last
+// finished frame's entries. The Ceres timer then lost its HUD tag and scrolled with the
+// door (issue #15). So the copy is taken only once a frame has rebuilt OAM
+// (ClearUnusedOam sets g_rtl_oam_built).
+extern int16 g_rtl_oam_shown_x[128], g_rtl_oam_shown_y[128];
+extern uint8 g_rtl_oam_shown_hud[128];
+extern bool g_rtl_oam_built;
+void RtlOamShown(void);
 // The entry at OAM byte offset `idx` was written with X `x` and Y `y` (the 8 bits stored);
 // `hidden`: the drawer parked it off-screen on purpose.
 static inline void RtlOamTag(int idx, int x, int y, bool hidden) {

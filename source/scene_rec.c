@@ -12,7 +12,7 @@
 
 #include "debug_tools.h"
 
-#define REC_SLOTS 4
+#define REC_SLOTS 0   // no limit, see Debug_NextSlot
 
 // One frame in the ring: its facts, then the pixels in the framebuffer's order.
 typedef struct {
@@ -112,9 +112,9 @@ static unsigned NowMs(void) {
 // and the words. Little endian.
 static void Save(void) {
   mkdir("debug", 0777);
-  const int slot = Debug_NextSlot("rec", "debug/sm-rec-%02d.bin", REC_SLOTS);
+  const int slot = Debug_NextSlot("rec", "debug/sm-rec-%04d.bin", REC_SLOTS);
   char path[64];
-  snprintf(path, sizeof(path), "debug/sm-rec-%02d.bin", slot);
+  snprintf(path, sizeof(path), "debug/sm-rec-%04d.bin", slot);
   FILE *f = fopen(path, "wb");
   if (f) setvbuf(f, NULL, _IOFBF, 64 * 1024);
   uint16_t *packed = (uint16_t *)malloc((kPixels + kPixels / 0x7FFF + 2) * 2);
@@ -159,9 +159,19 @@ static void Save(void) {
   fclose(f);
   const unsigned ms = NowMs() - t0;
   free(packed);
-  Debug_SetMessage("Scene rec %02d: %d frames, %u KB", slot, g_count, (unsigned)(bytes / 1024));
-  Debug_Log("scene recording -> sm-rec-%02d.bin: %d frames every %d, %u KB in %u ms", slot, g_count,
+  Debug_WriteNote("rec", slot);
+  Debug_SetMessage("Scene rec %04d: %d frames, %u KB", slot, g_count, (unsigned)(bytes / 1024));
+  Debug_Log("scene recording -> sm-rec-%04d.bin: %d frames every %d, %u KB in %u ms", slot, g_count,
             kRates[g_rate].every, (unsigned)(bytes / 1024), ms);
+}
+
+void SceneRec_Discard(void) {
+  if (!g_ring) return;
+  free(g_ring);
+  g_ring = NULL;
+  g_capacity = g_count = 0;
+  Debug_SetMessage("Scene rec: discarded");
+  Debug_Log("scene recording discarded");
 }
 
 void SceneRec_Toggle(void) {

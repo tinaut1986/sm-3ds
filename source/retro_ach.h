@@ -1,0 +1,104 @@
+// RetroAchievements (docs/PLAN.md P4.4), on top of rcheevos (third_party/rcheevos), after
+// ../mzm/platform/3ds/source/port_retroachievements_3ds.c.
+//
+// The game keeps its state in g_ram with the SNES layout (that is how snesrev checks it
+// against the ROM), so the existing Super Metroid set runs unchanged: rcheevos reads
+// "System RAM" from g_ram and "Cartridge RAM" from g_sram. Softcore only: RA does not
+// sanction unofficial ports. Softcore allows cheats, save states and the teleport, so none
+// of them stops the set.
+//
+// Every rc_client call is made from the main thread; HTTP runs on a worker thread and
+// its responses are handed back in RetroAch_Update. Login: the system keyboard asks for
+// the user name and password once; the token the server returns is kept in
+// retroachievements.ini in the data folder. Log: debug/retroachievements.log.
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef enum {
+  kRaOff,          // switched off
+  kRaNoAccount,    // on, but nothing to log in with
+  kRaConnecting,
+  kRaOnline,
+  kRaOffline,      // the server could not be reached (unlocks wait and are retried)
+  kRaLoginError,   // the server rejected the login
+} RaStatus;
+
+// RA's achievement types (rcheevos' RC_CLIENT_ACHIEVEMENT_TYPE_*, same values).
+typedef enum { kRaTypeStandard, kRaTypeMissable, kRaTypeProgression, kRaTypeWin } RaType;
+
+typedef struct {
+  uint32_t id;
+  char title[64];
+  char description[128];
+  char badge[16];         // RA's badge name, "" for none (RetroAch_Badge)
+  uint32_t points;
+  RaType type;
+  bool unlocked;
+  uint32_t unlock_time;   // seconds since 1970, 0 when locked
+} RaAchievement;
+
+// Badge sizes RetroAch_Badge has: the list's cards and the detail window.
+enum { kRaBadgeSmall = 28, kRaBadgeBig = 64 };
+
+// How the list is ordered (mzm's choices): as rcheevos groups it (locked first), by title,
+// by points, or by unlock time (still locked ones last).
+typedef enum { kRaSortDefault, kRaSortTitle, kRaSortPoints, kRaSortRecent, kRaSortCount } RaSort;
+
+// Init reads retroachievements.ini and logs in if it is on and has a token.
+void RetroAch_Init(void);
+void RetroAch_Shutdown(void);
+// Every main loop iteration (network responses, keep-alive).
+void RetroAch_Update(void);
+// After each game frame.
+void RetroAch_DoFrame(void);
+// The game was reset, or a save state was saved or loaded (slot 0..9): the progress
+// of each achievement goes with the state, in saves/saveN.rap.
+void RetroAch_GameReset(void);
+void RetroAch_StateSaved(int slot);
+void RetroAch_StateLoaded(int slot);
+
+bool RetroAch_Enabled(void);
+void RetroAch_SetEnabled(bool on);
+// Asks for the user name and password with the system keyboard (blocks while it shows).
+void RetroAch_PromptLogin(void);
+void RetroAch_Logout(void);
+
+RaStatus RetroAch_Status(void);
+const char *RetroAch_User(void);
+// Last thing worth telling the player (server error, "ROM not recognised"...), or "".
+const char *RetroAch_Message(void);
+bool RetroAch_GameLoaded(void);
+
+int RetroAch_Count(void);
+const RaAchievement *RetroAch_Get(int i);   // in the list's order (RetroAch_SetSort)
+int RetroAch_UnlockedCount(void);
+uint32_t RetroAch_Points(bool unlocked_only);
+
+// An achievement's badge, `size` x `size` (kRaBadgeSmall or kRaBadgeBig) in row-major
+// order, each pixel in the UI's RGB() layout; NULL until it has been loaded. Badges are
+// downloaded on the worker thread the first time and kept in badges/ in the data folder;
+// asking for one moves it to the front of the queue.
+const uint32_t *RetroAch_Badge(const char *badge, int size);
+
+// Bumped whenever anything above changes (a badge arriving too), so the UI knows to redraw.
+uint32_t RetroAch_Version(void);
+
+// The last unlock, while its notice should show (3 s); NULL otherwise.
+const RaAchievement *RetroAch_Toast(void);
+
+// Settings, kept in retroachievements.ini like mzm's: the notice on the top screen
+// (otherwise the bottom one), the unlock sound, the list's order.
+bool RetroAch_NotifyTop(void);
+void RetroAch_SetNotifyTop(bool top);
+bool RetroAch_Sound(void);
+void RetroAch_SetSound(bool on);
+RaSort RetroAch_Sort(void);
+bool RetroAch_Descending(void);
+void RetroAch_SetSort(RaSort sort, bool descending);
+// A sample notice (and the sound), to see where it shows.
+void RetroAch_ShowPreview(void);
+// Adds the unlock sound, when one is playing, to `frames` frames of 16-bit stereo audio at
+// `rate` Hz. Called from the audio thread.
+void RetroAch_MixAudio(int16_t *out, int frames, int rate);

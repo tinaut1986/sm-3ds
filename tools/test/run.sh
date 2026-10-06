@@ -51,6 +51,9 @@ field() { grep -o "$2" "$1" | head -1; }
 echo "dsp-fuzz: optimised S-DSP against the vendored one, random register writes"
 WORK=$OUT/dsp-fuzz "$ROOT/tools/audio-bench/dsp_fuzz.sh" 1 2 > "$OUT/dsp-fuzz.log" 2>&1
 check dsp-fuzz "4 runs identical" "$( [ "$(grep -c '^OK:' "$OUT/dsp-fuzz.log")" = 4 ]; echo $?)"
+echo "stereo-depth: the stereo depth mapping against the SNES compositor's order"
+WORK=$OUT/stereo-test "$ROOT/tools/stereo-test/run.sh" > "$OUT/stereo-test.log" 2>&1
+check stereo-depth "0 failed" "$(grep -q ', 0 failed$' "$OUT/stereo-test.log"; echo $?)"
 
 if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
   echo "No ROM (pass it or set SM_ROM): the other tests need it."
@@ -62,11 +65,16 @@ ROM=$(realpath "$ROM")
 echo "building the host test programs..."
 head -c 8192 /dev/zero > "$OUT/empty.srm"
 mkdir -p "$OUT/gpu-build" "$OUT/audio-build"
-# Built once, then copied to each test's folder.
-WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1
-WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1
-if [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
+# Built once, then copied to each test's folder. A binary left by an earlier run must never
+# stand in for a failed build (it once ran every test on code days old: no 32-bit libc
+# headers, so gcc -m32 failed and the old program went on to "fail" checks it predates).
+rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench"
+build_ok=1
+WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1 || build_ok=0
+WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1 || build_ok=0
+if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
   echo "  FAIL  build (see $OUT/gpu-build.log, $OUT/audio-build.log)"
+  echo "        32-bit host builds need the 32-bit libc headers: sudo apt install gcc-multilib"
   exit 1
 fi
 
@@ -98,13 +106,51 @@ run_gpu gpu-rooms rooms 10 &
 CERES_BOOM=1 run_gpu gpu-newgame boot "$OUT/empty.srm" 10500 &
 PBOMB=1 run_gpu gpu-pbomb rooms 200 91F8 &
 WIDE=60 run_gpu wide-rooms rooms 10 &
+# The 3D's edge columns without WIDE (4 px margins, the HUD in its band): the 256 px view must come out the same.
+WIDE=4 WIDE_EDGE=1 run_gpu edge-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
+WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
+# The spike-shooting plant of Brinstar A408 sits just outside the normal view: its spikes (DAFE) must go out into the
+# margin (the game deleted them outside its own 256 px window, #22).
+WIDE=60 EPROJ_MARGIN=1 EPROJ_ID=DAFE run_gpu wide-spikes rooms 90 A408 &
+# Brinstar 9E52's yellow pipe bug flies left along the platform: it must go on into the left margin, not reset at the
+# normal view's edge (#39). WARP_AT puts the camera and Samus where the bug starts its flight.
+WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug rooms 150 9E52 &
+# PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
+WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
+# The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
+# showed the BG2 pages' garbage in the margin.
+WIDE=72 WIDE_Y=8 XRAY=1 SAMUS_AT=170,171 ROOM_SEQ=0@0,1@40,0@100 run_gpu wide-xray-off rooms 160 9FBA &
+# The scope aimed right and left at the edge of the view in Brinstar 96BA: it goes on in the margins
+# (the cone, the dimming, the blocks it reveals there; #38).
+WIDE=72 WIDE_Y=0 XRAY=1 SAMUS_AT=444,139 SCROLLS_OPEN=1 ROOM_SEQ=0@0,1@40,0@100 run_gpu wide-xray-margin rooms 130 96BA &
+# And aimed left, in the middle of Landing Site: the cone goes through the left margin (the other end of the map's pages).
+WIDE=72 WIDE_Y=0 XRAY=1 ROOM_SEQ=80@5,0@150,40@152,0@154,1@170,0@230 run_gpu wide-xray-left rooms 240 91F8 &
 # The Ceres elevator shaft (DF45, mode 7) tilting in the escape, PIXEL PERFECT margins,
 # Samus shooting left then right (the beams' OAM is in the WRAM hash).
 WIDE=72 WIDE_Y=8 CERES_ESCAPE=1 AUTOFIRE=1 ROOM_SEQ=0@0,240@40,280@120 run_gpu wide-ceres rooms 200 DF45 &
 # Room 93D5 (Crateria) out through its right door into 92FD and back. and back.
 WIDE=60 ROOM_SEQ=0@0,80@10,280@20,240@200 AUTOFIRE=1 WARP_AT=0,0,150,139 run_gpu wide-door rooms 400 93D5 &
 MASH_B=400 MASH_B_STATE=4 run_gpu soft-reset boot "$OUT/empty.srm" 1200 &
+# The save prompt in Landing Site, YES/NO toggled, in English and in Spanish (game_text.c).
+MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-en rooms 200 91F8 &
+GAME_LANG=1 MSGBOX=23 ROOM_SEQ=0@0,100@60,80@70 run_gpu msgbox-es rooms 200 91F8 &
+# The other screens in Spanish (game_text_screens.c): the new game of gpu-newgame (title, file
+# select, options, intro, Ceres), the pause screen's map and equipment, the game over menu.
+GAME_LANG=1 CERES_BOOM=1 run_gpu newgame-es boot "$OUT/empty.srm" 10500 &
+ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-en rooms 300 91F8 &
+GAME_LANG=1 ITEMS=ffff ROOM_SEQ=8@20,0@26,800@150,0@156 run_gpu pause-es rooms 300 91F8 &
+SAMUS_HEALTH=0 run_gpu gameover-en rooms 500 91F8 &
+GAME_LANG=1 SAMUS_HEALTH=0 run_gpu gameover-es rooms 500 91F8 &
+# The intro's typing cursor follows the translated letters, in every language (#36), and Samus
+# pinned above or below the view (an elevator shaft) shows nothing at the opposite edge of the
+# PIXEL PERFECT view (#26).
+for lang in 1 2 3 4; do
+  GAME_LANG=$lang INTRO_CURSOR_CHECK=1 run_gpu intro-cursor-$lang boot "$OUT/empty.srm" 3800 &
+done
+WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=-48,0 run_gpu samus-edge-above rooms 60 91F8 &
+WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=270,0 run_gpu samus-edge-below rooms 60 91F8 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
 run_audio audio-rooms rooms 120 &
 if [ $FULL = 1 ]; then
@@ -138,6 +184,36 @@ wide_checks() {   # wide_checks NAME: the WIDE build of every frame
 echo "wide-rooms: every room with WIDE on (60 px margins), 10 frames each"
 gpu_checks wide-rooms
 wide_checks wide-rooms
+echo "edge-rooms: every room with the 3D's 4 px edge columns (no WIDE), 10 frames each"
+gpu_checks edge-rooms
+wide_checks edge-rooms
+echo "wide-spikes: the spike-shooting plant's spikes outside the normal view (A408) with WIDE"
+gpu_checks wide-spikes
+expect wide-spikes.outside "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')"
+check wide-spikes "spikes live outside the normal view (frames > 0)" "$([ "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+echo "wide-pipebug: the yellow pipe bug of 9E52 keeps flying into the left margin (#39)"
+gpu_checks wide-pipebug
+check wide-pipebug "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
+gpu_checks wide-rows
+wide_checks wide-rows
+expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray: the X-ray scope's cone with WIDE (it stays in the view, no BG2 garbage in the margins)"
+gpu_checks wide-xray
+wide_checks wide-xray
+expect wide-xray.image "$(field "$OUT/wide-xray.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray-margin: the X-ray scope reaches the margins (96BA, aimed right at the view's edge)"
+gpu_checks wide-xray-margin
+wide_checks wide-xray-margin
+expect wide-xray-margin.image "$(field "$OUT/wide-xray-margin.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray-left: the X-ray scope aimed left through the left margin (Landing Site)"
+gpu_checks wide-xray-left
+wide_checks wide-xray-left
+expect wide-xray-left.image "$(field "$OUT/wide-xray-left.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-xray-off: the X-ray scope switched off in 9FBA with WIDE PIXEL PERFECT (no garbage in the margin)"
+gpu_checks wide-xray-off
+wide_checks wide-xray-off
+expect wide-xray-off.image "$(field "$OUT/wide-xray-off.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
 echo "wide-pbomb: the power bomb in Landing Site with WIDE on"
 gpu_checks wide-pbomb
 wide_checks wide-pbomb
@@ -152,6 +228,41 @@ wide_checks wide-door
 check wide-door "back in room 93D5" "$(grep -q 'game_state 08 room 93d5' "$OUT/wide-door.log"; echo $?)"
 # Frames whose margins show the room: drops if the door fades go back to black margins.
 expect wide-door.filled "$(field "$OUT/wide-door.log" 'room filled in [0-9]*' | cut -d' ' -f4)"
+echo "msgbox-es: a message box in Spanish changes only VRAM (same game state as in English)"
+gpu_checks msgbox-es
+check msgbox-es "WRAM identical to the English run" \
+  "$( [ "$(field "$OUT/msgbox-es.log" 'WRAM hash [0-9a-f]*')" = "$(field "$OUT/msgbox-en.log" 'WRAM hash [0-9a-f]*')" ]; echo $?)"
+same_wram() {   # same_wram NAME OTHER: the WRAM hash of NAME's run equals OTHER's
+  check "$1" "WRAM identical to $2" \
+    "$( [ "$(field "$OUT/$1.log" 'WRAM hash [0-9a-f]*')" = "$(field "$OUT/$2.log" 'WRAM hash [0-9a-f]*')" ]; echo $?)"
+}
+echo "newgame-es: gpu-newgame in Spanish, menus and intro translated in VRAM only"
+gpu_checks newgame-es
+same_wram newgame-es gpu-newgame
+echo "pause-es: the pause screen (map, equipment) in Spanish"
+gpu_checks pause-es
+same_wram pause-es pause-en
+echo "gameover-es: the game over menu in Spanish"
+gpu_checks gameover-es
+same_wram gameover-es gameover-en
+for lang in 1 2 3 4; do
+  echo "intro-cursor-$lang: the intro's typing cursor next to the last translated letter (UI language $lang)"
+  r=$(field "$OUT/intro-cursor-$lang.log" "INTRO CURSOR frames.*")
+  check "intro-cursor-$lang" "ran to the end (no crash)" "$( [ -n "$r" ]; echo $?)"
+  check "intro-cursor-$lang" "no frame with the cursor away from the last letter or the next line's start" \
+    "$(echo "$r" | grep -q ", bad 0,"; echo $?)"
+  check "intro-cursor-$lang" "the cursor was looked at (over 1000 frames)" \
+    "$( [ "$(echo "$r" | sed 's/INTRO CURSOR frames \([0-9]*\).*/\1/')" -gt 1000 ] 2>/dev/null; echo $?)"
+done
+for side in above below; do
+  echo "samus-edge-$side: Samus pinned $side the view, PIXEL PERFECT's extra rows"
+  r=$(field "$OUT/samus-edge-$side.log" "EDGE frames.*")
+  check "samus-edge-$side" "ran to the end (no crash)" "$( [ -n "$r" ]; echo $?)"
+  check "samus-edge-$side" "every OAM entry in the bottom band is tagged with its full position (or parked)" \
+    "$(echo "$r" | grep -q "untagged 0,"; echo $?)"
+  check "samus-edge-$side" "entries tagged outside the view were seen (Samus was off it)" \
+    "$( [ "$(echo "$r" | sed 's/.*outside the view \([0-9]*\)/\1/')" -gt 0 ] 2>/dev/null; echo $?)"
+done
 echo "soft-reset: B on the file-select screens, soft resets back to the title"
 gpu_checks soft-reset
 check soft-reset "soft resets happened" \

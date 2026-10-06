@@ -48,6 +48,17 @@ static void DrawRow(const GpuFrame *f, int first, int count, int row, Px *px, in
   }
 }
 
+// Plain painting: each quad's opaque texels over what is there (the HUD list).
+static void DrawRowOver(const GpuFrame *f, int first, int count, int row, Px *px, int vx0, int vx1) {
+  for (int q = first; q < first + count; q++) {
+    Px tmp[256 + 2 * kGpuMaxMargin];
+    memset(tmp, 0, sizeof(tmp));
+    DrawRow(f, q, 1, row, tmp, vx0, vx1);
+    for (int x = 0; x < vx1 - vx0; x++)
+      if (tmp[x].set) px[x] = tmp[x];
+  }
+}
+
 void GpuRef_DrawFrame(const GpuFrame *f, uint8_t *out, int pitch) { GpuRef_DrawFrameColumns(f, out, pitch, 0, 256); }
 
 void GpuRef_DrawFrameColumns(const GpuFrame *f, uint8_t *out, int pitch, int vx0, int vx1) {
@@ -114,5 +125,22 @@ void GpuRef_DrawFrameColumns(const GpuFrame *f, uint8_t *out, int pitch, int vx0
     for (int y = m->y < f->y0 ? f->y0 : m->y; y < m->y + m->h && y < f->y1; y++)
       for (int x = m->x < vx0 ? vx0 : m->x; x < m->x + m->w && x < vx1; x++)
         *(uint32_t *)(out + (y - f->y0) * pitch + (x - vx0) * 4) = 0;
+  }
+  // The HUD over everything, at its row's band brightness.
+  for (int bi = 0; bi < f->band_count && f->hud_count; bi++) {
+    const GpuBand *b = &f->bands[bi];
+    if (b->black) continue;
+    for (int row = b->y0; row < b->y1; row++) {
+      Px px[256 + 2 * kGpuMaxMargin];
+      memset(px, 0, sizeof(px));
+      DrawRowOver(f, f->hud_first, f->hud_count, row, px, vx0, vx1);
+      uint32_t *dst = (uint32_t *)(out + (row - f->y0) * pitch);
+      for (int x = 0; x < n; x++) {
+        if (!px[x].set) continue;
+        const int k = b->brightness;
+        dst[x] = (uint32_t)(((px[x].b << 3) | (px[x].b >> 2)) * k / 15) | (uint32_t)(((px[x].g << 3) | (px[x].g >> 2)) * k / 15) << 8 |
+                 (uint32_t)(((px[x].r << 3) | (px[x].r >> 2)) * k / 15) << 16;
+      }
+    }
   }
 }

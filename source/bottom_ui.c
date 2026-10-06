@@ -16,7 +16,10 @@
 #include "scene_rec.h"
 #include "sm_map.h"
 #include "sm_warp.h"
+#include "stereo_depth.h"
 #include "ui_draw.h"
+#include "ui_lang.h"
+#include "retro_ach.h"
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -36,9 +39,10 @@ UiOptions g_ui = {
 };
 
 // Tab order as drawn, like mzm. DEBUG exists only in DEBUG_TOOLS builds.
-typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_COUNT } Tab;
+// The values are what config.ini stores (`tab`): append only.
+typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -46,7 +50,7 @@ static Modal g_modal;
 static int g_dirty = 2;             // frames left to redraw (bottom is double buffered)
 static uint32_t g_last_redraw;
 static bool g_is_new3ds;
-static char g_toast[48];
+static char g_toast[64];   // UTF-8
 static u64 g_toast_until;
 static int g_tap_x = -1000, g_tap_y;
 static u64 g_tap_ms;
@@ -82,6 +86,7 @@ static int VisibleTabs(Tab out[TAB_COUNT]) {
   out[n++] = TAB_DEBUG;
 #endif
   out[n++] = TAB_STATES;
+  out[n++] = TAB_ACHIEVEMENTS;
   out[n++] = TAB_OPTIONS;
   return n;
 }
@@ -109,6 +114,10 @@ static void DrawTabIcon(Surface s, Tab tab, int x, int y, uint32_t c) {
   case TAB_STATES:   // floppy disk
     R(-6, -6, 12, 1); R(-6, 5, 12, 1); R(-6, -6, 1, 12); R(5, -5, 1, 11);
     R(3, -6, 3, 3); R(-3, -6, 5, 4); R(-4, 1, 8, 4);
+    break;
+  case TAB_ACHIEVEMENTS:   // trophy: cup, handles, stem, base
+    R(-4, -6, 9, 6); R(-3, 0, 7, 1); R(-6, -6, 2, 1); R(-7, -5, 1, 3); R(-6, -2, 2, 1);
+    R(5, -6, 2, 1); R(7, -5, 1, 3); R(5, -2, 2, 1); R(-1, 1, 3, 3); R(-4, 4, 9, 2);
     break;
   default:   // sliders
     R(-6, -4, 12, 1); R(-6, 0, 12, 1); R(-6, 4, 12, 1);
@@ -170,21 +179,62 @@ static void DrawTabBar(Surface s) {
 // scrolling is needed. Row 0 of the tilemap is an empty margin and is not drawn.
 // Picking a room and warping into it exists in DEBUG_TOOLS builds only.
 
-#define MAP_CELL 5
-#define MAP_Y0 26
-#define MAP_COL_EXPLORED  RGB(214, 96, 150)
-#define MAP_COL_KNOWN     RGB(56, 64, 104)
-#define MAP_COL_ROOM      RGB(250, 220, 90)
-#define MAP_COL_SELECT    RGB(90, 220, 240)
+// The map canvas is the strip between the tab bar and the area buttons. Zoom 0 fits a
+// whole area (64 cells of 5 px); the others show the game's own 8 px tiles or bigger and
+// scroll by dragging.
+#define MAP_Y0 23
+#define MAP_VIEW_Y1 183
+#define MAP_ZOOMS 3
+static const int kMapCellPx[MAP_ZOOMS] = { 5, 8, 12 };
+#define MAP_CELL (kMapCellPx[g_map_zoom])
+enum { kMapDragSlop = 6 };   // a stylus wobbles this much on a tap; past it the touch scrolls
+
+
+#define MAP_BG_R 14   // COL_BG, to average transparent tile pixels with
+#define MAP_BG_G 16
+#define MAP_BG_B 28
+#define MAP_COL_ROOM      RGB(250, 220, 90)   // the room Samus is in
+#define MAP_COL_SELECT    RGB(60, 255, 70)    // the room picked for a warp
+#define MAP_COL_DOOR      RGB(255, 80, 40)    // its door
 
 static int g_map_area;              // area being shown
 static bool g_map_follow = true;    // follow the area Samus is in
 static int g_sel_col = -1, g_sel_row = -1;
-
-static const char *const kAreaShort[kSmAreaCount] = { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER" };
+static int g_map_zoom;              // index into kMapCellPx
+static int g_scroll_x, g_scroll_y;  // canvas offset in px (0 at zoom 0)
+static bool g_map_centre = true;    // keep the view on Samus (or the area's middle) until dragged
+static struct { bool active, dragging; int start_x, start_y, last_x, last_y; } g_map_touch;
 
 static Rect AreaButtonRect(int i) { return (Rect){ 2 + i * 45, 183, 43, 13 }; }
 static Rect FollowRect(void) { return (Rect){ 226, 198, 92, 13 }; }
+static Rect ZoomRect(void) { return (Rect){ 192, 198, 30, 13 }; }
+
+// Map cell <-> canvas pixel. Row 0 is the empty margin of the map, where the arrow names sit.
+static int MapPxX(int col) { return col * MAP_CELL - g_scroll_x; }
+static int MapPxY(int row) { return MAP_Y0 + row * MAP_CELL - g_scroll_y; }
+
+static void MapClampScroll(void) {
+  const int max_x = kSmMapCols * MAP_CELL - SCREEN_W;
+  const int max_y = kSmMapRows * MAP_CELL - (MAP_VIEW_Y1 - MAP_Y0);
+  if (g_scroll_x > max_x) g_scroll_x = max_x;
+  if (g_scroll_y > max_y) g_scroll_y = max_y;
+  if (g_scroll_x < 0) g_scroll_x = 0;
+  if (g_scroll_y < 0) g_scroll_y = 0;
+}
+
+// Scrolls so that cell (col, row) is in the middle of the canvas.
+static void MapCentreOn(int col, int row) {
+  g_scroll_x = col * MAP_CELL + MAP_CELL / 2 - SCREEN_W / 2;
+  g_scroll_y = row * MAP_CELL + MAP_CELL / 2 - (MAP_VIEW_Y1 - MAP_Y0) / 2;
+  MapClampScroll();
+}
+
+static bool MapCellAt(int x, int y, int *col, int *row) {
+  if (y < MAP_Y0 || y >= MAP_VIEW_Y1) return false;
+  *col = (x + g_scroll_x) / MAP_CELL;
+  *row = (y - MAP_Y0 + g_scroll_y) / MAP_CELL;
+  return *col < kSmMapCols && *row < kSmMapRows;
+}
 
 #if DEBUG_TOOLS
 static int g_warp_door;             // which of the doors into the selected room to use
@@ -208,35 +258,189 @@ static void MapTouch(int x, int y) {
     if (UiIn(AreaButtonRect(i), x, y)) {
       g_map_area = i;
       g_map_follow = false;
+      g_map_centre = true;
       g_sel_col = g_sel_row = -1;
       return;
     }
   }
   if (UiIn(FollowRect(), x, y)) {
     g_map_follow = !g_map_follow;
+    g_map_centre = true;
+    return;
+  }
+  if (UiIn(ZoomRect(), x, y)) {
+    // Following Samus (or the area's middle) keeps doing so; otherwise the zoom stays
+    // on the centre of what was on screen.
+    const int old_cell = MAP_CELL, cx = g_scroll_x + SCREEN_W / 2, cy = g_scroll_y + (MAP_VIEW_Y1 - MAP_Y0) / 2;
+    g_map_zoom = (g_map_zoom + 1) % MAP_ZOOMS;
+    if (!g_map_centre) {
+      g_scroll_x = cx * MAP_CELL / old_cell - SCREEN_W / 2;
+      g_scroll_y = cy * MAP_CELL / old_cell - (MAP_VIEW_Y1 - MAP_Y0) / 2;
+      MapClampScroll();
+    }
     return;
   }
 #if DEBUG_TOOLS
   const SmRoom *room = SelectedRoom(area);
   if (room && UiIn(WarpRect(), x, y)) {
     Toast(SmWarp_ResultText(SmWarp_ToRoom(room, g_warp_door)));
-  } else if (room && UiIn(DoorRect(), x, y)) {
+    return;
+  }
+  if (room && UiIn(DoorRect(), x, y)) {
     const int n = SmWarp_DoorCount(room);
     if (n > 1) g_warp_door = (g_warp_door + 1) % n;
-  } else if (y >= MAP_Y0 && y < MAP_Y0 + (kSmMapRows - 1) * MAP_CELL) {
-    g_sel_col = x / MAP_CELL;
-    g_sel_row = (y - MAP_Y0) / MAP_CELL + 1;
-    g_warp_door = 0;
+    return;
   }
 #else
   (void)area;
 #endif
+  // On the canvas: a tap picks a room (debug builds), a drag scrolls. Which one it was
+  // is only known when the stylus lifts or moves past the slop.
+  g_map_touch.active = y >= MAP_Y0 && y < MAP_VIEW_Y1;
+  g_map_touch.dragging = false;
+  g_map_touch.start_x = g_map_touch.last_x = x;
+  g_map_touch.start_y = g_map_touch.last_y = y;
 }
+
+static bool MapTouchMove(int x, int y) {
+  if (!g_map_touch.active) return false;
+  if (!g_map_touch.dragging && abs(x - g_map_touch.start_x) < kMapDragSlop && abs(y - g_map_touch.start_y) < kMapDragSlop)
+    return false;   // still a tap: keep last_* where it landed
+  g_map_touch.dragging = true;
+  const int sx = g_scroll_x, sy = g_scroll_y;
+  g_scroll_x += g_map_touch.last_x - x;
+  g_scroll_y += g_map_touch.last_y - y;
+  MapClampScroll();
+  g_map_touch.last_x = x;
+  g_map_touch.last_y = y;
+  if (g_scroll_x != sx || g_scroll_y != sy) g_map_centre = false;
+  return g_scroll_x != sx || g_scroll_y != sy;
+}
+
+static void MapTouchUp(void) {
+  if (!g_map_touch.active) return;
+  g_map_touch.active = false;
+#if DEBUG_TOOLS
+  int col, row;
+  if (!g_map_touch.dragging && MapCellAt(g_map_touch.start_x, g_map_touch.start_y, &col, &row)) {
+    g_sel_col = col;
+    g_sel_row = row;
+    g_warp_door = 0;
+  }
+#endif
+}
+
+// One map cell as the game draws it (its 8x8 pause-map tile) at MAP_CELL px. Smaller than
+// 8 each pixel averages the source pixels it covers (transparent ones are the background); bigger,
+// each source pixel is a block. Cells off the canvas are skipped by the caller.
+static void DrawMapTile(Surface s, int x, int y, uint16_t tile) {
+  uint16_t px[64];
+  SmMap_TilePixels(tile, px);
+  const int cell = MAP_CELL;
+  if (cell >= 8) {
+    for (int sy = 0; sy < 8; sy++) {
+      for (int sx = 0; sx < 8; sx++) {
+        const uint16_t c = px[sy * 8 + sx];
+        const uint32_t col = c ? RGB((c & 31) << 3, (c >> 5 & 31) << 3, (c >> 10 & 31) << 3) : COL_BG;
+        const int x0 = sx * cell / 8, y0 = sy * cell / 8;
+        UiFillRect(s, x + x0, y + y0, (sx + 1) * cell / 8 - x0, (sy + 1) * cell / 8 - y0, col);
+      }
+    }
+    return;
+  }
+  for (int dy = 0; dy < cell; dy++) {
+    const int y0 = dy * 8 / cell, y1 = ((dy + 1) * 8 + cell - 1) / cell;
+    for (int dx = 0; dx < cell; dx++) {
+      const int x0 = dx * 8 / cell, x1 = ((dx + 1) * 8 + cell - 1) / cell;
+      int r = 0, g = 0, b = 0, n = 0;
+      for (int yy = y0; yy < y1; yy++) {
+        for (int xx = x0; xx < x1; xx++) {
+          const uint16_t c = px[yy * 8 + xx];
+          if (c) { r += (c & 31) << 3; g += (c >> 5 & 31) << 3; b += (c >> 10 & 31) << 3; }
+          else { r += MAP_BG_R; g += MAP_BG_G; b += MAP_BG_B; }
+          n++;
+        }
+      }
+      UiFillRect(s, x + dx, y + dy, 1, 1, RGB(r / n, g / n, b / n));
+    }
+  }
+}
+
+static int FloorDiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+static int CeilDiv(int a, int b) { return -FloorDiv(-a, b); }
+
+// One of the game's menu sprites (a refill, a boss, the ship, an arrow's name) at the
+// map's scale. The source is the game's 8-px-per-cell picture: shrunk by averaging the
+// opaque pixels each one covers, enlarged by repeating them. Clipped by the canvas clip.
+static void DrawMapSprite(Surface s, const SmMapIcon *ic) {
+  static SmMapSprite spr;   // 6 KB: keep it off the stack
+  if (!SmMap_RenderSprite(ic->sprite, ic->chr, &spr)) return;
+  const int cell = MAP_CELL;
+  // Top-left of the image in map px.
+  const int sx0 = ic->x + spr.x0, sy0 = ic->y + spr.y0;
+  const int dx0 = FloorDiv(sx0 * cell, 8), dx1 = CeilDiv((sx0 + spr.w) * cell, 8);
+  const int dy0 = FloorDiv(sy0 * cell, 8), dy1 = CeilDiv((sy0 + spr.h) * cell, 8);
+  for (int dy = dy0; dy < dy1; dy++) {
+    const int cy = MAP_Y0 + dy - g_scroll_y;
+    if (cy < MAP_Y0 || cy >= MAP_VIEW_Y1) continue;
+    int ya = FloorDiv(dy * 8, cell), yb = cell >= 8 ? ya + 1 : CeilDiv((dy + 1) * 8, cell);
+    for (int dx = dx0; dx < dx1; dx++) {
+      const int cx = dx - g_scroll_x;
+      if (cx < 0 || cx >= SCREEN_W) continue;
+      const int xa = FloorDiv(dx * 8, cell), xb = cell >= 8 ? xa + 1 : CeilDiv((dx + 1) * 8, cell);
+      int r = 0, g = 0, b = 0, opaque = 0, total = 0;
+      for (int yy = ya; yy < yb; yy++) {
+        for (int xx = xa; xx < xb; xx++) {
+          total++;
+          const int ix = xx - sx0, iy = yy - sy0;
+          if (ix < 0 || iy < 0 || ix >= spr.w || iy >= spr.h) continue;
+          const uint16_t c = spr.px[iy * kSmSpriteMaxW + ix];
+          if (!c) continue;
+          r += (c & 31) << 3; g += (c >> 5 & 31) << 3; b += (c >> 10 & 31) << 3;
+          opaque++;
+        }
+      }
+      if (opaque * 2 >= total && opaque > 0) UiFillRect(s, cx, cy, 1, 1, RGB(r / opaque, g / opaque, b / opaque));
+    }
+  }
+}
+
+// Outline of a room's own cells (not its box, which also covers blank cells and the
+// cells of rooms drawn over it): an edge wherever the next cell is not the room's.
+static void DrawRoomOutline(Surface s, const SmRoom *room, uint32_t color) {
+  if (!room) return;
+  const int cell = MAP_CELL, t = cell >= 8 ? 2 : 1;   // edge thickness, inside the cell
+  for (int row = room->y + 1; row < room->y + 1 + room->h; row++) {
+    for (int col = room->x; col < room->x + room->w; col++) {
+      if (!SmMap_RoomOwnsCell(room, col, row)) continue;
+      const int x = MapPxX(col), y = MapPxY(row);
+      if (!SmMap_RoomOwnsCell(room, col - 1, row)) UiFillRect(s, x, y, t, cell, color);
+      if (!SmMap_RoomOwnsCell(room, col + 1, row)) UiFillRect(s, x + cell - t, y, t, cell, color);
+      if (!SmMap_RoomOwnsCell(room, col, row - 1)) UiFillRect(s, x, y, cell, t, color);
+      if (!SmMap_RoomOwnsCell(room, col, row + 1)) UiFillRect(s, x, y + cell - t, cell, t, color);
+    }
+  }
+}
+
+#if DEBUG_TOOLS
+// Where the warp's door is: its cell, with a thicker bar on the side its cap is on.
+static void DrawDoorMark(Surface s, const SmWarpDoorMark *d) {
+  const int cell = MAP_CELL, t = cell >= 8 ? 3 : 2;
+  const int x = MapPxX(d->col), y = MapPxY(d->row);
+  switch (d->side) {
+  case 0: UiFillRect(s, x, y, t, cell, MAP_COL_DOOR); break;
+  case 1: UiFillRect(s, x + cell - t, y, t, cell, MAP_COL_DOOR); break;
+  case 2: UiFillRect(s, x, y, cell, t, MAP_COL_DOOR); break;
+  default: UiFillRect(s, x, y + cell - t, cell, t, MAP_COL_DOOR); break;
+  }
+}
+#endif
 
 static void DrawMap(Surface s, const UiPerf *p) {
   const int area = ShownMapArea();
   const bool station = SmMap_HasMapStation(area);
   int total = 0, seen = 0;
+  int min_c = kSmMapCols, max_c = -1, min_r = kSmMapRows, max_r = -1;   // shown cells
   for (int row = 1; row < kSmMapRows; row++) {
     for (int col = 0; col < kSmMapCols; col++) {
       bool exists, explored;
@@ -245,28 +449,76 @@ static void DrawMap(Surface s, const UiPerf *p) {
       total++;
       if (explored) seen++;
       if (!explored && !station) continue;
-      UiFillRect(s, col * MAP_CELL, MAP_Y0 + (row - 1) * MAP_CELL, MAP_CELL - 1, MAP_CELL - 1,
-                 explored ? MAP_COL_EXPLORED : MAP_COL_KNOWN);
+      if (col < min_c) min_c = col;
+      if (col > max_c) max_c = col;
+      if (row < min_r) min_r = row;
+      if (row > max_r) max_r = row;
     }
   }
 
-  // Outline the room Samus is in, and mark Samus (blinking).
+  // Zoomed in, the view sits on Samus when he is in this area, else on the middle of
+  // what the area shows, until the player drags it.
   int sa, sc, sr;
-  if (SmMap_SamusCell(&sa, &sc, &sr) && sa == area) {
-    const SmRoom *r = SmMap_CurrentRoom();
-    if (r) UiFrameRect(s, r->x * MAP_CELL - 1, MAP_Y0 + r->y * MAP_CELL - 1, r->w * MAP_CELL + 1, r->h * MAP_CELL + 1, MAP_COL_ROOM);
-    if ((p->frames / 15) & 1)
-      UiFillRect(s, sc * MAP_CELL + 1, MAP_Y0 + (sr - 1) * MAP_CELL + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
+  const bool samus_here = SmMap_SamusCell(&sa, &sc, &sr) && sa == area;
+  if (g_map_centre) {
+    if (samus_here) MapCentreOn(sc, sr);
+    else if (max_c >= 0) MapCentreOn((min_c + max_c) / 2, (min_r + max_r) / 2);
+    else MapCentreOn(kSmMapCols / 2, kSmMapRows / 2);
+  }
+  MapClampScroll();
+
+  UiClipY(MAP_Y0, MAP_VIEW_Y1);
+  for (int row = min_r; row <= max_r; row++) {
+    const int y = MapPxY(row);
+    if (y + MAP_CELL <= MAP_Y0 || y >= MAP_VIEW_Y1) continue;
+    for (int col = min_c; col <= max_c; col++) {
+      const int x = MapPxX(col);
+      if (x + MAP_CELL <= 0 || x >= SCREEN_W) continue;
+      bool exists, explored;
+      SmMap_Cell(area, col, row, &exists, &explored);
+      if (!exists || (!explored && !station)) continue;
+      DrawMapTile(s, x, y, SmMap_CellTile(area, col, row, explored));
+    }
   }
 
+  // The sprites the game puts over the pause map. The list is in the game's order, where an
+  // earlier one is on top, so draw it backwards.
+  SmMapIcon icons[kSmMapMaxIcons];
+  const int icon_count = SmMap_Icons(area, icons, kSmMapMaxIcons);
+  for (int i = icon_count - 1; i >= 0; i--) DrawMapSprite(s, &icons[i]);
+
+  // Outline the room Samus is in, and mark Samus (blinking).
+  if (samus_here) {
+    DrawRoomOutline(s, SmMap_CurrentRoom(), MAP_COL_ROOM);
+    if ((p->frames / 15) & 1)
+      UiFillRect(s, MapPxX(sc) + 1, MapPxY(sr) + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
+  }
+#if DEBUG_TOOLS
+  {
+    // The room picked for a warp, and the door the warp will use.
+    const SmRoom *picked = SelectedRoom(area);
+    if (picked) {
+      DrawRoomOutline(s, picked, MAP_COL_SELECT);
+      SmWarpDoorMark door;
+      if (SmWarp_DoorOnMap(picked, g_warp_door, &door)) DrawDoorMark(s, &door);
+    } else if (g_sel_col >= 0) {
+      UiFrameRect(s, MapPxX(g_sel_col), MapPxY(g_sel_row), MAP_CELL, MAP_CELL, MAP_COL_SELECT);
+    }
+  }
+#endif
+  UiNoClip();
+
   for (int i = 0; i < kSmAreaCount; i++)
-    UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, kAreaShort[i]);
-  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d CELLS%s", kSmAreaNames[area], seen, total, station ? "  MAP" : "");
-  UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, g_map_follow ? "FOLLOW: ON" : "FOLLOW: OFF");
+    UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, TrAreaShort(i));
+  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d %s%s%s", TrArea(area), seen, total, Tr(kStrCells),
+              station ? "  " : "", station ? Tr(kStrMapMark) : "");
+  char follow[32];
+  snprintf(follow, sizeof(follow), "%s: %s", Tr(kStrFollow), Tr(g_map_follow ? kStrOn : kStrOff));
+  UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, follow);
+  const char *zoom_label[MAP_ZOOMS] = { "1X", "2X", "3X" };
+  UiDrawButton(s, ZoomRect(), COL_BTN, zoom_label[g_map_zoom]);
 
 #if DEBUG_TOOLS
-  if (g_sel_col >= 0)
-    UiFrameRect(s, g_sel_col * MAP_CELL - 1, MAP_Y0 + (g_sel_row - 1) * MAP_CELL - 1, MAP_CELL + 1, MAP_CELL + 1, MAP_COL_SELECT);
   const SmRoom *room = SelectedRoom(area);
   if (room) {
     const int doors = SmWarp_DoorCount(room);
@@ -315,7 +567,7 @@ static void DrawStatus(Surface s) {
   // Energy panel: number, tanks, current-tank bar, reserve.
   UiFillRect(s, 8, 26, 304, 44, COL_PANEL);
   UiFrameRect(s, 8, 26, 304, 44, COL_BORDER);
-  UiDrawText(s, 14, 30, 1, COL_DIM, "ENERGY");
+  UiDrawText(s, 14, 30, 1, COL_DIM, Tr(kStrEnergy));
   {
     char big[8];
     snprintf(big, sizeof(big), "%u", health);
@@ -329,37 +581,36 @@ static void DrawStatus(Surface s) {
     else UiFrameRect(s, x, 30, 10, 10, COL_FAINT);
   }
   UiDrawBar(s, 70, 44, 168, 7, (int)(health % 100), 99, COL_ENERGY);
-  UiDrawTextf(s, 244, 30, COL_DIM, "MAX %u", max_health);
-  UiDrawTextf(s, 70, 56, COL_RESERVE, "RESERVE %u/%u", (unsigned)samus_reserve_health, (unsigned)samus_max_reserve_health);
-  UiDrawTextf(s, 196, 56, COL_DIM, "%s", reserve_health_mode == 1 ? "AUTO" : reserve_health_mode == 2 ? "MANUAL" : "");
+  UiDrawTextf(s, 244, 30, COL_DIM, "%s %u", Tr(kStrMax), max_health);
+  UiDrawTextf(s, 70, 56, COL_RESERVE, "%s %u/%u", Tr(kStrReserve), (unsigned)samus_reserve_health,
+              (unsigned)samus_max_reserve_health);
+  UiDrawTextf(s, 196, 56, COL_DIM, "%s", reserve_health_mode == 1 ? Tr(kStrAuto) : reserve_health_mode == 2 ? Tr(kStrManual) : "");
 #if DEBUG_TOOLS
   DrawCheatButton(s, GodRect(), g_cheats.invincible, "GOD");
   DrawCheatButton(s, MaxRect(), g_cheats.max_mode, "MAX");
 #endif
 
   // Ammo panels.
-  static const struct { const char *name; uint32_t col; } kAmmo[3] = {
-    { "MSL", COL_MISSILE }, { "SUPER", COL_SUPER }, { "PB", COL_PBOMB },
-  };
+  static const uint32_t kAmmoCol[3] = { COL_MISSILE, COL_SUPER, COL_PBOMB };
   const unsigned cur[3] = { samus_missiles, samus_super_missiles, samus_power_bombs };
   const unsigned max[3] = { samus_max_missiles, samus_max_super_missiles, samus_max_power_bombs };
   for (int i = 0; i < 3; i++) {
     const int x = 8 + i * 103;
     UiFillRect(s, x, 73, 98, 26, COL_PANEL);
     UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
-    UiDrawText(s, x + 5, 77, 1, kAmmo[i].col, kAmmo[i].name);
+    UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], TrAmmo(i));
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
-    UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmo[i].col);
+    UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
   }
 
   // Items: green = equipped, yellow = collected but switched off, dim = missing.
-  UiDrawText(s, 8, 102, 1, COL_DIM, "ITEMS");
+  UiDrawText(s, 8, 102, 1, COL_DIM, Tr(kStrItems));
   for (int i = 0; i < kSmItemCount; i++) {
     const Rect r = ItemRect(i);
     const bool have = (collected_items & kSmItems[i].mask) != 0;
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmItems[i].name);
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrItem(i));
   }
 #if DEBUG_TOOLS
   {
@@ -369,20 +620,20 @@ static void DrawStatus(Surface s) {
     DrawCheatButton(s, AllRect(), all, "ALL");
   }
 #endif
-  UiDrawText(s, 8, 156, 1, COL_DIM, "BEAMS");
+  UiDrawText(s, 8, 156, 1, COL_DIM, Tr(kStrBeams));
   for (int i = 0; i < kSmBeamCount; i++) {
     const Rect r = BeamRect(i);
     const bool have = (collected_beams & kSmBeams[i].mask) != 0;
     const bool on = (equipped_beams & kSmBeams[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, kSmBeams[i].name);
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrBeam(i));
   }
 
   // Map stations (Ceres has none). Debug builds: grey none, green used, purple forced,
   // orange every cell explored.
-  UiDrawText(s, 8, 182, 1, COL_DIM, "MAP STATIONS");
+  UiDrawText(s, 8, 182, 1, COL_DIM, Tr(kStrMapStations));
 #if DEBUG_TOOLS
-  UiDrawText(s, 104, 182, 1, COL_FAINT, "TAP: MAP > EXPLORED > REAL");
+  UiDrawText(s, 20 + UiTextWidth(Tr(kStrMapStations), 1), 182, 1, COL_FAINT, "TAP: MAP > EXPLORED > REAL");
 #endif
   for (int i = 0; i < 6; i++) {
     const Rect r = StationRect(i);
@@ -391,12 +642,12 @@ static void DrawStatus(Surface s) {
     if (st == kSmMapDebug_Explored) { body = RGB(70, 45, 15); edge = RGB(255, 170, 60); text = COL_TEXT; }
     else if (st == kSmMapDebug_Station) { body = RGB(45, 30, 70); edge = RGB(170, 110, 240); text = COL_TEXT; }
     else if (SmMap_HasMapStation(i)) { body = RGB(18, 62, 32); edge = RGB(70, 220, 110); text = COL_TEXT; }
-    UiDrawBoxLabel(s, r, body, edge, text, Pressed(r), kAreaShort[i]);
+    UiDrawBoxLabel(s, r, body, edge, text, Pressed(r), TrAreaShort(i));
   }
 
   // Where and how long.
   const unsigned area = area_index < 8 ? area_index : 7;
-  UiDrawTextf(s, 8, 211, COL_TEXT, "%s  ROOM %02X", kSmAreaNames[area], (unsigned)room_index);
+  UiDrawTextf(s, 8, 211, COL_TEXT, "%s  %s %02X", TrArea(area), Tr(kStrRoom), (unsigned)room_index);
   UiDrawTextf(s, 224, 211, COL_DIM, "%02u:%02u:%02u", (unsigned)game_time_hours, (unsigned)game_time_minutes,
               (unsigned)game_time_seconds);
 }
@@ -533,7 +784,7 @@ static void DrawSlotButton(Surface s, Rect r, bool enabled, bool armed, bool sav
 }
 
 static void DrawStates(Surface s) {
-  UiDrawTextCentered(s, SCREEN_W / 2, 28, COL_TITLE, "SAVE STATES");
+  UiDrawTextCentered(s, SCREEN_W / 2, 28, COL_TITLE, Tr(kStrSaveStates));
   for (int i = 0; i < STATE_SLOTS; i++) {
     const SlotInfo *si = &g_slots[i];
     const int y = SLOT_Y0 + i * SLOT_PITCH;
@@ -541,11 +792,11 @@ static void DrawStates(Surface s) {
     UiFillRect(s, 8, y, 240, 1, RGB(60, 80, 110));
     UiDrawTextf(s, 12, y + 5, COL_TEXT, "%d", i);
     if (!si->used) {
-      UiDrawText(s, 26, y + 5, 1, COL_FAINT, "- EMPTY -");
+      UiDrawText(s, 26, y + 5, 1, COL_FAINT, Tr(kStrEmpty));
     } else if (!si->has_info) {
-      UiDrawText(s, 26, y + 5, 1, COL_DIM, "SAVED (NO DETAILS)");
+      UiDrawText(s, 26, y + 5, 1, COL_DIM, Tr(kStrSavedNoDetails));
     } else {
-      UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", kAreaShort[si->area < kSmAreaCount ? si->area : 0], si->room);
+      UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", TrAreaShort(si->area < kSmAreaCount ? si->area : 0), si->room);
       UiDrawTextf(s, 74, y + 5, COL_ENERGY, "E%u", si->health);
       if (si->max_missiles) UiDrawTextf(s, 110, y + 5, COL_MISSILE, "M%u", si->missiles);
       const time_t t = (time_t)si->saved_at;
@@ -555,7 +806,7 @@ static void DrawStates(Surface s) {
     DrawSlotButton(s, SlotSaveRect(i), true, Armed(i, 1), true);
     DrawSlotButton(s, SlotLoadRect(i), si->used, Armed(i, 2), false);
   }
-  UiDrawTextCentered(s, SCREEN_W / 2, 229, COL_DIM, "TAP TWICE TO CONFIRM");
+  UiDrawTextCentered(s, SCREEN_W / 2, 229, COL_DIM, Tr(kStrTapTwice));
 }
 
 static void StatesTouch(int x, int y) {
@@ -581,8 +832,8 @@ static void StatesTouch(int x, int y) {
 void BottomUi_StateSaved(int slot, bool ok) {
   if (ok) WriteSlotInfo(slot);
   RefreshSlot(slot);
-  char buf[32];
-  snprintf(buf, sizeof(buf), ok ? "Saved to slot %d" : "Could not save slot %d", slot);
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrSavedSlot : kStrSaveFailed), slot);
   Toast(buf);
 }
 
@@ -595,22 +846,23 @@ static void ForgetDebugState(void) {
 
 void BottomUi_StateLoaded(int slot, bool ok) {
   if (ok) ForgetDebugState();
-  char buf[40];
-  snprintf(buf, sizeof(buf), ok ? "Loaded slot %d" : "Slot %d: cannot load", slot);
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrLoadedSlot : kStrLoadFailed), slot);
   Toast(buf);
 }
 
 void BottomUi_GameReset(void) {
   ForgetDebugState();
-  Toast("Game reset");
+  Toast(Tr(kStrGameReset));
 }
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_COUNT } OptCell;
+typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_COUNT } OptCell;
 
+// Two columns; RESET GAME takes the last row's free cell.
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
-static Rect ResetRect(void) { return (Rect){ 8, 168, 304, 22 }; }
+static Rect ResetRect(void) { return OptRect(OPT_COUNT); }
 
 static void DrawOptCell(Surface s, int i, const char *label, const char *value, uint32_t value_col) {
   const Rect r = OptRect(i);
@@ -620,27 +872,29 @@ static void DrawOptCell(Surface s, int i, const char *label, const char *value, 
 }
 
 static void DrawOnOffCell(Surface s, int i, const char *label, bool on) {
-  DrawOptCell(s, i, label, on ? "ON" : "OFF", on ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, i, label, Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
 }
 
 static void DrawOptions(Surface s) {
-  DrawOnOffCell(s, OPT_PAUSE, "PAUSE", g_ui.paused);
-  DrawOnOffCell(s, OPT_TURBO, "TURBO", g_ui.turbo);
-  DrawOnOffCell(s, OPT_FRAMESKIP, "FRAME SKIP", g_ui.frameskip);
-  DrawOnOffCell(s, OPT_AUDIO, "AUDIO", g_ui.audio_on);
-  DrawOnOffCell(s, OPT_FPS, "FPS OVERLAY", g_ui.fps_overlay);
+  DrawOnOffCell(s, OPT_PAUSE, Tr(kStrPause), g_ui.paused);
+  DrawOnOffCell(s, OPT_TURBO, Tr(kStrTurbo), g_ui.turbo);
+  DrawOnOffCell(s, OPT_FRAMESKIP, Tr(kStrFrameSkip), g_ui.frameskip);
+  DrawOnOffCell(s, OPT_AUDIO, Tr(kStrAudio), g_ui.audio_on);
+  DrawOnOffCell(s, OPT_FPS, Tr(kStrFpsOverlay), g_ui.fps_overlay);
   if (g_is_new3ds) DrawOptCell(s, OPT_SPEEDUP, "CPU (NEW 3DS)", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
-  DrawOptCell(s, OPT_DISPLAY, "DISPLAY", g_ui.pixel_perfect ? "PIXEL PERFECT" : "SCALED", COL_GOOD);
-  DrawOnOffCell(s, OPT_WIDE, "WIDE VIEW", g_ui.wide);
-  UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()), "RESET GAME");
+  DrawOptCell(s, OPT_DISPLAY, Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelPerfect : kStrScaled), COL_GOOD);
+  DrawOnOffCell(s, OPT_WIDE, Tr(kStrWideView), g_ui.wide);
+  DrawOptCell(s, OPT_LANGUAGE, Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
+                 Tr(kStrResetGame));
 
-  UiDrawTextCentered(s, SCREEN_W / 2, 196, RGB(90, 115, 145), "SUPER METROID 3DS");
-  UiDrawTextCentered(s, SCREEN_W / 2, 207, RGB(90, 115, 145), g_rom_info.version);
+  UiDrawTextCentered(s, SCREEN_W / 2, 200, RGB(90, 115, 145), "SUPER METROID 3DS");
+  UiDrawTextCentered(s, SCREEN_W / 2, 209, RGB(90, 115, 145), g_rom_info.version);
   char buf[48];
   snprintf(buf, sizeof(buf), "ROM %.8s%s", g_rom_info.rom_sha1, g_rom_info.rom_had_header ? " (HEADER)" : "");
-  UiDrawTextCentered(s, SCREEN_W / 2, 218, RGB(70, 90, 115), buf);
+  UiDrawTextCentered(s, SCREEN_W / 2, 219, RGB(70, 90, 115), buf);
 #if DEBUG_TOOLS
   UiDrawTextCentered(s, SCREEN_W / 2, 229, RGB(150, 110, 60), "DEBUG TOOLS BUILD");
 #endif
@@ -656,7 +910,10 @@ static void OptionsTouch(int x, int y) {
     switch ((OptCell)i) {
     case OPT_PAUSE: g_ui.paused = !g_ui.paused; break;
     case OPT_TURBO: g_ui.turbo = !g_ui.turbo; break;
-    case OPT_FRAMESKIP: g_ui.frameskip = !g_ui.frameskip; break;
+    case OPT_FRAMESKIP:
+      g_ui.frameskip = !g_ui.frameskip;
+      if (!g_ui.frameskip) Toast(Tr(kStrFrameSkipOffToast));
+      break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
     case OPT_FPS: g_ui.fps_overlay = !g_ui.fps_overlay; break;
     case OPT_SPEEDUP:
@@ -666,6 +923,7 @@ static void OptionsTouch(int x, int y) {
       break;
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
+    case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
     default: break;
     }
     return;
@@ -680,11 +938,11 @@ static Rect NoRect(void) { return (Rect){ 168, 136, 96, 24 }; }
 static void DrawResetModal(Surface s) {
   UiFillRect(s, 40, 76, 240, 96, COL_MODAL_EDGE);
   UiFillRect(s, 41, 77, 238, 94, COL_MODAL);
-  UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, "RESET THE GAME?");
-  UiDrawTextCentered(s, SCREEN_W / 2, 108, COL_DIM, "PROGRESS SINCE THE LAST SAVE");
-  UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_DIM, "IS LOST");
-  UiDrawBoxLabel(s, YesRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(YesRect()), "RESET");
-  UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), "CANCEL");
+  UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, Tr(kStrResetQuestion));
+  UiDrawTextCentered(s, SCREEN_W / 2, 108, COL_DIM, Tr(kStrResetLost1));
+  UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_DIM, Tr(kStrResetLost2));
+  UiDrawBoxLabel(s, YesRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(YesRect()), Tr(kStrReset));
+  UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrCancel));
 }
 
 static void ResetModalTouch(int x, int y) {
@@ -698,8 +956,126 @@ static void ResetModalTouch(int x, int y) {
 
 // Debug tools: a 2-column grid in a window over the Debug tab, like mzm's.
 #if DEBUG_TOOLS
+
+// ---- Report: say what is wrong before a capture is written ---------------------------
+// SCREEN DUMP, FRAME DUMP and stopping SCENE REC open this window instead of writing at
+// once. The game pauses while it is open (nothing moves under the reason being typed); a
+// reason, or a text typed on the keyboard, becomes the capture's note (debug/sm-<kind>-NNNN-
+// note.txt, Debug_SetNote) and the capture is written; CANCEL writes nothing. A recording
+// being stopped also has RESUME (keep recording); CANCEL throws it away.
+typedef enum { REPORT_DUMP, REPORT_FRAME_DUMP, REPORT_SCENE_REC } ReportKind;
+static ReportKind g_report_kind;
+static bool g_report_was_paused;
+
+static const char *const kReportReasons[] = {
+  "3D DEPTH WRONG", "WIDE VIEW BUG", "SPRITE MISSING", "SPRITE FLASHES",
+  "WRONG COLOURS", "GLITCH OR GARBAGE", "GAME LOGIC", "PERFORMANCE",
+};
+enum { kReportReasonCount = sizeof(kReportReasons) / sizeof(kReportReasons[0]) };
+
+static Rect ReasonRect(int i) { return (Rect){ 16 + (i % 2) * 148, 62 + (i / 2) * 28, 140, 24 }; }
+static Rect CustomRect(void) { return (Rect){ 16, 182, 140, 24 }; }
+// A recording being stopped has two ways out: RESUME (the play triangle) keeps it recording,
+// the cross throws it away. For a dump they are the same, so there is one CANCEL.
+static Rect ReportResumeRect(void) { return (Rect){ 164, 182, 68, 24 }; }
+static Rect ReportCancelRect(void) {
+  return g_report_kind == REPORT_SCENE_REC ? (Rect){ 236, 182, 68, 24 } : (Rect){ 164, 182, 140, 24 };
+}
+
+static void OpenReport(ReportKind kind) {
+  if (g_modal == MODAL_REPORT) return;
+  g_report_kind = kind;
+  g_report_was_paused = g_ui.paused;
+  g_ui.paused = true;
+  g_modal = MODAL_REPORT;
+  g_dirty = 2;
+}
+
+static void DrawReportModal(Surface s) {
+  static const char *const kKind[] = { "SCREEN DUMP", "FRAME DUMP", "SCENE REC" };
+  UiFillRect(s, 10, 26, 300, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 11, 27, 298, 208, COL_MODAL);
+  UiDrawText(s, 20, 33, 1, COL_TITLE, "WHAT IS WRONG?");
+  UiDrawTextf(s, 20, 45, COL_DIM, "%s - THE GAME IS PAUSED", kKind[g_report_kind]);
+  for (int i = 0; i < kReportReasonCount; i++) {
+    const Rect r = ReasonRect(i);
+    UiDrawBoxLabel(s, r, RGB(24, 32, 50), RGB(50, 80, 130), COL_TEXT, Pressed(r), kReportReasons[i]);
+  }
+  UiDrawBoxLabel(s, CustomRect(), RGB(30, 55, 90), RGB(90, 160, 240), RGB(180, 225, 255), Pressed(CustomRect()),
+                 "WRITE IT...");
+  const Rect cancel = ReportCancelRect();
+  if (g_report_kind != REPORT_SCENE_REC) {
+    UiDrawBoxLabel(s, cancel, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(cancel), "CANCEL");
+    UiDrawTextCentered(s, SCREEN_W / 2, 216, COL_FAINT, "CANCEL WRITES NOTHING");
+    return;
+  }
+  const Rect resume = ReportResumeRect();
+  UiDrawBox(s, resume, RGB(22, 44, 30), RGB(60, 150, 90), Pressed(resume));
+  const int rx = resume.x + resume.w / 2 - 2, ry = resume.y + resume.h / 2;
+  for (int dy = -6; dy <= 6; dy++) {   // play triangle: widest in the middle row
+    const int len = 11 - (dy < 0 ? -dy : dy) * 11 / 6;
+    if (len > 0) UiFillRect(s, rx - 4, ry + dy, len, 1, RGB(120, 230, 140));
+  }
+  UiDrawBox(s, cancel, RGB(64, 22, 22), RGB(180, 60, 60), Pressed(cancel));
+  const int cx = cancel.x + cancel.w / 2, cy = cancel.y + cancel.h / 2;
+  for (int d = -5; d <= 5; d++) {   // a cross: both diagonals, 2 px thick
+    UiFillRect(s, cx + d - 1, cy + d - 1, 2, 2, RGB(255, 110, 110));
+    UiFillRect(s, cx + d - 1, cy - d - 1, 2, 2, RGB(255, 110, 110));
+  }
+  UiDrawTextCentered(s, SCREEN_W / 2, 216, COL_FAINT, "PLAY KEEPS RECORDING   X THROWS IT AWAY");
+}
+
+// The reason is chosen: write the capture, and give the pause back as it was. The dumps
+// are taken by the main loop on its next frame, so a game that was paused runs that one
+// frame (g_ui.repause) and pauses again.
+static void ReportDone(const char *reason) {
+  g_modal = MODAL_NONE;
+  g_dirty = 2;
+  if (!reason) {
+    Debug_SetNote(NULL);
+    if (g_report_kind == REPORT_SCENE_REC) SceneRec_Discard();   // stopped and cancelled: no file, no note
+    g_ui.paused = g_report_was_paused;
+    Toast(Debug_LastMessage()[0] && g_report_kind == REPORT_SCENE_REC ? Debug_LastMessage() : "Nothing written");
+    return;
+  }
+  Debug_SetNote(reason);
+  switch (g_report_kind) {
+  case REPORT_DUMP: g_ui.req_dump = true; break;
+  case REPORT_FRAME_DUMP: g_ui.req_frame_dump = true; break;
+  case REPORT_SCENE_REC:
+    SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
+    Toast(Debug_LastMessage());
+    g_ui.paused = g_report_was_paused;
+    return;
+  }
+  g_ui.paused = false;
+  g_ui.repause = g_report_was_paused;
+}
+
+static void ReportTouch(int x, int y) {
+  for (int i = 0; i < kReportReasonCount; i++)
+    if (UiIn(ReasonRect(i), x, y)) {
+      ReportDone(kReportReasons[i]);
+      return;
+    }
+  if (UiIn(CustomRect(), x, y)) {
+    SwkbdState kb;
+    char text[120] = "";
+    swkbdInit(&kb, SWKBD_TYPE_NORMAL, 2, sizeof(text) - 1);
+    swkbdSetHintText(&kb, "What is wrong in this capture?");
+    if (swkbdInputText(&kb, text, sizeof(text)) == SWKBD_BUTTON_CONFIRM && text[0]) ReportDone(text);
+    g_dirty = 2;   // a cancelled or empty text leaves the window open
+  } else if (g_report_kind == REPORT_SCENE_REC && UiIn(ReportResumeRect(), x, y)) {
+    g_modal = MODAL_NONE;   // back to the game, still recording
+    g_ui.paused = g_report_was_paused;
+    g_dirty = 2;
+  } else if (UiIn(ReportCancelRect(), x, y)) {
+    ReportDone(NULL);
+  }
+}
+
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT,
   TOOL_COUNT
 } Tool;
 
@@ -760,6 +1136,25 @@ static void DrawToolsModal(Surface s) {
                g_ui.gpu_render ? COL_GOOD : act);
   DrawToolCell(s, TOOL_GPU_CHECK, "GPU CHECK", g_ui.gpu_render ? "GPU VS CPU, DUMP SET" : "RENDERER IS CPU",
                g_ui.gpu_render ? act : COL_FAINT);
+  static const char *const kTintName[] = { "OFF", "PLANES", "DRAW ORDER", "STEREO DEPTH" };
+  DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : kTintName[g_ui.plane_tint & 3],
+               !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
+  if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
+    UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
+    for (int i = 0; i < 160; i++) {
+      const uint32_t c = StereoDepth_RampColor(i / 159.0f, g_ui.plane_tint == 3 ? kRampDepth : kRampOrder);
+      UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+    }
+    UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");
+  } else if (g_ui.plane_tint == 1 && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
+    int x = 16;
+    for (int p = 0; p < kStereoPlaneCount - 1; p++) {
+      const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
+      UiFillRect(s, x, 189, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiDrawText(s, x + 8, 188, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
+      x += 8 + (int)strlen(StereoDepth_PlaneName((StereoPlane)p)) * 6 + 6;
+    }
+  }
   UiDrawTextCentered(s, SCREEN_W / 2, 200, COL_WARN, Debug_LastMessage());
   UiDrawBoxLabel(s, CloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(CloseRect()), "CLOSE");
 }
@@ -773,11 +1168,8 @@ static void ToolsModalTouch(int x, int y) {
     if (!UiIn(ToolRect(i), x, y)) continue;
     const bool side = UiIn(SideRect(i), x, y);
     switch ((Tool)i) {
-    case TOOL_DUMP: g_ui.req_dump = true; break;
-    case TOOL_FRAME_DUMP:
-      g_ui.req_frame_dump = true;
-      if (g_ui.paused) Toast("Frame dump: waits for unpause");
-      break;
+    case TOOL_DUMP: OpenReport(REPORT_DUMP); break;
+    case TOOL_FRAME_DUMP: OpenReport(REPORT_FRAME_DUMP); break;
     case TOOL_LOG:
       if (side) {
         Debug_LogSetEnabled(!Debug_LogEnabled());
@@ -793,8 +1185,12 @@ static void ToolsModalTouch(int x, int y) {
       break;
     case TOOL_SCENE_REC:
       if (side) {
-        SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
-        Toast(Debug_LastMessage());
+        if (SceneRec_Active()) {
+          OpenReport(REPORT_SCENE_REC);   // stopping writes the file: asks what is wrong first
+        } else {
+          SceneRec_Toggle();
+          Toast(Debug_LastMessage());
+        }
       } else if (SceneRec_Active()) {
         Toast("Stop the recorder to change the rate");
       } else {
@@ -807,11 +1203,16 @@ static void ToolsModalTouch(int x, int y) {
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.req_gpu_check = true;
       break;
+    case TOOL_PLANE_TINT:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.plane_tint = (g_ui.plane_tint + 1) % 4;
+      break;
     default: break;
     }
     return;
   }
 }
+
 
 // ---- Debug tab ------------------------------------------------------------------
 
@@ -856,6 +1257,360 @@ static void DebugTouch(int x, int y) {
 }
 #endif
 
+// ---- Achievements tab -------------------------------------------------------------
+// RetroAchievements (retro_ach.h), laid out after mzm's achievement windows: the account
+// and the settings (log in, on/off, where the notice shows with a sample, the sound) on
+// top, then the set as cards with their badges, scrolled by dragging the list or its bar.
+// A tap on a card opens it (MODAL_RA_DETAIL). The unlock notice is drawn over any tab.
+
+enum {
+  kRaListY0 = 106, kRaListY1 = 238,   // the cards' band
+  kRaCardX = 6, kRaCardW = 300, kRaCardPitch = 34, kRaCardH = 32,
+  kRaBarX = 310, kRaBarW = 4, kRaBarHitX = 306,
+  kRaDragSlop = 6,   // a stylus wobbles this much on a tap; past it the touch scrolls
+};
+static int g_ra_scroll;   // pixels
+static struct { bool active, dragging, bar; int start_y, last_y; } g_ra_touch;
+static RaAchievement g_ra_detail;   // the card opened, copied: the list may change under it
+
+static Rect RaCellRect(int i) { return (Rect){ 8 + (i % 2) * 154, 50 + (i / 2) * 19, 150, 16 }; }
+static Rect RaPreviewRect(void) { const Rect r = RaCellRect(2); return (Rect){ r.x + r.w - 20, r.y, 20, r.h }; }
+static Rect RaSortRect(void) { return (Rect){ 170, 88, 120, 14 }; }
+static Rect RaDirRect(void) { return (Rect){ 292, 88, 20, 14 }; }
+static Rect RaDetailCloseRect(void) { return (Rect){ 116, 210, 88, 20 }; }
+
+// Copies at most `chars` characters (UTF-8) of `src`.
+static void ClipText(char *dst, size_t size, const char *src, int chars) {
+  size_t n = 0;
+  for (int c = 0; src[n] && c < chars; c++) {
+    size_t len = 1;
+    while (src[n + len] && (src[n + len] & 0xC0) == 0x80) len++;
+    if (n + len >= size) break;
+    n += len;
+  }
+  memcpy(dst, src, n);
+  dst[n] = 0;
+}
+
+// `text` on up to `lines` lines of `chars` characters, broken at spaces, 10 px apart.
+// Returns the lines used.
+static int DrawWrapped(Surface s, int x, int y, int chars, int lines, uint32_t col, const char *text) {
+  int line = 0;
+  for (; line < lines && *text; line++) {
+    int n = 0, cut = 0;
+    size_t at = 0, cut_at = 0;
+    while (text[at] && n < chars) {
+      size_t len = 1;
+      while (text[at + len] && (text[at + len] & 0xC0) == 0x80) len++;
+      at += len, n++;
+      if (text[at] == ' ' || !text[at]) cut = n, cut_at = at;
+    }
+    if (!text[at] || !cut) cut_at = at;
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%.*s", (int)cut_at, text);
+    UiDrawText(s, x, y + line * 10, 1, col, buf);
+    text += cut_at;
+    while (*text == ' ') text++;
+  }
+  return line;
+}
+
+static bool RaLoggedIn(void) {
+  const RaStatus st = RetroAch_Status();
+  return st == kRaOnline || st == kRaOffline || st == kRaConnecting;
+}
+
+static int RaMaxScroll(void) {
+  const int content = RetroAch_Count() * kRaCardPitch - (kRaCardPitch - kRaCardH);
+  return content > kRaListY1 - kRaListY0 ? content - (kRaListY1 - kRaListY0) : 0;
+}
+
+static void RaClampScroll(void) {
+  const int max = RaMaxScroll();
+  if (g_ra_scroll > max) g_ra_scroll = max;
+  if (g_ra_scroll < 0) g_ra_scroll = 0;
+}
+
+// Scrollbar track position -> scroll offset.
+static void RaScrollToBar(int y) {
+  g_ra_scroll = (y - kRaListY0) * RaMaxScroll() / (kRaListY1 - kRaListY0);
+  RaClampScroll();
+}
+
+static uint32_t RaTypeColor(RaType t) {
+  switch (t) {
+  case kRaTypeMissable: return RGB(255, 140, 40);
+  case kRaTypeProgression: return RGB(90, 160, 255);
+  case kRaTypeWin: return RGB(210, 120, 255);
+  default: return COL_DIM;
+  }
+}
+
+// RA's glyph for a special type, 12x12 at (x, y), as on its website: a warning triangle
+// (missable), rising bars (progression), a chequered flag (win condition).
+static void DrawTypeIcon(Surface s, int x, int y, RaType t, bool dim) {
+  if (t == kRaTypeStandard) return;
+  uint32_t c = RaTypeColor(t);
+  if (dim) c = ((c >> 24) / 2 + 30) << 24 | ((c >> 16 & 0xFF) / 2 + 30) << 16 | ((c >> 8 & 0xFF) / 2 + 30) << 8 | 0xFF;
+  const uint32_t bg = RGB(12, 16, 24);
+  if (t == kRaTypeMissable) {
+    for (int r = 0; r < 6; r++) UiFillRect(s, x + 5 - r, y + r * 2, 2 + r * 2, 2, c);
+    UiFillRect(s, x + 5, y + 3, 2, 4, bg);
+    UiFillRect(s, x + 5, y + 8, 2, 2, bg);
+  } else if (t == kRaTypeProgression) {
+    UiFillRect(s, x, y + 7, 3, 5, c);
+    UiFillRect(s, x + 4, y + 4, 3, 8, c);
+    UiFillRect(s, x + 8, y + 1, 3, 11, c);
+  } else {
+    UiFillRect(s, x + 1, y, 2, 12, c);
+    UiFillRect(s, x + 3, y + 1, 8, 6, c);
+    static const int8_t kSquares[5][2] = { { 3, 1 }, { 7, 1 }, { 5, 3 }, { 3, 5 }, { 7, 5 } };
+    for (int i = 0; i < 5; i++) UiFillRect(s, x + kSquares[i][0], y + kSquares[i][1], 2, 2, bg);
+  }
+}
+
+// The badge, or while it loads a box with a check (unlocked) or a question mark.
+static void DrawBadge(Surface s, int x, int y, int size, const RaAchievement *a) {
+  const uint32_t *px = RetroAch_Badge(a->badge, size);
+  if (px) {
+    UiBlit(s, x, y, size, px, !a->unlocked);
+    return;
+  }
+  UiFillRect(s, x, y, size, size, RGB(12, 16, 24));
+  const int m = size / 5;
+  UiFillRect(s, x + m, y + m, size - 2 * m, size - 2 * m, a->unlocked ? RGB(60, 200, 100) : RGB(40, 50, 70));
+  UiDrawText(s, x + size / 2 - 2, y + size / 2 - 3, 1, a->unlocked ? COL_TEXT : RGB(120, 140, 170),
+             a->unlocked ? "*" : "?");
+}
+
+// 8x8 padlock at (x, y): open and green when unlocked, closed and grey otherwise.
+static void DrawPadlock(Surface s, int x, int y, bool open) {
+  const uint32_t c = open ? RGB(80, 255, 120) : RGB(110, 130, 160);
+  if (open) {
+    UiFillRect(s, x + 3, y, 4, 1, c);
+    UiFillRect(s, x + 6, y + 1, 1, 2, c);
+  } else {
+    UiFillRect(s, x + 2, y, 4, 1, c);
+    UiFillRect(s, x + 2, y + 1, 1, 2, c);
+    UiFillRect(s, x + 5, y + 1, 1, 2, c);
+  }
+  UiFillRect(s, x + 1, y + 3, 6, 4, c);
+}
+
+static void DrawCard(Surface s, int y, const RaAchievement *a) {
+  const int x = kRaCardX;
+  UiFillRect(s, x, y, kRaCardW, kRaCardH, a->unlocked ? RGB(35, 120, 65) : RGB(35, 45, 65));
+  UiFillRect(s, x + 1, y + 1, kRaCardW - 2, kRaCardH - 2, a->unlocked ? RGB(16, 38, 26) : RGB(18, 22, 34));
+  UiFillRect(s, x + 1, y + 1, 30, 30, a->unlocked ? RGB(80, 255, 120) : RGB(60, 75, 100));
+  DrawBadge(s, x + 2, y + 2, kRaBadgeSmall, a);
+  char buf[96];
+  ClipText(buf, sizeof(buf), a->title, 40);
+  UiDrawText(s, x + 36, y + 6, 1, a->unlocked ? RGB(140, 240, 170) : RGB(220, 235, 255), buf);
+  snprintf(buf, sizeof(buf), Tr(kStrRaPoints), (unsigned)a->points);
+  UiDrawText(s, x + 36, y + 19, 1, a->unlocked ? RGB(120, 255, 160) : RGB(140, 160, 190), buf);
+  DrawPadlock(s, x + kRaCardW - 13, y + 4, a->unlocked);
+  DrawTypeIcon(s, x + kRaCardW - 15, y + 16, a->type, !a->unlocked);
+}
+
+static void DrawAchievements(Surface s) {
+  UiDrawText(s, 8, 28, 1, COL_TITLE, "RETROACHIEVEMENTS");
+  UiDrawText(s, SCREEN_W - 8 - UiTextWidth("SOFTCORE", 1), 28, 1, COL_DIM, "SOFTCORE");
+  // One line: the server's last word beats the connection state.
+  char buf[96];
+  uint32_t col = COL_DIM;
+  if (RetroAch_Message()[0]) {
+    ClipText(buf, sizeof(buf), RetroAch_Message(), 50);
+    col = COL_WARN;
+  } else {
+    switch (RetroAch_Status()) {
+    case kRaOff: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaDisabled)); break;
+    case kRaNoAccount: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaNoAccount)); break;
+    case kRaConnecting: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaConnecting)); col = COL_WARN; break;
+    case kRaOnline: snprintf(buf, sizeof(buf), Tr(kStrRaOnline), RetroAch_User()); col = COL_GOOD; break;
+    case kRaOffline: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaOffline)); col = COL_WARN; break;
+    case kRaLoginError: snprintf(buf, sizeof(buf), "%s", Tr(kStrRaLoginError)); col = COL_BAD; break;
+    }
+  }
+  UiDrawText(s, 8, 39, 1, col, buf);
+
+  // Settings, two by two, as mzm's SETTINGS window.
+  const bool on = RetroAch_Enabled();
+  UiDrawBoxLabel(s, RaCellRect(0), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaCellRect(0)),
+                 Tr(RaLoggedIn() ? kStrRaLogout : kStrRaLogin));
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaAchievements), Tr(on ? kStrOn : kStrOff));
+  UiDrawBoxLabel(s, RaCellRect(1), on ? RGB(20, 70, 40) : COL_BOX, on ? COL_ON : COL_BOX_EDGE, COL_TEXT,
+                 Pressed(RaCellRect(1)), buf);
+  Rect notice = RaCellRect(2);
+  notice.w -= RaPreviewRect().w + 2;
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaNotify), Tr(RetroAch_NotifyTop() ? kStrRaTop : kStrRaBottom));
+  UiDrawBoxLabel(s, notice, COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(notice), buf);
+  const Rect p = RaPreviewRect();   // the sample: a play triangle
+  UiDrawBox(s, p, COL_BTN, COL_BORDER, Pressed(p));
+  for (int i = 0; i < 4; i++) UiFillRect(s, p.x + 8 + i, p.y + 4 + i, 1, 8 - 2 * i, COL_GOOD);
+  const bool snd = RetroAch_Sound();
+  snprintf(buf, sizeof(buf), "%s: %s", Tr(kStrRaSound), Tr(snd ? kStrOn : kStrOff));
+  UiDrawBoxLabel(s, RaCellRect(3), snd ? RGB(20, 70, 40) : COL_BOX, snd ? COL_ON : COL_BOX_EDGE, COL_TEXT,
+                 Pressed(RaCellRect(3)), buf);
+
+  const int n = RetroAch_Count();
+  if (!n) {
+    const bool loading = on && RetroAch_Status() == kRaOnline && !RetroAch_Message()[0];
+    UiDrawTextCentered(s, SCREEN_W / 2, 160, COL_DIM, Tr(loading ? kStrRaLoading : kStrRaNoList));
+    return;
+  }
+  snprintf(buf, sizeof(buf), Tr(kStrRaSummary), RetroAch_UnlockedCount(), n, (unsigned)RetroAch_Points(true),
+           (unsigned)RetroAch_Points(false));
+  UiDrawText(s, 8, 92, 1, COL_GOOD, buf);
+  // The order, and its direction as a chevron (down = descending).
+  static const UiStr kSorts[kRaSortCount] = { kStrRaSortDefault, kStrRaSortTitle, kStrRaSortPoints, kStrRaSortRecent };
+  UiDrawBoxLabel(s, RaSortRect(), RGB(24, 40, 70), RGB(70, 110, 170), RGB(190, 220, 255), Pressed(RaSortRect()),
+                 Tr(kSorts[RetroAch_Sort()]));
+  const Rect d = RaDirRect();
+  UiDrawBox(s, d, RGB(24, 40, 70), RGB(70, 110, 170), Pressed(d));
+  for (int row = 0; row < 4; row++) {
+    const int w = 1 + 2 * (RetroAch_Descending() ? 3 - row : row);
+    UiFillRect(s, d.x + d.w / 2 - w / 2, d.y + 4 + row * 2, w, 2, RGB(150, 200, 255));
+  }
+
+  RaClampScroll();
+  UiClipY(kRaListY0, kRaListY1);
+  for (int i = 0; i < n; i++) {
+    const int y = kRaListY0 - g_ra_scroll + i * kRaCardPitch;
+    if (y + kRaCardH <= kRaListY0) continue;
+    if (y >= kRaListY1) break;
+    DrawCard(s, y, RetroAch_Get(i));
+  }
+  UiNoClip();
+  const int max = RaMaxScroll();
+  if (max > 0) {
+    const int track = kRaListY1 - kRaListY0;
+    int thumb = track * track / (track + max);
+    if (thumb < 16) thumb = 16;
+    UiFillRect(s, kRaBarX, kRaListY0, kRaBarW, track, RGB(60, 24, 36));
+    UiFillRect(s, kRaBarX, kRaListY0 + g_ra_scroll * (track - thumb) / max, kRaBarW, thumb, RGB(80, 160, 240));
+  }
+}
+
+static void AchievementsTouch(int x, int y) {
+  if (UiIn(RaCellRect(0), x, y)) {
+    if (RaLoggedIn()) RetroAch_Logout();
+    else RetroAch_PromptLogin();
+  } else if (UiIn(RaCellRect(1), x, y)) {
+    RetroAch_SetEnabled(!RetroAch_Enabled());
+  } else if (UiIn(RaPreviewRect(), x, y)) {
+    RetroAch_ShowPreview();
+  } else if (UiIn(RaCellRect(2), x, y)) {
+    RetroAch_SetNotifyTop(!RetroAch_NotifyTop());
+  } else if (UiIn(RaCellRect(3), x, y)) {
+    RetroAch_SetSound(!RetroAch_Sound());
+  } else if (!RetroAch_Count()) {
+    return;
+  } else if (UiIn(RaSortRect(), x, y)) {
+    RetroAch_SetSort((RaSort)((RetroAch_Sort() + 1) % kRaSortCount), RetroAch_Descending());
+    g_ra_scroll = 0;   // the old offset means nothing in a new order
+  } else if (UiIn(RaDirRect(), x, y)) {
+    RetroAch_SetSort(RetroAch_Sort(), !RetroAch_Descending());
+    g_ra_scroll = 0;
+  } else if (y >= kRaListY0 && y < kRaListY1) {
+    // A card opens on release, and only if the touch never became a drag.
+    g_ra_touch.active = true;
+    g_ra_touch.dragging = false;
+    g_ra_touch.bar = x >= kRaBarHitX && RaMaxScroll() > 0;
+    g_ra_touch.start_y = g_ra_touch.last_y = y;
+    if (g_ra_touch.bar) RaScrollToBar(y);
+  }
+}
+
+static bool AchievementsTouchMove(int y) {
+  if (!g_ra_touch.active) return false;
+  const int before = g_ra_scroll;
+  if (g_ra_touch.bar) {
+    RaScrollToBar(y);
+  } else if (g_ra_touch.dragging || abs(y - g_ra_touch.start_y) >= kRaDragSlop) {
+    g_ra_touch.dragging = true;
+    g_ra_scroll += g_ra_touch.last_y - y;
+    RaClampScroll();
+  } else {
+    return false;   // still a tap: keep last_y where it landed
+  }
+  g_ra_touch.last_y = y;
+  return g_ra_scroll != before;
+}
+
+static void AchievementsTouchUp(void) {
+  if (!g_ra_touch.active) return;
+  g_ra_touch.active = false;
+  if (g_ra_touch.dragging || g_ra_touch.bar) return;
+  const int i = (g_ra_touch.start_y - kRaListY0 + g_ra_scroll) / kRaCardPitch;
+  const RaAchievement *a = RetroAch_Get(i);
+  if (a && (g_ra_touch.start_y - kRaListY0 + g_ra_scroll) % kRaCardPitch < kRaCardH) {
+    g_ra_detail = *a;
+    g_modal = MODAL_RA_DETAIL;
+  }
+}
+
+// One achievement in full, as mzm's detail window: the badge at full size, the title,
+// points, state with the unlock date, type, and the whole description.
+static void DrawRaDetail(Surface s) {
+  const RaAchievement *a = &g_ra_detail;
+  UiFillRect(s, 6, 26, 308, 210, COL_TITLE);
+  UiFillRect(s, 8, 28, 304, 206, RGB(8, 11, 20));
+  UiFillRect(s, 16, 36, kRaBadgeBig + 4, kRaBadgeBig + 4, a->unlocked ? RGB(80, 255, 120) : RGB(60, 75, 100));
+  DrawBadge(s, 18, 38, kRaBadgeBig, a);
+  const int tx = 18 + kRaBadgeBig + 10;
+  const int lines = DrawWrapped(s, tx, 38, (306 - tx) / 6, 3, RGB(255, 230, 120), a->title);
+  int y = 42 + lines * 10;
+  char buf[64];
+  snprintf(buf, sizeof(buf), Tr(kStrRaPoints), (unsigned)a->points);
+  UiDrawText(s, tx, y, 1, RGB(120, 255, 160), buf);
+  y += 12;
+  UiDrawText(s, tx, y, 1, a->unlocked ? RGB(80, 255, 120) : RGB(150, 170, 200),
+             Tr(a->unlocked ? kStrRaUnlockedState : kStrRaLockedState));
+  y += 12;
+  if (a->unlocked && a->unlock_time) {
+    const time_t t = (time_t)a->unlock_time;
+    const struct tm *tm = gmtime(&t);
+    if (tm && strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", tm)) UiDrawText(s, tx, y, 1, RGB(150, 180, 210), buf);
+  }
+  if (a->type != kRaTypeStandard) {
+    static const UiStr kTypes[] = { kStrRaMissable, kStrRaMissable, kStrRaProgression, kStrRaWin };
+    DrawTypeIcon(s, 18, 114, a->type, false);
+    UiDrawText(s, 36, 117, 1, RaTypeColor(a->type), Tr(kTypes[a->type]));
+  }
+  DrawWrapped(s, 18, 136, 47, 7, RGB(220, 235, 255), a->description);
+  UiDrawBoxLabel(s, RaDetailCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(RaDetailCloseRect()), Tr(kStrClose));
+}
+
+static void RaDetailTouch(int x, int y) {
+  if (UiIn(RaDetailCloseRect(), x, y)) g_modal = MODAL_NONE;
+}
+
+// The unlock notice's box, 300x36 at (x, y), with the badge when it has been loaded.
+static void DrawNoticeBox(Surface s, int x, int y, const RaAchievement *a) {
+  const Rect r = { x, y, 300, 36 };
+  UiFillRect(s, r.x, r.y, r.w, r.h, COL_GOOD);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, RGB(14, 20, 32));
+  const uint32_t *badge = RetroAch_Badge(a->badge, kRaBadgeSmall);
+  int tx = r.x + 10;
+  if (badge) {
+    UiBlit(s, r.x + 4, r.y + 4, kRaBadgeSmall, badge, false);
+    tx = r.x + 4 + kRaBadgeSmall + 6;
+  } else {
+    UiFillRect(s, r.x + 3, r.y + 3, 2, r.h - 6, RGB(40, 150, 90));
+  }
+  UiDrawText(s, tx, r.y + 8, 1, COL_GOOD, Tr(kStrRaUnlocked));
+  char title[96], line[128];
+  ClipText(title, sizeof(title), a->title, badge ? 34 : 38);
+  snprintf(line, sizeof(line), "%s (+%u)", title, (unsigned)a->points);
+  UiDrawText(s, tx, r.y + 21, 1, COL_TEXT, line);
+}
+
+// On the bottom screen: over the tab bar on any tab, for as long as RetroAch_Toast says.
+static void DrawUnlockNotice(Surface s) {
+  const RaAchievement *a = RetroAch_Toast();
+  if (a && !RetroAch_NotifyTop()) DrawNoticeBox(s, 10, 2, a);
+}
+
 // ---- Persistent options -----------------------------------------------------
 // Saved to config.ini in the data folder whenever one changes. Not persisted on
 // purpose: pause, turbo, cheats and the log/perf recorders,
@@ -863,11 +1618,11 @@ static void DebugTouch(int x, int y) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide; } SavedOptions;
+typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom };
 }
 
 static void SaveConfig(void) {
@@ -875,8 +1630,9 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n",
-          o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide);
+  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
+          "language=%d\nmap_zoom=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom);
   fclose(f);
 }
 
@@ -903,6 +1659,8 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
+    else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
+    else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
   fclose(f);
 }
@@ -919,6 +1677,12 @@ static void SelectTab(Tab t) {
 static void TouchDownImpl(int x, int y) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+#if DEBUG_TOOLS
+  if (g_modal == MODAL_REPORT) {   // the game is paused until a reason or CANCEL: nothing else works
+    ReportTouch(x, y);
+    return;
+  }
+#endif
   for (int i = 0; i < n; i++) {
     if (UiIn(TabRect(i), x, y)) {
       SelectTab(tabs[i]);
@@ -928,6 +1692,7 @@ static void TouchDownImpl(int x, int y) {
   // A window swallows every touch below the tab bar.
   switch (g_modal) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
+  case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -938,6 +1703,7 @@ static void TouchDownImpl(int x, int y) {
   case TAB_STATUS:  StatusTouch(x, y); break;
   case TAB_STATES:  StatesTouch(x, y); break;
   case TAB_OPTIONS: OptionsTouch(x, y); break;
+  case TAB_ACHIEVEMENTS: AchievementsTouch(x, y); break;
 #if DEBUG_TOOLS
   case TAB_DEBUG:   DebugTouch(x, y); break;
 #endif
@@ -957,8 +1723,18 @@ void BottomUi_TouchDown(int x, int y) {
   g_dirty = 2;
 }
 
-void BottomUi_TouchMove(int x, int y) { (void)x; (void)y; }
-void BottomUi_TouchUp(void) {}
+void BottomUi_TouchMove(int x, int y) {
+  if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
+  if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
+}
+
+void BottomUi_TouchUp(void) {
+  if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE) AchievementsTouchUp();
+  if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();
+  g_map_touch.active = false;
+  g_ra_touch.active = false;
+  g_dirty = 2;
+}
 
 static void DrawBottom(const UiPerf *p) {
   Surface s = UiDraw_Screen(GFX_BOTTOM);
@@ -969,6 +1745,7 @@ static void DrawBottom(const UiPerf *p) {
   case TAB_STATUS:  DrawStatus(s); break;
   case TAB_STATES:  DrawStates(s); break;
   case TAB_OPTIONS: DrawOptions(s); break;
+  case TAB_ACHIEVEMENTS: DrawAchievements(s); break;
 #if DEBUG_TOOLS
   case TAB_DEBUG:   DrawDebug(s, p); break;
 #endif
@@ -976,8 +1753,10 @@ static void DrawBottom(const UiPerf *p) {
   }
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
+  case MODAL_RA_DETAIL: DrawRaDetail(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
+  case MODAL_REPORT: DrawReportModal(s); break;
 #endif
   default: break;
   }
@@ -988,12 +1767,18 @@ static void DrawBottom(const UiPerf *p) {
     UiFillRect(s, 0, y - 2, w, 12, COL_BG);
     UiDrawText(s, g_tab == TAB_MAP ? 4 : 8, y, 1, COL_WARN, g_toast);
   }
+  DrawUnlockNotice(s);
 }
 
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
+    g_dirty = 2;
+  }
+  static uint32_t ra_seen;
+  if (RetroAch_Version() != ra_seen) {
+    ra_seen = RetroAch_Version();
     g_dirty = 2;
   }
   if (g_tap_flash_pending && now - g_tap_ms >= TAP_FLASH_MS) {
@@ -1024,6 +1809,8 @@ bool BottomUi_Frame(const UiPerf *p) {
 // the game with WIDE).
 enum { kOverlayMaxW = 60, kOverlayH = 51 };
 
+static void DrawTopToastCpu(void);
+
 static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
   char line[5][12];
   snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
@@ -1044,6 +1831,7 @@ static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
+  DrawTopToastCpu();
   // The game is centred (274 or 256 px wide on a 400 px screen); use the left margin,
   // which the game never redraws. The top screen is double buffered, so clear
   // it for two frames after the overlay is switched off.
@@ -1062,6 +1850,31 @@ void BottomUi_DrawTopOverlay(const UiPerf *p) {
   DrawOverlay(s, p, RGB(0, 0, 0));
 }
 
+// The achievement notice on the top screen, CPU path: drawn over the frame; once gone, the
+// margins it covered are cleared for both buffers (the game redraws its own columns).
+static void DrawTopToastCpu(void) {
+  static int clear_frames;
+  Surface s = UiDraw_Screen(GFX_TOP);
+  const RaAchievement *a = RetroAch_Toast();
+  if (a && RetroAch_NotifyTop()) {
+    DrawNoticeBox(s, 50, 4, a);
+    clear_frames = 2;
+  } else if (clear_frames > 0) {
+    clear_frames--;
+    const int game_x0 = g_ui.pixel_perfect ? 72 : 63;
+    UiFillRect(s, 50, 4, game_x0 - 50, 36, RGB(0, 0, 0));
+    UiFillRect(s, 400 - game_x0, 4, game_x0 - 50, 36, RGB(0, 0, 0));
+  }
+}
+
+bool BottomUi_DrawTopToastInto(uint32_t *px) {
+  const RaAchievement *a = RetroAch_Toast();
+  if (!a || !RetroAch_NotifyTop()) return false;
+  Surface s = { px, 512, 64 };
+  DrawNoticeBox(s, 0, 0, a);
+  return true;
+}
+
 bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   if (!g_ui.fps_overlay) return false;
   Surface s = { px, w, h };
@@ -1078,6 +1891,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   SmWarp_Init();
   APT_CheckNew3DS(&g_is_new3ds);
   g_ui.new3ds_speedup = g_is_new3ds;
+  g_ui_lang = UiLang_FromSystem();   // until config.ini says otherwise
   LoadConfig();
   if (!g_is_new3ds) g_ui.new3ds_speedup = false;
   if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);

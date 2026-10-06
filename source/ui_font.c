@@ -1,7 +1,9 @@
 // 5x7 bitmap font for the bottom UI, taken from mzm's bottom screen
 // (platform/3ds/source/port_bottom_ui_3ds.c). Upper case only: lower case maps to
 // the same glyphs. Each glyph is 7 rows, bit 4 of a row is the leftmost column.
-// Text advances 6 px per character.
+// Text advances 6 px per character. Above 0x7F the code is a Latin-1 code point
+// (UiDrawText decodes UTF-8): an accented letter is the plain one, and its accent a
+// separate mark drawn above the glyph (UiFont_Mark), so it keeps its full height.
 #include <stddef.h>
 
 #include "ui_font.h"
@@ -65,17 +67,11 @@ const uint8_t *UiFont_Glyph(unsigned char c) {
     static const uint8_t gt[7]      = { 0x10, 0x08, 0x04, 0x02, 0x04, 0x08, 0x10 };
     static const uint8_t lt[7]      = { 0x01, 0x02, 0x04, 0x08, 0x04, 0x02, 0x01 };
 
-    static const uint8_t n_tilde[7] = { 0x1A, 0x00, 0x11, 0x19, 0x15, 0x13, 0x11 }; /* Ñ */
     static const uint8_t c_cedil[7] = { 0x0E, 0x11, 0x10, 0x10, 0x11, 0x0E, 0x04 }; /* Ç */
-    static const uint8_t a_acute[7] = { 0x02, 0x04, 0x0E, 0x11, 0x1F, 0x11, 0x11 }; /* Á */
-    static const uint8_t e_acute[7] = { 0x02, 0x04, 0x1F, 0x10, 0x1E, 0x10, 0x1F }; /* É */
-    static const uint8_t i_acute[7] = { 0x02, 0x04, 0x0E, 0x04, 0x04, 0x04, 0x0E }; /* Í */
-    static const uint8_t o_acute[7] = { 0x02, 0x04, 0x0E, 0x11, 0x11, 0x11, 0x0E }; /* Ó */
-    static const uint8_t u_acute[7] = { 0x02, 0x04, 0x11, 0x11, 0x11, 0x11, 0x0E }; /* Ú */
-    static const uint8_t a_umlaut[7]= { 0x0A, 0x00, 0x0E, 0x11, 0x1F, 0x11, 0x11 }; /* Ä */
-    static const uint8_t o_umlaut[7]= { 0x0A, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E }; /* Ö */
-    static const uint8_t u_umlaut[7]= { 0x0A, 0x00, 0x11, 0x11, 0x11, 0x11, 0x0E }; /* Ü */
     static const uint8_t eszett[7]  = { 0x1E, 0x11, 0x1E, 0x11, 0x11, 0x11, 0x1C }; /* ß */
+    static const uint8_t mid_dot[7] = { 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00 }; /* · (Catalan L·L) */
+    static const uint8_t inv_quest[7]={ 0x04, 0x00, 0x04, 0x08, 0x10, 0x11, 0x0E }; /* ¿ */
+    static const uint8_t inv_excl[7]= { 0x04, 0x00, 0x04, 0x04, 0x04, 0x04, 0x04 }; /* ¡ */
 
     if (c >= '0' && c <= '9') return digits[c - '0'];
     if (c >= 'A' && c <= 'Z') return letters[c - 'A'];
@@ -89,7 +85,7 @@ const uint8_t *UiFont_Glyph(unsigned char c) {
     if (c == ']') return rbracket;
     if (c == '(') return lbracket;
     if (c == ')') return rbracket;
-    if (c == '*' || c == 'v' || c == '#') return checkmark;
+    if (c == '*' || c == '#') return checkmark;
     if (c == '+') return plus;
     if (c == '=') return equal;
     if (c == '!') return exclam;
@@ -100,20 +96,36 @@ const uint8_t *UiFont_Glyph(unsigned char c) {
     if (c == '>') return gt;
     if (c == '<') return lt;
 
-    /* Single-byte ISO-8859-1 or normalized codepoints */
-    switch (c) {
-        case 0xD1: case 0xF1: return n_tilde; /* Ñ, ñ */
-        case 0xC7: case 0xE7: return c_cedil; /* Ç, ç */
-        case 0xC1: case 0xE1: case 0xC0: case 0xE0: return a_acute; /* Á, á, À, à */
-        case 0xC9: case 0xE9: case 0xC8: case 0xE8: case 0xCA: case 0xEA: return e_acute; /* É, é, È, è, Ê, ê */
-        case 0xCD: case 0xED: case 0xCC: case 0xEC: return i_acute; /* Í, í, Ì, ì */
-        case 0xD3: case 0xF3: case 0xD2: case 0xF2: return o_acute; /* Ó, ó, Ò, ò */
-        case 0xDA: case 0xFA: case 0xD9: case 0xF9: return u_acute; /* Ú, ú, Ù, ù */
-        case 0xC4: case 0xE4: return a_umlaut; /* Ä, ä */
-        case 0xD6: case 0xF6: return o_umlaut; /* Ö, ö */
-        case 0xDC: case 0xFC: return u_umlaut; /* Ü, ü */
-        case 0xDF: return eszett; /* ß */
+    // Latin-1, upper and lower case alike.
+    switch (c >= 0xE0 && c != 0xF7 ? c - 0x20 : c) {
+        case 0xC0: case 0xC1: case 0xC2: case 0xC3: case 0xC4: return letters['A' - 'A'];
+        case 0xC8: case 0xC9: case 0xCA: case 0xCB: return letters['E' - 'A'];
+        case 0xCC: case 0xCD: case 0xCE: case 0xCF: return letters['I' - 'A'];
+        case 0xD2: case 0xD3: case 0xD4: case 0xD5: case 0xD6: return letters['O' - 'A'];
+        case 0xD9: case 0xDA: case 0xDB: case 0xDC: return letters['U' - 'A'];
+        case 0xD1: return letters['N' - 'A'];
+        case 0xC7: return c_cedil;
+        case 0xDF: return eszett;
+        case 0xB7: return mid_dot;
+        case 0xBF: return inv_quest;
+        case 0xA1: return inv_excl;
         default: break;
     }
     return NULL;
+}
+
+const uint8_t *UiFont_Mark(unsigned char c) {
+    static const uint8_t acute[2] = { 0x02, 0x04 };
+    static const uint8_t grave[2] = { 0x08, 0x04 };
+    static const uint8_t circ[2]  = { 0x04, 0x0A };
+    static const uint8_t tilde[2] = { 0x0D, 0x16 };
+    static const uint8_t dots[2]  = { 0x0A, 0x00 };
+    switch (c >= 0xE0 && c != 0xF7 ? c - 0x20 : c) {
+        case 0xC1: case 0xC9: case 0xCD: case 0xD3: case 0xDA: return acute;
+        case 0xC0: case 0xC8: case 0xCC: case 0xD2: case 0xD9: return grave;
+        case 0xC2: case 0xCA: case 0xCE: case 0xD4: case 0xDB: return circ;
+        case 0xC3: case 0xD1: case 0xD5: return tilde;
+        case 0xC4: case 0xCB: case 0xCF: case 0xD6: case 0xDC: return dots;
+        default: return NULL;
+    }
 }

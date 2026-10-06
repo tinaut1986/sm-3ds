@@ -54,8 +54,9 @@ Everything else the game writes lives in the same folder:
 | Path | What |
 |---|---|
 | `saves/sm.srm` | in-game save files (the three save slots) |
-| `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description |
-| `config.ini` | options from the bottom screen |
+| `saves/save0.sav` ... `save9.sav` | save states (States tab), each with a `.txt` description (and a `.rap` with the achievements' progress) |
+| `config.ini` | options from the bottom screen (language included) |
+| `retroachievements.ini` | RetroAchievements on/off, user name and login token (keep it private: the token logs in as you) |
 | `debug/` | logs, perf CSVs and dumps from the Debug tab |
 
 ## Controls
@@ -66,6 +67,23 @@ bottom screen is operated by touch: save states on the States tab (tap a button
 twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
 (New 3DS) and reset on the Options tab.
 
+### Languages
+
+OPTIONS -> LANGUAGE switches the bottom screen and the game's message boxes (items,
+stations, the save prompt) between English, Spanish, Catalan, French and Portuguese. The
+ROM is not modified (the translation is drawn on screen only), so saves and achievements
+are the same in every language.
+
+### RetroAchievements
+
+The trophy tab runs the existing Super Metroid achievement set from
+[RetroAchievements](https://retroachievements.org) (softcore only: unofficial ports
+cannot earn hardcore). Tap LOG IN, type your user name and password with the
+system keyboard; the password is sent once and only the token the server returns is
+kept. Unlocks made while offline are sent when the connection comes back. In
+builds with debug tools, using a cheat or the teleport pauses achievements until the
+app is restarted.
+
 ## Building
 
 Needs devkitARM with libctru, citro2d/citro3d (the
@@ -74,14 +92,14 @@ Needs devkitARM with libctru, citro2d/citro3d (the
 in `tools/bin/` (Linux x86-64). No ROM is needed to build.
 
 ```sh
-git clone --recurse-submodules https://github.com/tinaut1986/sm-3ds.git
+git clone https://github.com/tinaut1986/sm-3ds.git
 cd sm-3ds
 ./build_3ds.sh          # interactive: build, optionally find the 3DS and send it
 ```
 
 `build_3ds.sh` asks for debug (the default: debug tab, teleport, cheats on the
 Status tab, see [`docs/debug-tools.md`](docs/debug-tools.md)) or production,
-builds SDL2 the first time, then the CIA
+builds the CIA
 (`output/SuperMetroid3DSPort.cia`). With ftpd or FBI's FTP server running on
 the console, it can scan the local network for it and upload the CIA to
 `/cias/sm-3ds-<version>.cia`. Non-interactive forms:
@@ -97,7 +115,6 @@ the console, it can scan the local network for it and upload the CIA to
 Or with make directly (`DEVKITPRO` defaults to `/opt/devkitpro`):
 
 ```sh
-make sdl                                               # once
 make -j FULL_NATIVE=1 cia                              # -> output/SuperMetroid3DSPort.cia
 make -j FULL_NATIVE=1 DEBUG_TOOLS=1 cia                # with the debug tools
 make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload
@@ -130,6 +147,8 @@ the tag is on `main`).
   license).
 - [Charles Averill](https://github.com/CharlesAverill/sm-3ds): the original
   3DS port this one started from.
+- [rcheevos](https://github.com/RetroAchievements/rcheevos): the RetroAchievements
+  library (`third_party/rcheevos`, MIT).
 - The 5x7 UI font and much of the tooling come from the author's
   [Metroid: Zero Mission 3DS port](https://github.com/tinaut1986/mzm).
 

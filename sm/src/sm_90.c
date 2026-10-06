@@ -408,6 +408,16 @@ static Func_U8 *const kSamusIsBottomDrawnFuncs[28] = {  // 0x9085E2
   SamusBottomDrawn_1B,
 };
 
+// 3DS port, see g_rtl_oam_x: Samus's own screen position anchors her pieces (the one place a
+// piece above or below the view cannot be told from one on the other side). In Ceres her
+// position is a mode 7 one, not this: no anchor there.
+static void Samus_SetOamAnchor(void) {
+  if (ceres_status & 0x8000)
+    RtlOamClearAnchor();
+  else
+    RtlOamSetAnchor((int16)(samus_x_pos - layer1_x_pos), (int16)(samus_y_pos - layer1_y_pos));
+}
+
 void Samus_Draw(void) {
   PairU16 v0;
 
@@ -417,12 +427,14 @@ void Samus_Draw(void) {
       + kSamusPoseToBaseSpritemapIndexTop[samus_pose];
     uint16 a = samus_top_half_spritemap_index;
     v0 = Samus_CalcSpritemapPos(2 * samus_pose);
+    Samus_SetOamAnchor();
     DrawSamusSpritemap(a, v0.k, v0.j);
     uint16 R36 = v2;
     if (kSamusIsBottomDrawnFuncs[samus_movement_type]() & 1) {
       samus_bottom_half_spritemap_index = samus_anim_frame + kSamusPoseToBaseSpritemapIndexBottom[R36 >> 1];
       DrawSamusSpritemap(samus_bottom_half_spritemap_index, samus_spritemap_x_pos, samus_spritemap_y_pos);
     }
+    RtlOamClearAnchor();
   }
   SetSamusTilesDefsForCurAnim();
 }
@@ -444,6 +456,7 @@ uint8 SamusBottomDrawn_0_Standing(void) {  // 0x90868D
     v1 = gOamEnt(oam_next_ptr);
     *(uint16 *)&v1->xcoord = samus_x_pos - 7 - layer1_x_pos;
     *(uint16 *)&v1->ycoord = samus_y_pos - 17 - layer1_y_pos;
+    RtlOamTag(v0, v1->xcoord, v1->ycoord, false);   // 3DS port, see g_rtl_oam_x
     *(uint16 *)&v1->charnum = 14369;
     oam_next_ptr = v0 + 4;
   }
@@ -636,6 +649,7 @@ void Samus_DrawWhenNotAnimatingOrDying(void) {  // 0x908A00
   uint16 v2 = 2 * samus_pose;
   uint16 a = samus_anim_frame + kSamusPoseToBaseSpritemapIndexTop[samus_pose];
   v0 = Samus_CalcSpritemapPos(2 * samus_pose);
+  Samus_SetOamAnchor();
   DrawSamusSpritemap(a, v0.k, v0.j);
   uint16 R36 = v2;
   if (kSamusIsBottomDrawnFuncs[samus_movement_type]() & 1)
@@ -643,6 +657,7 @@ void Samus_DrawWhenNotAnimatingOrDying(void) {  // 0x908A00
       samus_anim_frame + kSamusPoseToBaseSpritemapIndexBottom[R36 >> 1],
       samus_spritemap_x_pos,
       samus_spritemap_y_pos);
+  RtlOamClearAnchor();
   SetSamusTilesDefsForCurAnim();
 }
 

@@ -62,6 +62,7 @@ typedef struct {
   uint8_t tex;          // index into GpuFrame.tex
   uint8_t level;        // priority 1..15, higher wins over lower (the backdrop is 0)
   uint8_t flags;
+  uint8_t plane;        // stereo plane chosen for this quad (StereoPlane + 1, GpuPpu_SetPlaneRule); 0 = by level
   // kGpuQuadAffine: plane position of the quad's top-left pixel, its step per pixel and
   // per row, in 1/256 texel, with the CPU renderer's 32-bit wrapping arithmetic: pixel
   // (x + i, y + r) shows texel ((ax + adx*i + ardx*r) >> 8, (ay + ady*i + ardy*r) >> 8),
@@ -118,6 +119,8 @@ typedef struct {
   // extra side space does. Rows: [0, 224), or with extra rows above and below
   // (GpuPpu_SetExtraRows), which repeat the first and last line's registers.
   int x0, x1, y0, y1;
+  // The columns the present step shows: all of them, or just [0, 256) (GpuPpu_SetCropToView).
+  int show_x0, show_x1;
   GpuTex *tex[kGpuMaxTex];
   int tex_count;
   GpuQuad quads[kGpuMaxQuads];
@@ -129,6 +132,11 @@ typedef struct {
   // Cleared by GpuPpu_BuildFrame; the caller may add masks before drawing the frame.
   GpuMaskRect mask[kGpuMaxMasks];
   int mask_count;
+  // The HUD's BG3 (bands within GpuPpu_SetNarrowBg3Rows), moved by GpuPpu_SetHudX/Y and
+  // drawn over the finished image, masks included, in list order, without colour math:
+  // the HUD keeps its place on the screen while the view leans, also onto rows of other
+  // bands. Each pixel takes the brightness of the band its row belongs to.
+  int hud_first, hud_count;
 } GpuFrame;
 
 // Implemented by the backend. Texels start out as zero (transparent).
@@ -136,6 +144,10 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h);
 void GpuBackend_TexFree(GpuTex *t);
 // The CPU changed texels in rows [y0, y1); flush them to where the GPU reads them.
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
+// About to write texels for the next frame: the GPU may still be drawing the previous one
+// from the same textures (they are written in place), so the backend waits for it here.
+// Called at most once per GpuPpu_BuildFrame, and only when that frame writes texels.
+void GpuBackend_BeforeTexWrite(void);
 
 // Forget every cached texture. Required whenever VRAM changes other than through the
 // PPU's data port (a loaded state, a reset). Cheap; the next frame decodes what it needs.
@@ -147,10 +159,23 @@ void GpuPpu_Invalidate(void);
 void GpuPpu_SetMargins(int left, int right);
 static inline void GpuPpu_SetMargin(int margin) { GpuPpu_SetMargins(margin, margin); }
 
+// Show only the 256 px view of the frames built next: the margins are there for the 3D
+// (a layer moved by its plane's offset uncovers its edge columns), not to be seen.
+void GpuPpu_SetCropToView(bool crop);
+
+// The BG3 tilemap the game's message boxes use (item, save, map prompts): its quads go on the
+// HUD's stereo plane, text in front of everything, over the room's own rules. -1 = none.
+void GpuPpu_SetMessageBoxMap(int tilemap_adr);
+
 // Where BG3 is drawn on the narrow (HUD) rows of GpuPpu_SetNarrowBg3Rows: columns
 // [x, x + 256). 0 = where the PPU puts it; with uneven margins, the HUD keeps its place on
 // the screen by moving by the difference.
 void GpuPpu_SetHudX(int x);
+
+// The same for rows: the HUD drawn at rows [y, y + its rows) instead of [0, ...), so it keeps
+// its place when the extra rows lean to one side (GpuPpu_SetExtraRows(top, bottom) with
+// top != bottom). HUD sprites move with it.
+void GpuPpu_SetHudY(int y);
 
 // Added to a BG layer's horizontal scroll on every line of the next frames (0..2 = BG1..3).
 void GpuPpu_SetLayerShiftX(int layer, int dx);
@@ -162,8 +187,23 @@ void GpuPpu_SetLayerShiftX(int layer, int dx);
 // margins they would hide what the SNES shows (a piece at x 500 appears at -12). NULL = none.
 extern const int16_t *g_gpu_ppu_obj_x, *g_gpu_ppu_obj_y;
 // Per OAM entry, non-zero: the sprite is part of the HUD and is drawn moved by the HUD's
-// offset (GpuPpu_SetHudX), as the HUD keeps its place when the view leans. NULL = none.
+// offset (GpuPpu_SetHudX/Y), as the HUD keeps its place when the view leans. NULL = none.
 extern const uint8_t *g_gpu_ppu_obj_hud;
+
+// The stereo plane a layer goes to in the current room, set by hand (source/sm_plane_fixes.inc, the layer
+// workbench): `layer` 1..3 = BG1..BG3, 4 = sprites (`prio` the OAM priority 0..3), 5 = Mode 7; `prio` is the tile
+// priority for the BGs. Returns a StereoPlane, or -1 to leave it to the depth function. Quads built while it says
+// a plane carry it in GpuQuad.plane. NULL = none.
+void GpuPpu_SetPlaneRule(int (*rule)(int layer, int prio));
+
+// Tiles of BG1 and BG2 that go to another stereo plane than their layer (source/sm_plane_fixes.inc, SM_PLANE_FIX). For
+// the tilemap surface of `layer` (1 = BG1, 2 = BG2), `tw` x `th` tiles, the hook fills `grid` (th rows of 64): per tile, bits 0-3 are 0 for a
+// tile that stays or StereoPlane + 1 for one sent to that plane, bits 4-7 are 0 or the tile priority it is drawn with + 1 (the
+// tile's own priority bit is replaced: it goes to the texture, and so the compositor level, of that priority). It returns how
+// many are set (0 = none). Tiles sent to a plane are drawn from a texture of their own per plane and carry the plane in
+// GpuQuad.plane, over the layer's own rule.
+// NULL = none.
+void GpuPpu_SetSlotPlanes(int (*slot_planes)(int layer, int tw, int th, uint8_t *grid));
 
 // Sprites do not wrap from the bottom to the top (SM's WIDE view: its HUD rows show
 // sprites, which on the SNES never showed there).
@@ -191,8 +231,15 @@ void GpuPpu_SetMode7UnderHud(bool on);
 // Window 2's real extent per captured line, [x0, x1) in view columns, for shapes the game
 // cuts to 0..255 (the power bomb): used instead of the registers on lines where cutting it
 // as SM does gives exactly the captured WH2/WH3. x0 = kGpuWinNone: none. NULL = off.
-enum { kGpuWinNone = -32768 };
+enum { kGpuWinNone = -32768, kGpuWinFar = 16000 };
 void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]);
+
+// Window 1's or 2's (`window`) real shape per captured line for a cone the game cuts to
+// 0..255 (SM's X-ray scope: 2, security eyes: 1): within the 256 px view the registers
+// stand; where they touch the view's edge, or are empty, the cone's own columns in the
+// margins are used. [x0, x1) in view columns, kGpuWinFar for unbounded, x0 = kGpuWinNone:
+// no cone on that line. NULL = none.
+void GpuPpu_SetWindowCone(int window, const int16_t (*cone)[2]);
 
 // Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
 bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);

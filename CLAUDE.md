@@ -34,9 +34,10 @@ issues or specs.
 
 | Path | Origin | Notes |
 |---|---|---|
-| `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (still SDL2 for input/audio, see PLAN P1.3), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
+| `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (libctru `hid` for input, NDSP for audio), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
 | `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
-| `SDL/` (submodule) | libsdl-org/SDL, SDL2 branch | Planned to be dropped in favour of libctru + citro3d directly (see PLAN). |
+| `third_party/rcheevos/` (vendored) | RetroAchievements/rcheevos, mzm's copy (`VERSION.txt`) | RetroAchievements library, MIT. No local changes: updates are a straight re-copy. |
+| `third_party/sdl_keys/` (vendored) | SDL 2.32 `SDL_keycode.h` / `SDL_scancode.h` (zlib) | The only trace of SDL in the 3DS build: `sm/src/config.c` names keys the SDL way. The `SDL/` submodule is gone. |
 | `romfs/` | | Only a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
 
 Other local checkouts:
@@ -52,6 +53,10 @@ running the real ROM on the bundled CPU emulator in lockstep and comparing RAM
 frame by frame. Consequences:
 
 - The ROM is still required at runtime (graphics, levels, music data).
+- It is **not the original code**: anything that expects the original's internals (direct-page scratch, the stack, exact timing) is
+  not there. The game's variables are at the original's WRAM addresses, so RetroAchievements and original `.srm` saves work, but
+  the RA set needs a table for what it reads outside them (`kDpTags` in `source/retro_ach.c`, PLAN P4.4): adapted to the set as
+  it is, to be redone if the set changes (`tools/ra-tags/dp_tags.py`).
 - Gaps or bugs in the C can be found by running both side by side and comparing
   snapshots (`sm/src/sm_cpu_infra.c`). This is the main debugging tool for game
   logic problems.
@@ -146,10 +151,8 @@ the `devkitpro/devkitarm:20260610` image, same as mzm). `bannertool` and
 `makerom` are committed in `tools/bin/` (copied from mzm).
 
 ```sh
-git submodule update --init --recursive
 export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
 export PATH=$PWD/tools/bin:/opt/devkitpro/tools/bin:$PATH
-make sdl                        # once; builds SDL/build/libSDL2.a
 make -j FULL_NATIVE=1 cia       # -> output/SuperMetroid3DSPort.cia
 make -j FULL_NATIVE=1 ftp FTP_HOST=<3ds ip>   # build + upload to /cias/
 ```
@@ -161,7 +164,7 @@ through `build/build_config.h`, so switching it needs no clean. See
 `docs/debug-tools.md`.
 
 `./build_3ds.sh` (`tools/build_3ds.py`, from mzm) wraps the same steps: it
-builds SDL if missing, can scan the LAN for the console's FTP server (port
+can scan the LAN for the console's FTP server (port
 5000) and upload the CIA as `cias/sm-3ds-<version>.cia`. `--mode debug|prod`
 (debug by default), `--ftp [IP]`, `--no-ftp`, `--clean`, `--dry-run`; no flags =
 interactive menu. The last IP
@@ -170,12 +173,15 @@ is kept in `.3ds_ftp_ip` (gitignored).
 `FULL_NATIVE`: run only the C game code, never the ROM on the emulated CPU.
 The CIA never contains the ROM. At runtime it reads any `.smc`/`.sfc` in
 `sdmc:/3ds/Super Metroid 3DS/` whose headerless sha1 matches the JU ROM, and shows
-an error screen otherwise. Saves, `config.ini` and `debug/` live in that folder too.
+an error screen otherwise. Saves, `config.ini`, `debug/` and the RetroAchievements badge cache
+(`badges/`) live in that folder too.
 
 Host-side tools (no console needed; the ones that run the game need a local ROM,
 never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to PNG,
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
-room, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
+room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `./run_workbench.sh` (`tools/layer-workbench/`, README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
+`tools/ra-tags/dp_tags.py` (docstring) checks the RetroAchievements table against the set the console saved,
+`tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
 console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in

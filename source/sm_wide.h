@@ -13,14 +13,21 @@
 #include "gpu_ppu.h"
 
 // View for the next frames, in screen pixels: margin on each side, rows above and below
-// the 224. All 0 = off (the game runs untouched).
-void SmWide_SetView(int margin_x, int extra_top, int extra_bottom);
+// the 224. All 0 = off (the game runs untouched). `hud_over_room`: the WIDE view proper,
+// which shows the room under the HUD; without it the margin is only the 3D's edge columns
+// (kStereoEdgePx) and the HUD's rows stay as the game draws them.
+void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room);
 
 // The last frame's margins: 2 * margin_x in all, but leaning away from a room edge that
 // would otherwise show (GpuPpu_SetMargins), where to draw the HUD so that it stays put on
 // the screen (GpuPpu_SetHudX), and how far to move BG2 so its parallax follows the leaned
 // view rather than the game's camera (GpuPpu_SetLayerShiftX).
 void SmWide_Margins(int *left, int *right, int *hud_x, int *bg2_dx);
+
+// The last frame's extra rows above and below the 224: extra_top + extra_bottom in all,
+// leaning away from a room's top or bottom edge like the margins (GpuPpu_SetExtraRows),
+// and the row to draw the HUD at so it stays put on the screen (GpuPpu_SetHudY).
+void SmWide_Rows(int *top, int *bottom, int *hud_y);
 
 // BG3 that must stay within the 256 px view, as it would repeat into the margins: the
 // HUD's rows (0-30) and the message boxes' tilemap (item, save, map; BG3SC 0x58).
@@ -34,6 +41,10 @@ bool SmWide_Filled(void);
 // plane goes on under the HUD (GpuPpu_SetMode7UnderHud).
 bool SmWide_Mode7(void);
 
+// The room is on screen, door transitions included: the game states the stereo planes
+// apply in (StereoFrame.gameplay); title, menus, the pause map and cutscenes are flat.
+bool SmWide_Gameplay(void);
+
 // The room's rectangle in screen pixels for the last frame ([x0, x1) x [y0, y1)); the
 // level data does not go beyond it, so outside it should be masked.
 void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
@@ -42,7 +53,12 @@ void SmWide_RoomRect(int *x0, int *y0, int *x1, int *y1);
 // GpuPpu_SetWindow2Extent; NULL when there is no explosion.
 const int16_t (*SmWide_Window2Extent(void))[2];
 
+// The X-ray scope's (or a security eye's) cone per captured line for GpuPpu_SetWindowCone,
+// when one was drawn this frame (and the window it uses); NULL otherwise.
+const int16_t (*SmWide_WindowCone(int *window))[2];
+
 // Black masks for a frame built with margins or extra rows: their parts outside the room
 // or in a red scroll screen made of one block (filler), and all of them when they were
-// not filled. (The HUD's BG3 stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
-void SmWide_AddMasks(GpuFrame *f);
+// not filled; in a mode 7 room, the margins of its mode 1 lines (`cap`: the frame's lines).
+// (The HUD's BG3 stays out of the margins through GpuPpu_SetNarrowBg3Rows.)
+void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap);

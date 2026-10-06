@@ -1,0 +1,213 @@
+# Stereoscopic 3D: design (P3.1-P3.4)
+
+Status: proposal, 2026-10-03. Nothing here is implemented yet.
+
+The SNES has no depth. The port invents it by drawing the frame twice, once per eye,
+with each layer shifted sideways by its own amount. Everything below is about choosing
+those amounts so the picture stays readable, and about drawing it twice cheaply.
+
+## What we take from mzm, and what we do not
+
+`../mzm/platform/3ds/source/port_stereo_depth.{h,c}` and its host test
+(`tests/stereo_depth_test.c`) settled four things that carry over unchanged:
+
+1. **Depth is a pure function of the PPU state of the frame**, in its own file with no
+   3DS headers, so a host test can enumerate every input. Rules that infer depth from
+   level data or collision were tried in mzm and each broke something else.
+2. **The two failures to test for**: one object split across two planes, and a layer
+   placed nearer than something that visibly draws over it (parallax says "in front",
+   occlusion says "behind").
+3. **Whole-pixel offsets, rounded once per plane per eye.** With nearest sampling every
+   quad rounds a fractional offset on its own, so part of a layer moves by a pixel and
+   part does not: glyphs tear, and which ones tear changes as the slider moves (mzm's
+   "ghost pixels" on text). mzm rounds `slider * plane_px` per plane per eye; the same
+   here. The HUD and every text plane additionally use offsets that are whole pixels
+   at every slider step they are drawn at (below), so text never shimmers.
+4. **World sprites on one plane, just behind the platform layer**, so the ground Samus
+   walks on reads as having thickness in front of her (she walks along its middle).
+   This is the one accepted contradiction with the 2D order (BG1 low-priority tiles are
+   drawn under her, yet sit slightly nearer), and the test pins it as deliberate.
+
+Not carried over: mzm's per-cutscene, per-menu and per-block override lists
+(`port_cutscene_depth`, `port_layer_fixes`, `port_sprite_depth`). They patch how
+Zero Mission builds its menus, maps and cutscenes; SM builds them differently, so P3.4
+looks at SM's own screens first and only then decides whether any list is needed.
+
+## The SNES side: what a frame gives us
+
+Gameplay is mode 1 with BG3 priority on (`bg3priority=1`). The GPU renderer already
+gives every quad a compositor level (`GpuQuad.level`, gpu_ppu.c), higher drawn in front:
+
+| Level | Layer | In gameplay |
+|---|---|---|
+| 15 | BG3, tile priority 1 | HUD (rows 0-31), message boxes, FX drawn over everything |
+| 14 | OBJ priority 3 | |
+| 12 | BG1, tile priority 1 | foreground tiles the room draws over Samus (pillars, grass) |
+| 11 | BG2, tile priority 1 | |
+| 10 | OBJ priority 2 | Samus, most enemies |
+| 8 | BG1, tile priority 0 | the level: floors, walls, platforms |
+| 7 | BG2, tile priority 0 | the room's background |
+| 6 | OBJ priority 1 | |
+| 2 | OBJ priority 0 | |
+| 1 | BG3, tile priority 0 | FX behind everything (fog, haze) |
+| 0 | backdrop | |
+
+Mode 7 (Ceres elevator, Ridley's getaway) has one BG (the plane) plus sprites.
+
+So the depth input is small and explicit: the layer, its tile priority, the OBJ
+priority, the BG mode, and a few frame facts the renderer already knows (whether this
+quad is in the HUD list, whether the frame is gameplay, WIDE margins).
+
+## Planes
+
+Eight planes; offsets are pixels of shift per eye at full slider, positive = nearer.
+Values are a starting point to tune on the console, not a decision.
+
+| Plane | What goes there | Offset (full slider) |
+|---|---|---|
+| `HUD` | the HUD list (BG3 HUD rows, the escape timer), message boxes, the port's text (FPS overlay, toasts) | +2 |
+| `FRONT` | BG3 priority 1 that is not the HUD: water surface, lava, fog over the room | +1 |
+| `PLAY` | BG1 and BG2 tile priority 1 (levels 12, 11): SM's walls and floors; sprites of OAM priority 3 (drawn over them); the mode 7 plane | 0 |
+| `OBJ` | Samus and enemies (OAM priority 0-2) | -1 |
+| `BACK` | BG1 tile priority 0 (level 8): the level's parts Samus passes in front of (the save station's glass, background pipes) | -2 |
+| `MID` | BG3 priority 0 FX: falling ash, fog, haze (level 1) | -3 |
+| `FAR` | BG2 tile priority 0 (level 7), the room's background; backdrop | -4 |
+| `SCREEN` | non-gameplay screens: the art behind the text (see "Screens"), and every screen not listed there | 0 |
+
+Why these (revised 2026-10-03 after the first console test):
+
+- SM draws its walls and floors with BG1 tile priority 1 and Samus at OAM priority 2,
+  under them (she passes behind wall edges). Following that order puts the walls one step
+  in front of her: mzm's platform thickness comes from the compositor itself, with no
+  contradiction. The first cut had BG1 priority 1 as a "foreground" plane and priority 0
+  as the level, which put the save station's glass (priority 0, drawn under Samus) in
+  front of her and sank the wall faces of 9A44 (sprites of priority 3 drawn over the wall)
+  behind it.
+- `PLAY` at 0 keeps the walls at the screen's own depth, where the eyes focus anyway.
+- `OBJ` = `PLAY` when the thickness option is off; the test checks both settings.
+- `FAR` is BG2 priority 0, the room's background, and `MID` the BG3 priority 0 FX in front of it
+  (ash in room 9CB3 read as behind the background when both shared a plane order the other way;
+  the SNES draws BG3 under BG2, so the test pins it as accepted). BG2 priority 1 (level 11) draws over
+  Samus, so it is a wall and goes on `PLAY` like BG1 priority 1. Some rooms keep their
+  whole level on it: the Fireflea room (9C5E) has BG1 empty, and with BG2 all on a far plane the
+  floors sat 3 px behind Samus and level with the background (found with the scene recorder).
+- BG3 effects (ash, fog, water) reach the screen by colour math, in one of two ways (found by listing the bands of
+  every room: `STEREO_BANDS_EVERY` in `tools/gpu-ppu-test`), and neither is a layer with a plane of its own:
+  - **Effect on the subscreen** (ash; ~80 rooms): the scene is on the main screen and BG3 is added only over the
+    pixels whose layer has math on (in 9CB3: BG2, some sprites, the backdrop; not BG1 or Samus). The effect is drawn
+    unshifted and the math pass adds it shifted by the plane of the pixel's owner (the stencil's bits 2-4 keep it): when
+    what it covers is on one side of what it does not cover, one plane a pixel in front of all it covers (never past what
+    it is not added to); otherwise each pixel a pixel in front of its own owner. So it is in front of what it is drawn
+    on and behind what it is not drawn on, whatever the room.
+  - **Scene on the subscreen** (fog, water, lava; ~25 rooms): BG3 is on the main screen with math and the game adds the
+    whole scene to it, so BG3 is drawn over everything whatever its tile priority. The scene keeps its planes and BG3
+    goes on `FRONT` (a plane set by hand wins). Before, BG3 priority 0 sat on `MID`, behind the scene it covered.
+  A layer rule set by hand (`SM_LAYER_PLANE`) for BG3 keeps its plane in both. The planes of BG3 above (`MID`, `FRONT`)
+  only matter for the HUD and the rooms where BG3 is a plain layer.
+- Ash on the subscreen takes **one** plane, a pixel in front of every plane it is added to and of the sprites' (so it is
+  always in front of Samus), but a pixel behind a layer the game does not add it to that stands at or in front of those planes
+  (BG1's walls hide it; at the same depth nothing would explain why the wall covers it) Following each pixel's owner put it in front of
+  Samus only while she crossed the layer it was on; one plane a pixel past everything hid it behind the scenery it showed in front of.
+- A wall the game draws with tile priority 0 but that stands in front of Samus (A6A1) is on `PLAY` and still crossed by her
+  weapon (sprites of priority 2 are drawn over BG1 priority 0): the plane is only the depth, the order is the priority.
+  `SM_TILE_PRIO` (workbench) draws such tiles with priority 1.
+- `HUD` and every other plane move in whole pixels (point 3).
+- The mode 7 plane goes on `PLAY`: in the Ceres elevator it is the room Samus stands
+  in, in Ridley's room it is Ridley flying at her.
+- Without WIDE the HUD is not taken out into the HUD list: BG3 quads within the top 32
+  rows count as HUD there (gpu_ppu_3ds.c `QuadDx`).
+
+## Screens outside gameplay (P3.4)
+
+The owner's rule: **text and interface in front of everything** (the `HUD` plane), the art behind it flat
+(`SCREEN`). What each screen holds was read off the host frames (`STATE_SURVEY`, `LEVEL_SPLIT` in
+`tools/gpu-ppu-test`); `SmPlanes_Screen()` names the screen from the game state and `ScreenPlane()`
+(`stereo_depth.c`) decides, with `tools/stereo-test` pinning each case:
+
+| Screen (game state) | In front (`HUD`) | Flat (`SCREEN`) |
+|---|---|---|
+| Nintendo logo, title (0, 1) | the sprites: logo, copyright | the mode 7 scene |
+| File select (4) | BG1 (text), BG3 and the sprites (frame, icons, cursor) | BG2 (the planet), backdrop |
+| Intro story (0x1E) | BG3 (the text), priority 3 sprites (the typing cursor) | BG1 and BG2 pictures, other sprites |
+| Pause map and equipment (0xD-0x11) | everything but the grid | BG2 priority 0 (the grid), backdrop |
+| Game over (0x1A) | BG1 priority 0 (text) and the sprites (cursor) | the backdrop gradient |
+| Anything else | | everything: flat |
+
+In gameplay the message boxes (BG3 tilemap `0x5800`: save prompt, item and map texts) are on `HUD`
+as well: the renderer tags their quads (`GpuPpu_SetMessageBoxMap`), because by level alone they
+cannot be told from water or fog on BG3.
+
+Not looked at yet (flat): the options menu and file-select map (states 2, 5), the ending and credits,
+the Ceres explosion's text. Add one to the table when the owner wants it.
+
+## The 3D slider and whole pixels
+
+The slider gives a float 0..1 (`osGet3DSliderState`). Per eye and plane:
+`offset = round(eye_sign * slider * plane_px)`, computed once per frame and plane, then
+added to every quad of that plane. That alone makes each plane move rigidly.
+
+For the text planes that is not enough: as the slider moves, the HUD's offset changes
+at different slider positions than the world's, so for an instant the HUD can sit at
+the same depth as the level behind it. Fine for depth, but the HUD must never land on a
+fractional position, and it does not: offsets are integers by construction. What
+remains is a matter of taste (the HUD stepping from 0 to 1 to 2 px), to judge on the
+console.
+
+SCALED mode stretches 256 to 274 columns (x1.07, nearest). Both eyes go through the
+same stretch, so a 1-pixel shift in SNES pixels is still a clean shift in each eye's
+image. Whether that reads well at 1.07 is a check for the console; PIXEL PERFECT is 1:1
+and has no such question.
+
+## Drawing it twice
+
+Today (gpu_ppu_3ds.c): the frame's quads go into a 512x256 main target (plus a sub
+target for colour math), and that texture is drawn scaled onto the top screen.
+
+With 3D on and the slider above 0:
+
+1. The frame is built once on the CPU, as now (`GpuPpu_BuildFrame`). Every quad gets
+   its plane from the depth function (a byte next to `level`).
+2. Per eye: draw the bands into the main/sub targets with each quad moved by its
+   plane's offset, then present into that eye's top target (`GFX_LEFT`, `GFX_RIGHT`).
+   The second eye re-issues the same vertex data with a per-plane offset uniform, as
+   mzm's batch replay does, so the CPU cost of the second eye is small. The GPU cost
+   roughly doubles; on the New 3DS the log shows "wait for GPU 0.0", and the 2DS has
+   no 3D screen (the slider reads 0, one eye, nothing changes there).
+3. Masks, colour windows and the HUD list move with their own planes: a mask belongs to
+   the margins (no shift), the HUD list to `HUD`.
+
+Edges: shifting a layer by N pixels uncovers N columns at the edge of the view. With
+WIDE those are the margins' columns, already built. Without WIDE the frame builder adds
+`max offset` columns per side (as it does for the margins, `GpuPpu_SetMargins`) and the
+present step crops them, so the edge never shows empty columns. Done as `StereoEdge()` in
+`main.c`: gameplay, slider up, WIDE off, margin `kStereoMaxPx`; `SmWide_SetView`'s
+`hud_over_room` stays off (the HUD keeps its band and the game does not draw the room under it)
+and `GpuPpu_SetCropToView` limits the picture to the 256 px view. Host: `edge-rooms`.
+
+Colour math: the sub screen is drawn per eye with the same planes, so translucent water
+over the level lines up in each eye.
+
+The CPU renderer (refused frames, rare in gameplay) draws one flat image for both eyes.
+
+## Tests (host)
+
+`tools/stereo-test/`, built like the other host tools, compiling the depth file alone:
+
+- Exhaustive over mode 1 levels x OBJ priorities x the frame facts: no BG is nearer than
+  a layer that draws over it, except the pinned `PLAY`/`OBJ` thickness; the HUD plane is
+  the nearest of all; every plane's offset is an integer for every slider step.
+- Mode 7 frames: one plane for the plane, sprites as in gameplay.
+- From real frames: a few save states (Landing Site, a heat room, Maridia water, Ceres
+  elevator, Ridley) run through gpu-ppu-test with a `STEREO=1` dump of each eye, to look
+  at, plus a check that no quad of one tile is split across two planes.
+
+## Tasks this splits into
+
+- **P3.1**: the depth file and the host test above. No rendering change.
+- **P3.2**: per-eye drawing with the offsets, edges, slider, an option to turn 3D off.
+  Done when the New 3DS shows the planes with no torn text at any slider position and
+  holds 60 fps in Landing Site, Ceres and a heat room.
+- **P3.3**: a debug tint per plane (like mzm's), and the scene checks: Spore Spawn's BG2,
+  water and lava surfaces, the escape timer, message boxes.
+- **P3.4**: title, file select, map and pause, cutscenes, Ceres mode 7: flat first, depth
+  only where it reads well.

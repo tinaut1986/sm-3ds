@@ -28,6 +28,10 @@
 #include "sm_map.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "sm_planes.h"
+#include "stereo_depth.h"
+#include "game_text.h"
+#include "ui_lang.h"
 
 bool g_debug_flag, g_is_turbo, g_want_dump_memmap_flags, g_new_ppu = true, g_other_image;
 struct SpcPlayer *g_spc_player;
@@ -50,10 +54,20 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
 }
 void GpuBackend_TexFree(GpuTex *t) { free(t->px); t->px = NULL; }
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {}
+void GpuBackend_BeforeTexWrite(void) {}
 
 enum { kPitch = 256 * 4 };
 static uint8_t g_px[kPitch * 240], g_a[kPitch * 240], g_b[kPitch * 240], g_c[kPitch * 240];
 static PpuLineCapture g_cap;
+// The tile fixes as the renderer takes them, but without the priorities (SM_TILE_PRIO) unless PRIO_FIXES=1: those change the picture on
+// purpose (a wall drawn over a sprite), which the CPU renderer this test compares against does not know.
+static int TestSlotPlanes(int layer, int tw, int th, uint8_t *grid) {
+  int n = SmPlanes_SlotPlanes(layer, tw, th, grid);
+  if (n <= 0 || getenv("PRIO_FIXES")) return n;   // (grid is only filled when it returns tiles)
+  n = 0;
+  for (int i = 0; i < th * 64; i++) n += (grid[i] &= 15) != 0;
+  return n;
+}
 static int g_input;   // controller bits for TestFrame's frames
 static GpuFrame g_frame;
 static int g_frames, g_capture_bad, g_gpu_bad, g_refused, g_dumped;
@@ -114,24 +128,34 @@ static uint8_t g_w[(256 + 2 * kGpuMaxMargin) * 4 * (kGpuRows + 2 * kGpuMaxExtraR
 static int g_wide_bad, g_wide_frames, g_wide_dumped, g_wide_tagdiff, g_wide_filled;
 static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, margins included
 
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
+
+static int g_eproj_margin_frames, g_eproj_margin_max, g_eproj_left_first = -1, g_eproj_far_frames;
+static int g_enemy_margin_frames;
+
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
   SmWide_Margins(&ml, &mr, &hud_x, &bg2_dx);
   GpuPpu_SetLayerShiftX(1, bg2_dx);   // for the reference build too: it moves the middle
-  if (getenv("WIDE_LEAN")) printf("  lean %d/%d hud %d bg2 %d\n", ml, mr, hud_x, bg2_dx);
+  int et, eb, hud_y;   // the extra rows, leaning off a room's top or bottom the same way
+  SmWide_Rows(&et, &eb, &hud_y);
+  if (getenv("WIDE_LEAN")) printf("  lean %d/%d rows %d/%d hud %d,%d bg2 %d\n", ml, mr, et, eb, hud_x, hud_y, bg2_dx);
   const int w = 256 + ml + mr, pitch = w * 4;
-  const int ey = getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, rows = kGpuRows + 2 * ey;
+  const int ey = et, rows = kGpuRows + et + eb;   // ey: the image row of view row 0
   const char *why;
   // The reference for the middle: the normal frame, but with sprites placed by their full X
   // too (the WIDE game logic draws enemies whose pieces the 9-bit X would wrap into view).
-  g_gpu_ppu_obj_x = g_rtl_oam_x;
-  g_gpu_ppu_obj_y = g_rtl_oam_y;
+  g_gpu_ppu_obj_x = g_rtl_oam_shown_x;
+  g_gpu_ppu_obj_y = g_rtl_oam_shown_y;
   GpuPpu_SetNoSpriteWrap(true);   // as the WIDE frame (and the console with WIDE on)
-  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);   // so the mode 7 plane under the HUD is in the reference
+  // So the mode 7 plane under the HUD is in the reference. WIDE_HUD_INBAND=1: not, so the
+  // reference draws the HUD within its band, as without WIDE (the WIDE frame draws it over
+  // everything, GpuFrame.hud_first): checks that both give the same image.
+  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_HUD_INBAND") || getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
   GpuPpu_SetMode7UnderHud(SmWide_Mode7());
   // HUD sprites (the escape timer) moved with the HUD in the reference too (the HUD's own
   // rows are not compared when it moves).
-  g_gpu_ppu_obj_hud = g_rtl_oam_hud;
+  g_gpu_ppu_obj_hud = g_rtl_oam_shown_hud;
   GpuPpu_SetHudX(hud_x);
   if (!GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why)) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
@@ -158,25 +182,52 @@ static void TestWide(const char *label) {
   }
   GpuPpu_SetMargins(ml, mr);
   GpuPpu_SetHudX(hud_x);
-  GpuPpu_SetExtraRows(ey, ey);
-  GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+  GpuPpu_SetHudY(hud_y);
+  GpuPpu_SetExtraRows(et, eb);
+  GpuPpu_SetNarrowBg3Rows(getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
   GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
   GpuPpu_SetWindow2Extent(SmWide_Window2Extent());
-  g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_x;   // NO_FULLX: the 9-bit X (old bug)
-  g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_y;
+  int cone_window;
+  const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
+  GpuPpu_SetWindowCone(cone_window, getenv("WIDE_NO_CONE") ? NULL : cone);
+  if (getenv("WIDE_CONE_CHECK") && cone) {   // the cone's columns against its window's registers
+    const int16_t (*c)[2] = cone;
+    int lines = 0, off = 0, worst = 0;
+    for (int l = 1; l <= kGpuRows; l++) {
+      const PpuLineState *st = &g_cap.line[l];
+      const int wl = cone_window == 1 ? st->window1left : st->window2left;
+      const int wr = cone_window == 1 ? st->window1right : st->window2right;
+      const bool reg = wl <= wr, geo = c[l][0] != kGpuWinNone && c[l][1] > 0 && c[l][0] < 256;
+      int d = 0;
+      if (reg != geo) d = 99;
+      else if (reg) {
+        if (wl > 0) d = abs(c[l][0] - wl);
+        if (wr < 255) d = d > abs(c[l][1] - 1 - wr) ? d : abs(c[l][1] - 1 - wr);
+      }
+      lines++, off += d > 1, worst = d > worst ? d : worst;
+      if (d > 1 && getenv("WIDE_CONE_CHECK")[0] == '2')
+        printf("  line %d: regs %d..%d (w2 %d..%d) cone %d..%d\n", l, st->window1left, st->window1right, st->window2left,
+               st->window2right, c[l][0], c[l][1] - 1);
+    }
+    printf("%s: cone vs window %d: %d of %d lines off by more than 1 px (worst %d)\n", label, cone_window, off, lines, worst);
+  }
+  g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_x;   // NO_FULLX: the 9-bit X (old bug)
+  g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_y;
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   GpuPpu_SetWindow2Extent(NULL);
+  GpuPpu_SetWindowCone(0, NULL);
   GpuPpu_SetMode7UnderHud(false);
   g_gpu_ppu_obj_hud = NULL;
   GpuPpu_SetMargin(0);
   GpuPpu_SetHudX(0);
+  GpuPpu_SetHudY(0);
   GpuPpu_SetLayerShiftX(1, 0);
   GpuPpu_SetExtraRows(0, 0);
   GpuPpu_SetNarrowBg3Rows(0);
   GpuPpu_SetNarrowBg3Map(-1);
   g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
   GpuPpu_SetNoSpriteWrap(false);
-  if (built) SmWide_AddMasks(&g_frame);
+  if (built) SmWide_AddMasks(&g_frame, &g_cap);
   if (!built) {
     g_wide_bad++;
     printf("%s: WIDE build refused (%s)\n", label, why);
@@ -194,24 +245,34 @@ static void TestWide(const char *label) {
     // Inside the view, a recorded position must be where the SNES shows the piece; one more
     // than 64 px off means a wrong anchor (a piece 256 px away from where it belongs).
     for (int i = 0; i < 128; i++) {
-      if (g_rtl_oam_x[i] == kRtlOamUnknown || g_rtl_oam_y[i] >= kRtlOamHiddenY) continue;
+      if (g_rtl_oam_shown_x[i] == kRtlOamUnknown || g_rtl_oam_shown_y[i] >= kRtlOamHiddenY) continue;
       const uint16_t *o = &g_snes->ppu->oam[i * 2];
       int x = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8, y = o[0] >> 8;
       if (x >= 256 + 64) x -= 512;
       if (y >= 224 + 16) y -= 256;
       if (x < 32 || x > 224 || y < 48 || y > 192) continue;   // well inside: no ambiguity
-      if (abs(g_rtl_oam_x[i] - x) > 64 || abs(g_rtl_oam_y[i] - y) > 64)
-        printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_x[i], g_rtl_oam_y[i]);
+      if (abs(g_rtl_oam_shown_x[i] - x) > 64 || abs(g_rtl_oam_shown_y[i] - y) > 64)
+        printf("%s: OAM %d at %d,%d recorded as %d,%d\n", label, i, x, y, g_rtl_oam_shown_x[i], g_rtl_oam_shown_y[i]);
     }
   }
-  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, first 24 entries
+  if (getenv("WIDE_OAM")) {   // 9-bit OAM X against the recorded full X, the first 24 entries and the others not parked (h: HUD)
     printf("  oam:");
-    for (int i = 0; i < 24; i++) {
+    for (int i = 0; i < 128; i++) {
       const uint16_t *o = &g_snes->ppu->oam[i * 2];
       const int raw = (o[0] & 0xff) | ((g_snes->ppu->highOam[i >> 2] >> ((i & 3) * 2)) & 1) << 8;
-      printf(" %d:%d/%d,y%d/%d", i, raw, g_rtl_oam_x[i], o[0] >> 8, g_rtl_oam_y[i]);
+      if (i >= 24 && (o[0] >> 8) == 0xf0 && g_rtl_oam_shown_y[i] == kRtlOamUnknown) continue;   // parked
+      printf(" %d:%d/%d,y%d/%d%s", i, raw, g_rtl_oam_shown_x[i], o[0] >> 8, g_rtl_oam_shown_y[i], g_rtl_oam_shown_hud[i] ? "h" : "");
     }
     printf("\n");
+  }
+  if (getenv("LINE_REGS")) {   // LINE_REGS=n: the registers of captured line n (colour math, windows, layers)
+    const PpuLineState *l = &g_cap.line[atoi(getenv("LINE_REGS"))];
+    printf("  line regs: TM %02x TS %02x windowed %02x/%02x windowsel %08x W1 %d..%d W2 %d..%d clip %d prevent %d math",
+           l->screenEnabled[0], l->screenEnabled[1], l->screenWindowed[0], l->screenWindowed[1], l->windowsel,
+           l->window1left, l->window1right, l->window2left, l->window2right, l->clipMode, l->preventMathMode);
+    for (int i = 0; i < 6; i++) printf(" %d", l->mathEnabled[i]);
+    printf(" sub %d half %d addsub %d fixed %d,%d,%d bright %d\n", l->addSubscreen, l->halfColor, l->subtractColor,
+           l->fixedColorR, l->fixedColorG, l->fixedColorB, l->brightness);
   }
   if (getenv("WIDE_BANDS")) {   // the masks, the bands of the wide frame and their main-screen quads
     printf("  masks:");
@@ -229,11 +290,44 @@ static void TestWide(const char *label) {
   }
   memset(g_w, 0, sizeof(g_w));
   GpuRef_DrawFrameColumns(&g_frame, g_w, pitch, -ml, 256 + mr);
+  {   // STEREO_PLANES_WIDE=a-b: the WIDE frame (margins included) split by stereo plane, wideplanes-NNNN-P.ppm, as STEREO_PLANES
+    int pa, pb;
+    if (getenv("STEREO_PLANES_WIDE") && sscanf(getenv("STEREO_PLANES_WIDE"), "%d-%d", &pa, &pb) == 2 && g_frames >= pa && g_frames <= pb) {
+      static GpuFrame one;
+      static uint8_t img[1024 * 4 * 260];
+      const StereoFrame sf = { SmWide_Gameplay(), SmPlanes_Screen() };
+      for (int pl = 0; pl < kStereoPlaneCount; pl++) {
+        one = g_frame;
+        for (int q = 0; q < one.quad_count; q++) {
+          const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
+          if (QuadStereoPlane(&sf, &one.quads[q], hud) != pl) one.quads[q].w = 0;
+        }
+        for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
+        memset(img, 0, (size_t)pitch * rows);
+        GpuRef_DrawFrameColumns(&one, img, pitch, -ml, 256 + mr);
+        char name[48];
+        snprintf(name, sizeof(name), "wideplanes-%04d-%d.ppm", g_frames, pl);
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        fprintf(f, "P6\n%d %d\n255\n", w, rows);
+        for (int y = 0; y < rows; y++)
+          for (int x = 0; x < w; x++) {
+            const uint8_t *px = &img[y * pitch + x * 4];
+            const uint8_t rgb[3] = { px[2], px[1], px[0] };
+            fwrite(rgb, 1, 3, f);
+          }
+        fclose(f);
+      }
+    }
+  }
   int n = 0;
   // With uneven margins the HUD is drawn moved (it keeps its place on the screen): compare
   // below its rows then.
   // (A message box is moved like the HUD: not compared then.)
-  for (int y = hud_x ? 31 : 0; y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
+  // Moved down, it covers rows up to 30 + hud_y. The HUD's rows also show the FX layer and
+  // colour math of the rows below (gpu_ppu.c, SynthHudLine), which the SNES never drew there:
+  // compared from under the HUD.
+  for (int y = 31 + (hud_y > 0 ? hud_y : 0); y < (hud_x && gameplay_BG3SC == 0x58 ? 0 : kGpuRows); y++)
     n += memcmp(&g_w[(y + ey) * pitch + ml * 4], &g_n[y * kPitch], 256 * 4) != 0;
   if (n) {
     g_wide_bad++;
@@ -246,18 +340,26 @@ static void TestWide(const char *label) {
     }
   }
   // Without the room filled in (door transitions, fades) the margins must be black, apart
-  // from the HUD's own columns on its rows (it may sit in a margin when the view leans):
+  // from the HUD's own columns on its rows and its sprites (it may sit in a margin when the
+  // view leans):
   // their tilemap columns hold stale blocks (issue: garbage beside the HUD in a door).
   g_wide_filled += SmWide_Filled();
   for (int i = 0; i < rows * pitch; i++) g_wide_hash = (g_wide_hash ^ g_w[i]) * 1099511628211ull;
   if (!SmWide_Filled() && !SmWide_Mode7()) {   // (mode 7: the plane is the whole room)
     int dirty = 0;
     for (int y = 0; y < rows; y++) {
-      const bool hud_row = y - ey < 31 && y >= ey;
+      const bool hud_row = y - ey - hud_y < 31 && y - ey - hud_y >= 0;
       for (int x = 0; x < w; x++) {
         const int vx = x - ml;
         if (vx >= 0 && vx < 256 && y >= ey && y - ey < kGpuRows) continue;   // the game's view
         if (hud_row && vx >= hud_x && vx < hud_x + 256) continue;
+        bool hud_obj = false;   // a HUD sprite (the escape timer) keeps its place, in a margin too
+        for (int q = g_frame.hud_first; q < g_frame.hud_first + g_frame.hud_count && !hud_obj; q++) {
+          const GpuQuad *qd = &g_frame.quads[q];
+          hud_obj = (qd->flags & kGpuQuadObj) && vx >= qd->x && vx < qd->x + qd->w && y - ey >= qd->y &&
+                    y - ey < qd->y + qd->h;
+        }
+        if (hud_obj) continue;
         const uint8_t *p = &g_w[y * pitch + x * 4];
         if (p[0] | p[1] | p[2]) { dirty++; break; }
       }
@@ -285,8 +387,9 @@ static void TestWide(const char *label) {
     }
   }
   const int dump = getenv("WIDE_DUMP") ? atoi(getenv("WIDE_DUMP")) : 0;
-  // WIDE_DUMP_ROOM=hex: only frames in that room count.
-  if (g_wide_dumped < dump && (!getenv("WIDE_DUMP_ROOM") || room_ptr == strtol(getenv("WIDE_DUMP_ROOM"), 0, 16))) {
+  // WIDE_DUMP_ROOM=hex: only frames in that room count; WIDE_DUMP_FROM=n: only from tested frame n on.
+  if (g_wide_dumped < dump && (!getenv("WIDE_DUMP_FROM") || g_frames >= atoi(getenv("WIDE_DUMP_FROM"))) &&
+      (!getenv("WIDE_DUMP_ROOM") || room_ptr == strtol(getenv("WIDE_DUMP_ROOM"), 0, 16))) {
     char name[64];
     snprintf(name, sizeof(name), "wide-%03d.ppm", g_wide_dumped++);
     FILE *f = fopen(name, "wb");
@@ -311,12 +414,13 @@ static void TestWide(const char *label) {
     g_gpu_ppu_obj_x = g_gpu_ppu_obj_y = NULL;
     GpuPpu_SetMargins(ml, mr);
     GpuPpu_SetHudX(hud_x);
+    GpuPpu_SetHudY(hud_y);
     GpuPpu_SetLayerShiftX(1, bg2_dx);
-    GpuPpu_SetExtraRows(ey, ey);
-    GpuPpu_SetNarrowBg3Rows(kSmWideHudRows);
+    GpuPpu_SetExtraRows(et, eb);
+    GpuPpu_SetNarrowBg3Rows(getenv("WIDE_EDGE") ? 0 : kSmWideHudRows);
     GpuPpu_SetNarrowBg3Map(kSmWideMessageBoxMap);
     if (GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &f2, &why2)) {
-      SmWide_AddMasks(&f2);
+      SmWide_AddMasks(&f2, &g_cap);
       memset(old, 0, sizeof(old));
       GpuRef_DrawFrameColumns(&f2, old, pitch, -ml, 256 + mr);
       if (memcmp(old, g_w, (32 + ey) * pitch)) {
@@ -341,6 +445,7 @@ static void TestWide(const char *label) {
     }
     GpuPpu_SetMargin(0);
     GpuPpu_SetHudX(0);
+    GpuPpu_SetHudY(0);
     GpuPpu_SetLayerShiftX(1, 0);
     GpuPpu_SetExtraRows(0, 0);
     GpuPpu_SetNarrowBg3Rows(0);
@@ -350,6 +455,68 @@ static void TestWide(const char *label) {
 
 // Runs one frame and checks it. `check_capture` also runs it a second time the
 // normal way (from a save state) to compare the capture replay against it.
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
+
+// INTRO_CURSOR_CHECK=1 (with GAME_LANG): in the intro's story text (game state 0x1E) the typing
+// cursor, a sprite, must be right after the last letter on screen or at the start of the next line
+// (a full line, or the page done), whatever the language: game_text_screens.c moves it with the
+// translated letters (issue #36). The cursor is the sprite with tile 0xFC. Story letters are the BG3 cells with the priority bit and a tile
+// other than the blank 0x2F, rows 4-23. No sprite on a frame is the cursor blinking: not checked.
+static int g_cursor_frames, g_cursor_bad, g_cursor_blink;
+
+static void CheckIntroCursor(const char *label) {
+  const Ppu *ppu = g_snes->ppu;
+  if (game_state != 0x1e || g_ui_lang == kLangEn) return;
+  const BgLayer *bg = &ppu->bgLayer[2];
+  int last_row = -1, last_col = -1, first_col = 99, letters = 0;
+  for (int r = 4; r <= 23; r++)
+    for (int x = 0; x < 32; x++) {
+      const uint16_t t = ppu->vram[(bg->tilemapAdr + r * 32 + x) & 0x7fff];
+      if (!(t & 0x2000) || (t & 0x3ff) == 0x2f) continue;
+      last_row = r, last_col = x, letters++;
+      if (x < first_col) first_col = x;
+    }
+  if (letters < 3) return;   // the first letters of a page stay in English (a page is known from 3 on)
+  int found = 0;
+  for (int i = 0; i < 128; i++) {
+    const uint16_t w = ppu->oam[i * 2];
+    const int y = w >> 8, x = (w & 0xff) | (ppu->highOam[i >> 2] >> ((i & 3) * 2) & 1) << 8;
+    if (y >= 224 || (ppu->oam[i * 2 + 1] & 0x1ff) != 0xfc) continue;   // the cursor's tile
+    found = 1;
+    const int col = ((x + bg->hScroll) >> 3) & 31, row = ((y + 1 + bg->vScroll) >> 3) & 31;
+    const bool after_letter = row == last_row && col == last_col + 1;
+    const bool next_line = row == last_row + 2 && col == first_col;
+    g_cursor_frames++;
+    if (!after_letter && !next_line) {
+      if (g_cursor_bad++ < 8)
+        printf("%s: INTRO CURSOR at cell %d,%d, last letter at %d,%d (first column %d)\n", label, row, col, last_row,
+               last_col, first_col);
+    }
+  }
+  if (!found) g_cursor_blink++;
+}
+
+// EDGE_CHECK=1: an OAM entry in the bottom band (raw Y 224-255, where the extra rows show what a
+// wrapped sprite reads as: one below the view for one above it and the other way round) must be
+// tagged with its full position or parked (Y 0xF0). Samus's pieces were not, and showed at the
+// opposite edge (issue #26). The tagged entries fully outside the view are counted: with Samus
+// pinned off the view (SAMUS_PIN) there must be some, or the test did not look at anything.
+static int g_edge_frames, g_edge_untagged, g_edge_outside;
+
+static void CheckEdgeSprites(const char *label) {
+  const Ppu *ppu = g_snes->ppu;
+  g_edge_frames++;
+  for (int i = 0; i < 128; i++) {
+    const int y = ppu->oam[i * 2] >> 8, fy = g_rtl_oam_shown_y[i];
+    if (fy == kRtlOamUnknown) {
+      if (y >= 224 && y != 0xf0 && g_edge_untagged++ < 8)
+        printf("%s: EDGE OAM %d at raw y %d is not tagged\n", label, i, y);
+    } else if (fy < kRtlOamHiddenY && (fy < -16 || fy >= 232)) {
+      g_edge_outside++;
+    }
+  }
+}
+
 static void TestFrame(const char *label, bool check_capture) {
   if (check_capture) RtlSaveLoad(kSaveLoad_Save, 8);
   if (check_capture) {
@@ -377,12 +544,92 @@ static void TestFrame(const char *label, bool check_capture) {
   g_replay_us += (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
   memcpy(g_b, g_px, sizeof(g_b));
   g_frames++;
+  if (getenv("INTRO_CURSOR_CHECK")) CheckIntroCursor(label);
+  if (getenv("EDGE_CHECK")) CheckEdgeSprites(label);
+  if (getenv("ENEMY_MARGIN"))   // ENEMY_MARGIN=ptr: frames with an enemy of that kind more than 40 px left of the normal view
+    for (int i = 0; i < 32; i++)
+      if (gEnemyData(i * 64)->enemy_ptr == strtol(getenv("ENEMY_MARGIN"), NULL, 16) &&
+          (int16)(gEnemyData(i * 64)->x_pos - layer1_x_pos) < -40) {
+        g_enemy_margin_frames++;
+        break;
+      }
+  if (getenv("EPROJ_MARGIN") && g_frames == 20)
+    for (int i = 0; i < 16; i++)
+      if (gEnemyData(i * 64)->enemy_ptr) printf("EPROJ_MARGIN enemy %d: %04X at %d,%d (camera %d,%d, Samus %d,%d)\n", i, gEnemyData(i * 64)->enemy_ptr, gEnemyData(i * 64)->x_pos, gEnemyData(i * 64)->y_pos, layer1_x_pos, layer1_y_pos, samus_x_pos, samus_y_pos);
+  if (getenv("ENEMY_LIST") && g_frames % atoi(getenv("ENEMY_LIST")) == 0)   // every enemy slot: id, place and screen x
+    for (int i = 0; i < 32; i++)
+      if (gEnemyData(i * 64)->enemy_ptr)
+        printf("ENEMY_LIST frame %d slot %d %04X at %d,%d screen x %d (camera %d,%d) props %04X ai %04X\n", g_frames, i, gEnemyData(i * 64)->enemy_ptr, gEnemyData(i * 64)->x_pos, gEnemyData(i * 64)->y_pos, (int16)(gEnemyData(i * 64)->x_pos - layer1_x_pos), layer1_x_pos, layer1_y_pos, gEnemyData(i * 64)->properties, gEnemyData(i * 64)->ai_handler_bits);
+  if (getenv("EPROJ_LIST") && g_frames % atoi(getenv("EPROJ_LIST")) == 0)
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i]) printf("EPROJ_LIST frame %d slot %d id %04X at %d,%d (camera %d,%d)\n", g_frames, i, eproj_id[i], eproj_x_pos[i], eproj_y_pos[i], layer1_x_pos, layer1_y_pos);
+  if (getenv("EPROJ_MARGIN")) {   // enemy projectiles alive outside the game's own 256 px window (WIDE keeps them)
+    int out = 0;
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i] && (!getenv("EPROJ_ID") || eproj_id[i] == strtol(getenv("EPROJ_ID"), NULL, 16)) &&
+          ((int16)(eproj_x_pos[i] - layer1_x_pos) < 0 || (int16)(eproj_x_pos[i] - layer1_x_pos) >= 256)) out++;
+    for (int i = 0; i < 18; i++)
+      if (eproj_id[i] && (int16)(eproj_x_pos[i] - layer1_x_pos) < -8 && (int16)(eproj_x_pos[i] - layer1_x_pos) > -60 && g_eproj_left_first < 0)
+        g_eproj_left_first = g_frames, printf("EPROJ_MARGIN first projectile in the left margin: frame %d, eproj %04X at x %d\n", g_frames, eproj_id[i], (int16)(eproj_x_pos[i] - layer1_x_pos));
+    for (int i = 0; i < 18; i++)   // beyond the -128 px the game draws a projectile down to (it needs a margin wider than that)
+      if (eproj_id[i] && (!getenv("EPROJ_ID") || eproj_id[i] == strtol(getenv("EPROJ_ID"), NULL, 16)) &&
+          (int16)(eproj_x_pos[i] - layer1_x_pos) < -128 && (int16)(eproj_x_pos[i] - layer1_x_pos) > -300) {
+        g_eproj_far_frames++;
+        break;
+      }
+    g_eproj_margin_frames += out > 0;
+    g_eproj_margin_max = out > g_eproj_margin_max ? out : g_eproj_margin_max;
+  }
+  // SHOTS=a-b: tested frames a..b (counted from 1) as shot-NNNN.ppm (CPU renderer, 256x224)
+  // with VRAM as vram-NNNN.bin, e.g. to look at a message box (MSGBOX) and its font.
+  int shot_a, shot_b;
+  // SHOTS_STEP=n: only every n-th of those frames.
+  const int shot_step = getenv("SHOTS_STEP") ? atoi(getenv("SHOTS_STEP")) : 1;
+  if (getenv("SHOTS") && sscanf(getenv("SHOTS"), "%d-%d", &shot_a, &shot_b) == 2 && g_frames >= shot_a &&
+      g_frames <= shot_b && (shot_step <= 1 || (g_frames - shot_a) % shot_step == 0)) {
+    char name[32];
+    snprintf(name, sizeof(name), "shot-%04d.ppm", g_frames);
+    FILE *f = fopen(name, "wb");
+    if (f) {
+      fprintf(f, "P6\n256 224\n255\n");
+      for (int y = 0; y < 224; y++)
+        for (int x = 0; x < 256; x++) {
+          const uint8_t *q = &g_b[y * kPitch + x * 4];
+          const uint8_t rgb[3] = { q[2], q[1], q[0] };
+          fwrite(rgb, 1, 3, f);
+        }
+      fclose(f);
+    }
+    snprintf(name, sizeof(name), "vram-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->vram, 2, 0x8000, f), fclose(f);
+    snprintf(name, sizeof(name), "cgram-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->cgram, 2, 256, f), fclose(f);
+    // regs-NNNN.txt: the mode and each BG's tilemap, chars and scroll (to find a text's
+    // layer), wram-shot-NNNN.bin the WRAM, oam-NNNN.bin the OAM (544 bytes).
+    snprintf(name, sizeof(name), "regs-%04d.txt", g_frames);
+    if ((f = fopen(name, "w"))) {
+      const Ppu *p = g_snes->ppu;
+      fprintf(f, "mode %d obj %04x %04x size %d\n", p->mode, p->objTileAdr1, p->objTileAdr2, p->objSize);
+      for (int k = 0; k < 4; k++)
+        fprintf(f, "bg%d map %04x%s%s chars %04x scroll %d,%d\n", k + 1, p->bgLayer[k].tilemapAdr,
+                p->bgLayer[k].tilemapWider ? " wide" : "", p->bgLayer[k].tilemapHigher ? " high" : "",
+                p->bgLayer[k].tileAdr, p->bgLayer[k].hScroll, p->bgLayer[k].vScroll);
+      fclose(f);
+    }
+    snprintf(name, sizeof(name), "wram-shot-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_ram, 1, 0x20000, f), fclose(f);
+    snprintf(name, sizeof(name), "oam-%04d.bin", g_frames);
+    if ((f = fopen(name, "wb"))) fwrite(g_snes->ppu->oam, 2, 0x100, f), fwrite(g_snes->ppu->highOam, 1, 0x20, f), fclose(f);
+  }
   int x0, y0, x1, y1, n;
   if (check_capture && (n = Diff(g_a, g_b, &x0, &y0, &x1, &y1))) {
     g_capture_bad++;
     printf("%s: CAPTURE REPLAY differs from the normal render: %d px in %d,%d..%d,%d\n", label, n, x0, y0, x1, y1);
   }
   const char *why;
+  // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
+  GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
+  GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? TestSlotPlanes : NULL);
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -450,6 +697,136 @@ static void TestFrame(const char *label, bool check_capture) {
   if (g_frame.quad_count > g_max_quads) g_max_quads = g_frame.quad_count;
   memset(g_c, 0, sizeof(g_c));
   GpuRef_DrawFrame(&g_frame, g_c, kPitch);
+  if (getenv("QUAD_LEVELS") && g_frames == atoi(getenv("QUAD_LEVELS")))
+    for (int q = 0; q < g_frame.quad_count; q++) {
+      const GpuQuad *qd = &g_frame.quads[q];
+      printf("quad %d level %d flags %x x %d y %d w %d h %d\n", q, qd->level, qd->flags, qd->x, qd->y, qd->w, qd->h);
+    }
+  // STATE_SURVEY=n: every n-th tested frame (and whenever the game state changes), the state and each
+  // compositor level's quads (count and bounding box, screen pixels): what each non-gameplay screen is made of (P3.4).
+  if (getenv("STATE_SURVEY")) {
+    static int last_state = -1;
+    if (game_state != last_state || g_frames % atoi(getenv("STATE_SURVEY")) == 0) {
+      last_state = game_state;
+      printf("SURVEY frame %d state %02X:", g_frames, game_state);
+      for (int lv = 0; lv < 16; lv++)
+        for (int obj = 0; obj < 2; obj++) {
+          int n = 0, x0 = 999, y0 = 999, x1 = -999, y1 = -999;
+          for (int q = 0; q < g_frame.quad_count; q++) {
+            const GpuQuad *qd = &g_frame.quads[q];
+            if (qd->level != lv || !!(qd->flags & kGpuQuadObj) != obj) continue;
+            n++;
+            if (qd->x < x0) x0 = qd->x;
+            if (qd->y < y0) y0 = qd->y;
+            if (qd->x + qd->w > x1) x1 = qd->x + qd->w;
+            if (qd->y + qd->h > y1) y1 = qd->y + qd->h;
+          }
+          if (n) printf(" %s%d[%d %d,%d..%d,%d]", obj ? "o" : "L", lv, n, x0, y0, x1, y1);
+        }
+      printf(" bands %d mode7 %d\n", g_frame.band_count, (int)(g_cap.line[100].mode == 7));
+    }
+  }
+  // LEVEL_SPLIT=f1,f2,...: at those tested frames, one image per compositor level present
+  // (level-FFFF-L15.ppm for a layer, -o10 for sprites; magenta backdrop): which layer holds what (P3.4).
+  if (getenv("LEVEL_SPLIT")) {
+    bool want = false;
+    for (const char *c = getenv("LEVEL_SPLIT"); *c; c = strchr(c, ',') ? strchr(c, ',') + 1 : c + strlen(c))
+      want |= atoi(c) == g_frames;
+    for (int lv = 0; want && lv < 16; lv++)
+      for (int obj = 0; obj < 2; obj++) {
+        static GpuFrame one;
+        static uint8_t img[kPitch * 240];
+        one = g_frame;
+        int n = 0;
+        for (int q = 0; q < one.quad_count; q++) {
+          if (one.quads[q].level != lv || !!(one.quads[q].flags & kGpuQuadObj) != obj) one.quads[q].w = 0;
+          else n++;
+        }
+        if (!n) continue;
+        for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = 0x7c1f;
+        memset(img, 0, sizeof(img));
+        GpuRef_DrawFrame(&one, img, kPitch);
+        char name[48];
+        snprintf(name, sizeof(name), "level-%04d-%s%d.ppm", g_frames, obj ? "o" : "L", lv);
+        FILE *f = fopen(name, "wb");
+        if (!f) continue;
+        fprintf(f, "P6\n256 224\n255\n");
+        for (int y = 0; y < 224; y++)
+          for (int x = 0; x < 256; x++) {
+            const uint8_t *px = &img[y * kPitch + x * 4];
+            const uint8_t rgb[3] = { px[2], px[1], px[0] };
+            fwrite(rgb, 1, 3, f);
+          }
+        fclose(f);
+      }
+  }
+  // STEREO_BANDS_EVERY=n: every n-th tested frame, the room and each band's colour math (which main quads it applies to, which
+  // quads are the subscreen): L = a layer, o = a sprite, + = math applies, then its level. To find the rooms with effects.
+  if (getenv("STEREO_BANDS_EVERY") && g_frames % atoi(getenv("STEREO_BANDS_EVERY")) == 0)
+    for (int b = 0; b < g_frame.band_count; b++) {
+      const GpuBand *bd = &g_frame.bands[b];
+      if (!bd->math && !bd->sub_count) continue;
+      printf("BANDS room %04X frame %d rows %d-%d add_sub %d; main:", room_ptr, g_frames, bd->y0, bd->y1, bd->add_subscreen);
+      for (int q = bd->main_first; q < bd->main_first + bd->main_count; q++)
+        printf(" %s%d%s", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level, g_frame.quads[q].flags & kGpuQuadMath ? "+" : "");
+      printf("; sub:");
+      for (int q = bd->sub_first; q < bd->sub_first + bd->sub_count; q++)
+        printf(" %s%d", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level);
+      printf("\n");
+    }
+  // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
+  // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
+  int sp_a, sp_b;
+  if (getenv("STEREO_PLANES") && sscanf(getenv("STEREO_PLANES"), "%d-%d", &sp_a, &sp_b) == 2 && g_frames >= sp_a &&
+      g_frames <= sp_b) {
+    static GpuFrame one;
+    static uint8_t img[kPitch * 240];
+    const StereoFrame sf = { SmWide_Gameplay(), SmPlanes_Screen() };
+    if (getenv("STEREO_QUADS"))   // each quad's place, compositor level and plane
+      for (int q = 0; q < g_frame.quad_count; q++) {
+        const GpuQuad *qd = &g_frame.quads[q];
+        const bool hud = q >= g_frame.hud_first && q < g_frame.hud_first + g_frame.hud_count;
+        printf("STEREO_QUAD frame %d %s x %d y %d w %d h %d level %d plane %d%s\n", g_frames,
+               qd->flags & kGpuQuadObj ? "obj" : "bg ", qd->x, qd->y, qd->w, qd->h, qd->level,
+               (int)QuadStereoPlane(&sf, qd, hud), qd->plane ? " (set by hand)" : "");
+      }
+    if (getenv("STEREO_BANDS"))   // colour math per band: which main quads it applies to, which quads are the subscreen
+      for (int b = 0; b < g_frame.band_count; b++) {
+        const GpuBand *bd = &g_frame.bands[b];
+        printf("STEREO_BAND frame %d rows %d-%d math %d add_sub %d half %d subtract %d backdrop_math %d; main:", g_frames, bd->y0, bd->y1,
+               bd->math, bd->add_subscreen, bd->half, bd->subtract, bd->backdrop_math);
+        for (int q = bd->main_first; q < bd->main_first + bd->main_count; q++)
+          printf(" %s%d%s", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level, g_frame.quads[q].flags & kGpuQuadMath ? "+" : "");
+        printf("; sub:");
+        for (int q = bd->sub_first; q < bd->sub_first + bd->sub_count; q++)
+          printf(" %s%d", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level);
+        printf("\n");
+      }
+    for (int pl = 0; pl < kStereoPlaneCount; pl++) {
+      one = g_frame;
+      for (int q = 0; q < one.quad_count; q++) {
+        const GpuQuad *qd = &one.quads[q];
+        const bool hud = q >= one.hud_first && q < one.hud_first + one.hud_count;
+        if (QuadStereoPlane(&sf, qd, hud) != pl) one.quads[q].w = 0;
+        if (getenv("ONLY_LEVEL") && qd->level != atoi(getenv("ONLY_LEVEL"))) one.quads[q].w = 0;
+      }
+      for (int b = 0; b < one.band_count; b++) one.bands[b].backdrop = pl == kStereoFar ? one.bands[b].backdrop : 0x7c1f;
+      memset(img, 0, sizeof(img));
+      GpuRef_DrawFrame(&one, img, kPitch);
+      char name[40];
+      snprintf(name, sizeof(name), "planes-%04d-%d.ppm", g_frames, pl);
+      FILE *f = fopen(name, "wb");
+      if (!f) continue;
+      fprintf(f, "P6\n256 224\n255\n");
+      for (int y = 0; y < 224; y++)
+        for (int x = 0; x < 256; x++) {
+          const uint8_t *px = &img[y * kPitch + x * 4];
+          const uint8_t rgb[3] = { px[2], px[1], px[0] };
+          fwrite(rgb, 1, 3, f);
+        }
+      fclose(f);
+    }
+  }
   if ((n = Diff(g_b, g_c, &x0, &y0, &x1, &y1))) {
     g_gpu_bad++;
     printf("%s: GPU differs: %d px in %d,%d..%d,%d (%d bands, %d quads)\n", label, n, x0, y0, x1, y1,
@@ -469,17 +846,30 @@ static void TestFrame(const char *label, bool check_capture) {
   if (getenv("WIDE")) TestWide(label);
 }
 
+// The stereo plane of a quad: the one set by hand for its layer (sm_planes.c) or the depth function's.
+static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud) {
+  if (qd->plane && !hud && sf->gameplay) return (StereoPlane)(qd->plane - 1);
+  const StereoItem it = StereoDepth_ItemOfLevel(qd->level, qd->flags & kGpuQuadObj, qd->flags & kGpuQuadAffine, hud);
+  return StereoDepth_Plane(sf, &it);
+}
+
 static int g_music_rooms, g_music_stuck, g_music_wrong;
 
 static void Report(void) {
   if (g_music_rooms)
     printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
            g_music_wrong);
+  if (getenv("ENEMY_MARGIN")) printf("ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: %d\n", g_enemy_margin_frames);
+  if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once), %d with one more than 128 px left of the view\n", g_eproj_margin_frames, g_eproj_margin_max, g_eproj_far_frames);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);
   if (getenv("WIDE"))
     printf("WIDE frames %d, bad %d, frames where full positions change the view below the HUD %d, room filled in %d\n",
            g_wide_frames, g_wide_bad, g_wide_tagdiff, g_wide_filled);
+  if (getenv("INTRO_CURSOR_CHECK"))
+    printf("INTRO CURSOR frames %d, bad %d, blinking %d\n", g_cursor_frames, g_cursor_bad, g_cursor_blink);
+  if (getenv("EDGE_CHECK"))
+    printf("EDGE frames %d, untagged %d, tagged outside the view %d\n", g_edge_frames, g_edge_untagged, g_edge_outside);
   if (getenv("WIDE")) printf("WIDE image hash %016llx\n", (unsigned long long)g_wide_hash);
   // Game state at the end, for tools/test: any change to the game logic changes it.
   uint64_t h = 1469598103934665603ull;
@@ -508,11 +898,17 @@ int main(int argc, char **argv) {
   g_spc_player = SpcPlayer_Create();
   SpcPlayer_Initialize(g_spc_player);
   PpuBeginDrawing(snes->snes_ppu, g_px, kPitch, 0);
+  // GAME_LANG=n: the game's message boxes in UI language n (ui_lang.h), as on the console.
+  if (getenv("GAME_LANG")) {
+    g_ui_lang = (UiLang)atoi(getenv("GAME_LANG"));
+    GameText_Init();
+  }
+  GpuPpu_SetMessageBoxMap(kSmWideMessageBoxMap);   // as the console in gameplay: message boxes on the HUD plane
   // WIDE: the game side fills the margins' tilemap areas in every frame run from here on
   // (they are outside the normal view, so the normal checks are unaffected).
   if (getenv("WIDE"))
     SmWide_SetView(atoi(getenv("WIDE")), getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0,
-                   getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0);
+                   getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, !getenv("WIDE_EDGE"));
   if (!strcmp(argv[2], "state")) {
     // The state is copied to saves/save9.sav by run.sh.
     if (!RtlSaveLoad(kSaveLoad_Load, 9)) return 4;
@@ -587,6 +983,24 @@ int main(int argc, char **argv) {
           g_input = (at && played >= at) ? b : a;
         }
         played++;
+      }
+      // BOOT_SEQ=hex@frame,...: the buttons from each frame on, instead of the START/A
+      // pattern (and of BOOT_INPUT), e.g. to walk the menus.
+      // BOOT_SEQ_STATE=hex: its frames count from the first frame in that game state (4: the
+      // file-select menus), with START/A until then.
+      static int seq_from = -1;
+      if (getenv("BOOT_SEQ_STATE") && seq_from < 0 && game_state == strtol(getenv("BOOT_SEQ_STATE"), 0, 16))
+        seq_from = i;
+      if (getenv("BOOT_SEQ") && (!getenv("BOOT_SEQ_STATE") || seq_from >= 0)) {
+        const int t = getenv("BOOT_SEQ_STATE") ? i - seq_from : i;
+        g_input = 0;
+        for (const char *q = getenv("BOOT_SEQ"); *q;) {
+          int bits, at, used;
+          if (sscanf(q, "%x@%d%n", &bits, &at, &used) != 2) break;
+          if (t >= at) g_input = bits;
+          q += used;
+          if (*q == ',') q++;
+        }
       }
       // CERES_BOOM: once in the Ceres elevator room (DF45), jump to "made it to the
       // elevator" so the escape cutscene (Ceres explodes) plays.
@@ -689,7 +1103,7 @@ int main(int argc, char **argv) {
     // 0x40, B jump 0x01, Y run 0x02), e.g. to scroll while WIDE is checked.
     g_input = getenv("ROOM_INPUT") ? (int)strtol(getenv("ROOM_INPUT"), 0, 16) : 0;
     for (int k = 0; k < frames; k++) {
-      samus_health = 99;
+      samus_health = getenv("SAMUS_HEALTH") ? (uint16)atoi(getenv("SAMUS_HEALTH")) : 99;
       // EARTHQUAKE=type: the room shakes (HandleRoomShaking) for every tested frame.
       if (getenv("EARTHQUAKE")) earthquake_type = (uint16)atoi(getenv("EARTHQUAKE")), earthquake_timer = 30;
       // CERES_ESCAPE: the escape is on (ceres_status bit 15): the elevator shaft (DF45) tilts,
@@ -698,8 +1112,39 @@ int main(int argc, char **argv) {
         ceres_status |= 0x8000;
         if (!timer_status) timer_status = 0x8001, frame_handler_gamma = (uint16)fnSamus_Func3;
       }
+      // FORCE_STATE=n: game state n from frame 5 on (38: Samus escapes Zebes, then the ending).
+      if (getenv("FORCE_STATE") && k == 5) game_state = (uint16)atoi(getenv("FORCE_STATE"));
+      // SRAM_SAVE=n: the game saved to file n (0-2) on frame 2, into saves/sm.srm (e.g. for
+      // the file-select screens with data).
+      if (getenv("SRAM_SAVE") && k == 2) SaveToSram((uint16)atoi(getenv("SRAM_SAVE")));
       // MSGBOX=n: queue message box n (as an item pickup does) on frame 5.
       if (getenv("MSGBOX") && k == 5) queued_message_box_index = (uint16)atoi(getenv("MSGBOX"));
+      // SAMUS_AT=x,y: put Samus there on frame 1 (a console dump's place; the camera follows).
+      int sx, sy;
+      if (getenv("SAMUS_AT") && k == 1 && sscanf(getenv("SAMUS_AT"), "%d,%d", &sx, &sy) == 2)
+        samus_x_pos = samus_prev_x_pos = (uint16)sx, samus_y_pos = samus_prev_y_pos = (uint16)sy;
+      // SAMUS_PIN=dy[,pose]: from frame 3 on Samus is put dy pixels below the camera's top every
+      // frame (negative: above the view, over 224: below it), as in an elevator shaft where she
+      // rides out of the view, in that pose if given (hex; 0: standing facing the front).
+      if (getenv("SAMUS_PIN") && k >= 3) {
+        int dy, pose;
+        const int n = sscanf(getenv("SAMUS_PIN"), "%d,%x", &dy, &pose);
+        if (n >= 1) samus_y_pos = samus_prev_y_pos = (uint16)(layer1_y_pos + dy);
+        if (n >= 2) samus_pose = (uint16)pose;
+      }
+      // ITEMS=hex: these items collected and equipped from frame 1 (4 = morph ball: the eyes).
+      if (getenv("ITEMS") && k == 1) {
+        const int it = (int)strtol(getenv("ITEMS"), 0, 16);
+        collected_items |= it, equipped_items |= it;
+      }
+      // XRAY=1: X-ray scope collected, equipped and selected from frame 1 (hold Y, 0x02, to use it).
+      if (getenv("XRAY") && k == 1) {
+        collected_items |= 0x8000, equipped_items |= 0x8000;
+        hud_item_index = 5;
+      }
+      // SCROLLS_OPEN=1: every scroll screen blue on frame 1, so the camera can follow her there.
+      if (getenv("SCROLLS_OPEN") && k == 1)
+        for (int i = 0; i < room_width_in_scrolls * room_height_in_scrolls && i < 50; i++) scrolls[i] = 1;
       if (getenv("FIREFLEA_DARK")) fireflea_darkness_level = (uint16)atoi(getenv("FIREFLEA_DARK"));
       // ROOM_INPUT2=hex@frame: other buttons from that frame on (e.g. come back through a door).
       if (getenv("ROOM_INPUT2")) {
@@ -717,8 +1162,8 @@ int main(int argc, char **argv) {
         }
       }
       if (getenv("TRACE_SAMUS") && k % 10 == 0)
-        printf("  k%d in %03x: samus %d,%d camera %d,%d state %02x room %04x\n", k, g_input, samus_x_pos, samus_y_pos,
-               layer1_x_pos, layer1_y_pos, (unsigned)game_state, (unsigned)room_ptr);
+        printf("  k%d in %03x: samus %d,%d pose %02x camera %d,%d state %02x room %04x\n", k, g_input, samus_x_pos,
+             samus_y_pos, (unsigned)samus_pose, layer1_x_pos, layer1_y_pos, (unsigned)game_state, (unsigned)room_ptr);
       // AUTOFIRE: the shot button (0x200) released every other 8 frames, so held fire keeps
       // shooting (a door that closed behind Samus needs a new shot).
       if (getenv("AUTOFIRE") && (k & 8)) g_input &= ~0x200;

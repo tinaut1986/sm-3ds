@@ -25,6 +25,8 @@ bool SceneRec_Active(void);
 // Start: allocates the ring (the biggest of 32..4 MB that leaves 4 MB free). Stop: writes the file
 // (this takes a few seconds) and frees the ring.
 void SceneRec_Toggle(void);
+// Stops without writing anything and frees the ring (the report window's CANCEL).
+void SceneRec_Discard(void);
 // Rate presets, only while stopped.
 void SceneRec_CycleRate(void);
 const char *SceneRec_RateLabel(void);

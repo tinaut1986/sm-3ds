@@ -56,6 +56,9 @@ void UiDraw_Swapped(void);
 void UiDraw_VBlankSeen(void);
 void UiDraw_WaitSwapShown(void);
 
+// Everything drawn after UiClipY stays within rows y0..y1-1, until UiNoClip.
+void UiClipY(int y0, int y1);
+void UiNoClip(void);
 void UiFillRect(Surface s, int x, int y, int w, int h, uint32_t c);
 void UiFrameRect(Surface s, int x, int y, int w, int h, uint32_t c);   // 1 px outline
 void UiDrawText(Surface s, int x, int y, int scale, uint32_t c, const char *str);
@@ -67,6 +70,9 @@ void UiDrawBox(Surface s, Rect r, uint32_t body, uint32_t border, bool pressed);
 // Box plus a centred label (nudged down 1 px while pressed).
 void UiDrawBoxLabel(Surface s, Rect r, uint32_t body, uint32_t border, uint32_t text, bool pressed, const char *label);
 void UiDrawTextCentered(Surface s, int cx, int y, uint32_t c, const char *str);
+// A size x size image (row-major, RGB() pixels) with its top-left at (x, y); `gray` draws
+// it in dimmed greys.
+void UiBlit(Surface s, int x, int y, int size, const uint32_t *px, bool gray);
 // Horizontal bar: `value` of `max` filled, with a dark track and outline.
 void UiDrawBar(Surface s, int x, int y, int w, int h, int value, int max, uint32_t fill);
 

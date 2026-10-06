@@ -29,7 +29,7 @@ and 0 for Release ones, so stable CIAs have none of this.
 
 DEBUG TOOLS window: SCREEN DUMP, FRAME DUMP, LOG TO SD (below), LOG MARK, SCENE REC
 (below), PERF RECORDER, RENDERER
-(GPU by default, CPU for the session; see docs/gpu-ppu-design.md) and GPU CHECK (draws the next frame with both
+(GPU by default, CPU for the session; see docs/gpu-ppu-design.md), PLANE TINT (below) and GPU CHECK (draws the next frame with both
 renderers: a dump set whose `-top.rgb` is the CPU's and `-gpu.rgb` the GPU's, and a
 toast with how many pixels differ). Dumps and frame captures are always drawn by the
 CPU renderer, even with RENDERER on GPU.
@@ -40,31 +40,67 @@ values) and forgets the forced maps.
 The top bar shows `REC` while the scene recorder runs, `PRF` while the perf recorder
 does, and `CHT` while GOD or MAX is on.
 
+## REPORT: saying what is wrong
+
+SCREEN DUMP, FRAME DUMP and the stop button of SCENE REC do not write at once: the game
+pauses and the bottom screen asks what is wrong. Eight generic reasons (3D DEPTH WRONG, WIDE
+VIEW BUG, SPRITE MISSING, SPRITE FLASHES, WRONG COLOURS, GLITCH OR GARBAGE, GAME LOGIC,
+PERFORMANCE), WRITE IT... (the 3DS keyboard, any text up to 119 characters) and CANCEL.
+A reason writes the capture plus `sm-<kind>-NNNN-note.txt` with it (`Debug_SetNote`, taken by the
+capture code through `Debug_WriteNote`); the game goes back to what it was (paused stays
+paused after the one frame the dump needs). CANCEL writes nothing, neither file nor note. Stopping a recording
+has two exits instead of CANCEL: the play triangle goes back to the game with the recorder still
+running, and the cross discards the recording (no file, no note). Nothing else works on the bottom screen while the window is open.
+The dump is of the frame after the pause, not of the instant the button was tapped.
+
+## PLANE TINT
+
+GPU renderer only; the cell cycles OFF, PLANES, DRAW ORDER and STEREO DEPTH. PLANES: every quad of the frame is painted in the flat, opaque colour of the
+stereo plane it was put on (`StereoDepth_Plane`), keeping its own silhouette (a see-through mix hid the
+difference between a dark picture and a far plane); the 3D offsets still apply, so with the slider up each colour also moves by its
+own amount. The window shows the legend (nearest first): HUD magenta, FRONT cyan, PLAY
+orange, OBJ white, BACK red, MID green, FAR blue (a flat non-gameplay screen is grey).
+It is the on-console counterpart of `STEREO_PLANES=a-b` in `tools/gpu-ppu-test`, which
+writes one image per plane on the host (`STEREO_QUADS=1` also prints every quad's level
+and plane). The setting lasts for the session. The CPU renderer has no planes: the cell
+says so.
+
+DRAW ORDER (green) and STEREO DEPTH (blue) each use one colour, dark at the back and bright in front, so
+which of the two is on shows at a glance; the window shows the ramp. DRAW ORDER is how the game draws the quad: its compositor level (backdrop 0, BG3 priority 0
+1, sprites priority 0 2, sprites priority 1 6, BG2 priority 0 7, BG1 priority 0 8, sprites priority 2 10,
+BG2 priority 1 11, BG1 priority 1 12, sprites priority 3 14, BG3 priority 1 and the HUD 15). STEREO DEPTH is
+where 3D puts the same quad: the shift of its plane at full slider, far to near, planes set by hand included
+(`sm_plane_fixes.inc`). Compare the two: what is brighter in one than in the other is drawn in front but
+sits behind in 3D, or the other way round, which is what the depth fixes are about.
+
 ## Files
 
 All in `debug/` of the data folder (`sdmc:/3ds/Super Metroid 3DS/debug/`); fetch
-them over FTP. Captures rotate over a fixed number of slots (10, 4 for scene
-recordings): a new capture takes the first free slot, else the one after the slot
-written last, which `sm-<kind>-last.txt` remembers (`dump`, `log`, `perf`, `rec`). So
-once every slot exists the newest is the one named in that file. The file times are
-not used: on the console they did not tell the slots apart (most likely libctru's
-`stat()` leaves `st_mtime` at 0; it has a separate `archive_getmtime`), which is why every
-dump landed in slot 00 once all ten existed (issue #8).
+them over FTP. Dumps and scene recordings are never overwritten and have no limit: each takes
+the number after the last one written (4 digits, `sm-dump-0007-*`, `sm-rec-0003.bin`), which
+`sm-<kind>-last.txt` remembers (`dump`, `rec`); the owner clears them out after going through
+them. The SD log and the perf recorder still rotate over 10 slots (2 digits). The file times are
+not used for any of it: on the console they did not tell slots apart (most likely libctru's
+`stat()` leaves `st_mtime` at 0; it has a separate `archive_getmtime`), which is why every dump
+once landed in slot 00 (issue #8).
 
 | File | Contents |
 |---|---|
-| `sm-dump-NN-top.rgb` | PPU output, headerless RGB8, 256x240, top to bottom |
-| `sm-dump-NN-vram.bin`, `-cgram.bin`, `-oam.bin`, `-highoam.bin` | PPU memories |
-| `sm-dump-NN-wram.bin` | the whole 128 KB of WRAM (`g_ram`) |
-| `sm-dump-NN-ppu.txt` | PPU register state at the end of the frame |
-| `sm-dump-NN-game.txt` | game state, room, Samus |
-| `sm-dump-NN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
-| `sm-dump-NN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
-| `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
+| `sm-dump-NNNN-top.rgb` | PPU output, headerless RGB8, 256x240, top to bottom |
+| `sm-dump-NNNN-vram.bin`, `-cgram.bin`, `-oam.bin`, `-highoam.bin` | PPU memories |
+| `sm-dump-NNNN-wram.bin` | the whole 128 KB of WRAM (`g_ram`) |
+| `sm-dump-NNNN-ppu.txt` | PPU register state at the end of the frame |
+| `sm-dump-NNNN-game.txt` | game state, room, Samus |
+| `sm-dump-NNNN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
+| `sm-dump-NNNN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
+| `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, display mode, WIDE, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
 | `sm-exit.txt` | the steps of the last exit, in every build: if closing hangs, the last line says where |
 | `sm-perf-NN.csv` | frame-time recorder |
-| `sm-rec-NN.bin` | scene recorder (below) |
+| `sm-rec-NNNN.bin` | scene recorder (below) |
+| `sm-dump-NNNN-note.txt`, `sm-rec-NNNN-note.txt` | what the owner said was wrong when taking it (REPORT, below): one line |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |
+| `retroachievements.log` | RetroAchievements, all builds: each server call (URL without its query, which carries the token), login, game load (how many the account has unlocked, the Varia ones' state), unlocks, `achievement tag:` lines (the $0032/$0034 pair written for an event, see PLAN P4.4), errors |
+| `ra-set.json` | the RetroAchievements set as downloaded (game data only, no account): `tools/ra-tags/dp_tags.py` checks the table in `retro_ach.c` against it |
 
 Save states are `saves/saveN.sav` with `saves/saveN.txt` (where and when, for the
 STATES tab).
@@ -92,7 +128,7 @@ few frames, which a single dump never catches.
   the game 4 MB of heap); the toast says how many seconds it keeps. Nothing is written
   while recording, and it never stops by itself: the ring keeps the **last** seconds.
 - Play until the problem shows, then tap the (now red) side button right after. That writes
-  `sm-rec-NN.bin` (the game freezes a few seconds while it does) and frees the ring.
+  `sm-rec-NNNN.bin` (the game freezes a few seconds while it does) and frees the ring.
 - The rest of the cell picks the rate (only while stopped; while recording it shows
   frames held / ring size): 60, 30 or 15 Hz, i.e. every shown frame, one in
   2 or one in 4. Frames the frameskip did not draw are not in the file either; the
@@ -101,7 +137,7 @@ few frames, which a single dump never catches.
 - Each recorded frame costs a framebuffer copy and, with the GPU renderer, a wait for
   the GPU plus a readback: expect the frame rate to drop while recording.
 
-On the PC: `tools/scene-rec/decode.py sm-rec-NN.bin [OUTDIR] [--crop] [--mp4] [--scale N]`
+On the PC: `tools/scene-rec/decode.py sm-rec-NNNN.bin [OUTDIR] [--crop] [--mp4] [--scale N]`
 writes `frame-NNNN.png` and `frames.csv` (game frame, game state, room, Samus x/y,
 logic and draw ms, renderer, WIDE) and, with `--mp4`, a video via ffmpeg. `--crop`
 drops the black bars of 4:3 frames.
@@ -118,7 +154,7 @@ that follow.
 
 ## FRAME DUMP
 
-A normal dump set of the frame just drawn plus `sm-dump-NN-frame.txt`: every write to
+A normal dump set of the frame just drawn plus `sm-dump-NNNN-frame.txt`: every write to
 `$2100-$213F` during that frame, stamped with the scanline. It is what the GPU
 renderer design (PLAN P2.3) needs: which registers a scene changes per line (HDMA,
 IRQ splits) and which stay fixed for the frame.

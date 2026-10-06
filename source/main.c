@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "SDL2/SDL.h"
 #include <3ds.h>
 
 #include "src/snes/ppu.h"
@@ -26,12 +25,16 @@
 #include "cheats.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
+#include "stereo_depth.h"
+#include "sm_planes.h"
 #include "debug_tools.h"
 #include "scene_rec.h"
 #include "gpu_ppu.h"
 #include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
 #include "ui_draw.h"
+#include "retro_ach.h"
+#include "game_text.h"
 #include "version.h"
 #include "build_config.h"
 
@@ -52,7 +55,7 @@ enum Button {
   BTN_ZR = 15,
 };
 
-static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len);
+static void AudioCallback(uint8 *stream, int len);
 static void HandleInput(int keyCode, int keyMod, bool pressed);
 static void HandleCommand(uint32 j, bool pressed);
 
@@ -68,11 +71,6 @@ static uint8_t g_my_pixels[256 * 4 * 240];
 
 int g_got_mismatch_count;
 
-static const char kWindowTitle[] = "Super Metroid 3DS";
-static SDL_Window *g_window;
-static SDL_Renderer *g_renderer;
-static SDL_Texture *g_texture;
-
 static uint8 g_turbo, g_replay_turbo = true;
 static uint8 g_gamepad_buttons;
 static int g_input1_state;
@@ -80,7 +78,6 @@ static bool g_display_perf;
 static int g_curr_fps;
 static int g_ppu_render_flags = 0;
 static int g_snes_width = 256, g_snes_height = 240;
-static int g_sdl_audio_mixer_volume = SDL_MIX_MAXVOLUME;
 static volatile float g_audio_ms;   // last audio block, written by the audio thread
 
 extern Snes *g_snes;
@@ -151,6 +148,16 @@ static void DrawPpuFrame(bool pixel_perfect, bool clear_sides) {
         for (int dy = 0; dy < FB_H; dy++)
             col[-dy] = (r[dy][sx] << 8) | 0xFFu;
     }
+    if (gfxIs3D()) memcpy(gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL), fb, FB_W * FB_H * 4);   // flat
+}
+
+// The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
+// one 400x240 image per eye). The CPU path then shows the same image to both eyes.
+static float Stereo3dSlider(void) {
+  const float slider = osGet3DSliderState();
+  const bool want = slider > 0;
+  if (want != gfxIs3D()) gfxSet3D(want);
+  return slider;
 }
 
 // GPU renderer state: the line capture it draws from, its draw list, and whether the
@@ -163,18 +170,29 @@ static bool g_top_wide;   // the last frame shown had WIDE margins
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
 // title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
 // fill the 400 px screen.
-static int WideMargin(void) {
-  if (!g_ui.wide) return 0;
+static bool GameplayView(void) {
   switch (game_state) {
   case kGameState_7_MainGameplayFadeIn: case kGameState_8_MainGameplay: case kGameState_9_HitDoorBlock:
   case kGameState_10_LoadingNextRoom: case kGameState_11_LoadingNextRoom: case kGameState_12_Pausing:
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
   case kGameState_33_BlackoutFromCeres:       // and its fade to black
-    return g_ui.pixel_perfect ? 72 : 60;
+    return true;
   default:
-    return 0;
+    return false;
   }
+}
+
+static int WideMargin(void) {
+  if (!g_ui.wide || !GameplayView()) return 0;
+  return g_ui.pixel_perfect ? 72 : 60;
+}
+
+// Columns each side the 3D needs while the slider is up (GpuPpu_SetCropToView): a layer
+// moved by its plane's offset uncovers that many columns of its edge. Not needed with
+// WIDE, whose margins are far wider.
+static int StereoEdge(void) {
+  return g_ui.gpu_render && GameplayView() && osGet3DSliderState() > 0 ? kStereoMaxPx : 0;
 }
 
 
@@ -202,10 +220,10 @@ static void GpuCheck(void) {
   }
   const int slot = Debug_DumpScreen(g_pixels);
   if (slot >= 0) Debug_DumpExtraImage(slot, "gpu", gpu_px);
-  Debug_Log("GPU check -> set %02d: %d px differ, %d by more than 8; %s", slot, differ, far,
+  Debug_Log("GPU check -> set %04d: %d px differ, %d by more than 8; %s", slot, differ, far,
             GpuPpu3ds_CalibrationText());
   char msg[48];
-  snprintf(msg, sizeof(msg), "GPU check %02d: %d px off, %d >8", slot, differ, far);
+  snprintf(msg, sizeof(msg), "GPU check %04d: %d px off, %d >8", slot, differ, far);
   BottomUi_Toast(msg);
 }
 
@@ -227,30 +245,40 @@ static void RecordTop(const uint32_t *top, uint32_t frame, u64 t_logic, u64 t_dr
   SceneRec_AddFrame(top, &meta);
 }
 
-static SDL_mutex *g_audio_mutex;
+static RecursiveLock g_audio_mutex;
 static uint8 *g_audiobuffer, *g_audiobuffer_cur, *g_audiobuffer_end;
 static int g_frames_per_block;
 static uint8 g_audio_channels;
-static SDL_AudioDeviceID g_audio_device;
 
 void RtlApuLock(void) {
-  SDL_LockMutex(g_audio_mutex);
+  RecursiveLock_Lock(&g_audio_mutex);
 }
 
 void RtlApuUnlock(void) {
-  SDL_UnlockMutex(g_audio_mutex);
+  RecursiveLock_Unlock(&g_audio_mutex);
 }
 
 // Separate from the audio mutex, which the audio callback holds for a whole
 // block: see RtlPushApuState.
-static SDL_mutex *g_apu_queue_mutex;
+static RecursiveLock g_apu_queue_mutex;
 
 void RtlApuQueueLock(void) {
-  SDL_LockMutex(g_apu_queue_mutex);
+  RecursiveLock_Lock(&g_apu_queue_mutex);
 }
 
 void RtlApuQueueUnlock(void) {
-  SDL_UnlockMutex(g_apu_queue_mutex);
+  RecursiveLock_Unlock(&g_apu_queue_mutex);
+}
+
+// Milliseconds since start-up, from the system tick (268 MHz, so no float and no wrap for 49 days).
+static u64 g_start_tick;
+
+static uint32 NowMs(void) {
+  return (uint32)((svcGetSystemTick() - g_start_tick) / (SYSCLOCK_ARM11 / 1000));
+}
+
+static void SleepMs(uint32 ms) {
+  svcSleepThread((s64)ms * 1000000);
 }
 
 // Audio thread health, for the periodic log line: how long a callback took against the
@@ -260,12 +288,24 @@ static volatile float g_cb_max_ms;
 static volatile int g_cb_count, g_cb_slow, g_cb_gaps;
 static volatile u64 g_cb_last;
 
-static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
+// NDSP output: one channel, a ring of wave buffers refilled by a thread that waits for
+// the DSP to hand one back. The S-DSP's own rate (32 kHz, 534 frames per game frame) goes
+// out as it is and NDSP resamples it in hardware: no resampling on the CPU, and a buffer
+// is exactly three of the DSP's blocks (about 50 ms, as before).
+enum {
+  kAudioRate = 32000, kDspBlockFrames = 534,
+  kAudioBufs = 3, kAudioBufFrames = 3 * kDspBlockFrames, kAudioStack = 128 * 1024
+};
+
+// Fills `len` bytes (stereo s16) of the NDSP buffer; runs on the audio thread.
+static void AudioCallback(uint8 *stream, int len) {
   const u64 cb_start = svcGetSystemTick();
-  const float buffer_ms = len * 1000.0f / (44100 * 4);   // stereo s16
+  uint8 *const stream_start = stream;
+  const int stream_len = len;
+  const float buffer_ms = len * 1000.0f / (kAudioRate * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
-  if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
+  RecursiveLock_Lock(&g_audio_mutex);
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
       u64 t0 = svcGetSystemTick();
@@ -275,21 +315,136 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
       g_audiobuffer_end = g_audiobuffer + g_frames_per_block * g_audio_channels * sizeof(int16);
     }
     int n = IntMin(len, g_audiobuffer_end - g_audiobuffer_cur);
-    if (g_sdl_audio_mixer_volume == SDL_MIX_MAXVOLUME) {
-      memcpy(stream, g_audiobuffer_cur, n);
-    } else {
-      SDL_memset(stream, 0, n);
-      SDL_MixAudioFormat(stream, g_audiobuffer_cur, AUDIO_S16, n, g_sdl_audio_mixer_volume);
-    }
+    memcpy(stream, g_audiobuffer_cur, n);
     g_audiobuffer_cur += n;
     stream += n;
     len -= n;
   }
-  SDL_UnlockMutex(g_audio_mutex);
+  RecursiveLock_Unlock(&g_audio_mutex);
+  RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4, kAudioRate);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
   g_cb_slow += cb_ms > buffer_ms;
   g_cb_count++;
+}
+
+static ndspWaveBuf g_wave[kAudioBufs];
+static uint8 *g_wave_mem;               // linear memory, kAudioBufs blocks
+static LightEvent g_wave_done;          // a wave buffer went back to FREE
+static Thread g_audio_thread;
+static dspHookCookie g_dsp_hook;
+static Result g_ndsp_rc;                // ndspInit failed: no dspfirm.cdc dumped
+static bool g_audio_ok;                 // NDSP is up and the thread runs
+static volatile bool g_audio_quit;
+static volatile int g_audio_underruns;  // times the DSP had nothing queued when a buffer was refilled
+static volatile bool g_audio_paused = true;   // silence instead of the game's sound
+
+static void AudioFrameFinished(void *arg) {
+  for (int i = 0; i < kAudioBufs; i++)
+    if (g_wave[i].status == NDSP_WBUF_DONE) g_wave[i].status = NDSP_WBUF_FREE;
+  LightEvent_Signal(&g_wave_done);
+}
+
+static void AudioDspHook(DSP_HookType hook) {
+  if (hook == DSPHOOK_ONCANCEL) {   // the DSP is going away: stop feeding it
+    g_audio_quit = true;
+    LightEvent_Signal(&g_wave_done);
+  }
+}
+
+static void AudioThreadMain(void *arg) {
+  const int bytes = kAudioBufFrames * 2 * sizeof(int16);
+  int next = 0, filled = 0;
+  bool started = false;   // the ring has been filled once since the sound last started
+  while (!g_audio_quit) {
+    ndspWaveBuf *wb = &g_wave[next];
+    if (wb->status != NDSP_WBUF_FREE) {
+      LightEvent_Wait(&g_wave_done);
+      continue;
+    }
+    // None of the other buffers still queued or playing: the DSP ran dry (a gap in the sound).
+    // Not counted while paused, nor in the first refills, when nothing is queued yet.
+    if (!g_audio_paused && started) {
+      bool queued = false;
+      for (int i = 0; i < kAudioBufs; i++)
+        queued |= g_wave[i].status == NDSP_WBUF_QUEUED || g_wave[i].status == NDSP_WBUF_PLAYING;
+      if (!queued) g_audio_underruns++;
+    }
+    uint8 *dst = (uint8 *)wb->data_vaddr;
+    if (g_audio_paused) memset(dst, 0, bytes);
+    else AudioCallback(dst, bytes);
+    DSP_FlushDataCache(dst, bytes);
+    ndspChnWaveBufAdd(0, wb);
+    next = (next + 1) % kAudioBufs;
+    if (!g_audio_paused && ++filled >= kAudioBufs) started = true;
+    if (g_audio_paused) filled = 0, started = false;
+  }
+}
+
+// Starts NDSP and the thread. `core1_ok`: the application may use the system core.
+static bool AudioStart(bool core1_ok) {
+  Result rc = ndspInit();
+  if (R_FAILED(rc)) {
+    g_ndsp_rc = rc;   // logged once the debug log is up
+    return false;
+  }
+  const size_t block = kAudioBufFrames * 2 * sizeof(int16);
+  g_wave_mem = (uint8 *)linearAlloc(block * kAudioBufs);
+  if (!g_wave_mem) { ndspExit(); return false; }
+  memset(g_wave_mem, 0, block * kAudioBufs);
+  DSP_FlushDataCache(g_wave_mem, block * kAudioBufs);
+
+  ndspChnReset(0);
+  ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
+  ndspChnSetRate(0, kAudioRate);
+  ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
+  float mix[12] = { 0 };
+  mix[0] = mix[1] = 1.0f;
+  ndspChnSetMix(0, mix);
+  memset(g_wave, 0, sizeof(g_wave));
+  for (int i = 0; i < kAudioBufs; i++) {
+    g_wave[i].data_vaddr = g_wave_mem + i * block;
+    g_wave[i].nsamples = kAudioBufFrames;
+  }
+  LightEvent_Init(&g_wave_done, RESET_ONESHOT);
+  ndspSetCallback(AudioFrameFinished, NULL);
+  dspHook(&g_dsp_hook, AudioDspHook);
+
+  // One step above the main thread (0x30, video is 0x18), as SDL placed it.
+  s32 prio = 0x30;
+  svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+  prio = prio - 1 < 0x19 ? 0x19 : (prio - 1 > 0x2F ? 0x2F : prio - 1);
+  g_audio_thread = threadCreate(AudioThreadMain, NULL, kAudioStack, prio, core1_ok ? 1 : -1, false);
+  if (!g_audio_thread) {
+    dspUnhook(&g_dsp_hook);
+    ndspSetCallback(NULL, NULL);
+    ndspExit();
+    linearFree(g_wave_mem);
+    g_wave_mem = NULL;
+    return false;
+  }
+  return true;
+}
+
+static void AudioStop(void) {
+  if (!g_audio_ok) return;
+  g_audio_quit = true;
+  LightEvent_Signal(&g_wave_done);
+  threadJoin(g_audio_thread, U64_MAX);
+  threadFree(g_audio_thread);
+  dspUnhook(&g_dsp_hook);
+  ndspSetCallback(NULL, NULL);
+  ndspChnReset(0);
+  ndspExit();
+  linearFree(g_wave_mem);
+  g_wave_mem = NULL;
+  g_audio_ok = false;
+}
+
+// sm/src/config.c looks key names up with SDL when it reads a keymap. There is no
+// keyboard here and no SDL linked: every name is unknown.
+int SDL_GetKeyFromName(const char *name) {
+  return 0;
 }
 
 int idx_of_btn(enum Button b) {
@@ -319,12 +474,25 @@ int idx_of_btn(enum Button b) {
     case BTN_R:
       return 11;
     default:
-      // SDL numbers the joystick buttons after the HID key bits, so touching the
-      // screen (KEY_TOUCH, bit 20), ZL/ZR and others arrive here too. They are not
-      // game buttons: falling off the end of this function used to return garbage
+      // The button numbers are the HID key bits, so anything else (ZL/ZR, the
+      // touch screen's KEY_TOUCH, bit 20) can arrive here. They are not game
+      // buttons: falling off the end of this function used to return garbage
       // that ended up as "D-pad up" on every tap.
       return -1;
   }
+}
+
+// The circle pad acts as the D-pad: SNES joypad bits 4..7 are up, down, left, right.
+static int CirclePadAsDpad(void) {
+  enum { kDeadZone = 40 };   // of the pad's ~±155 range
+  circlePosition cp;
+  hidCircleRead(&cp);
+  int bits = 0;
+  if (cp.dy > kDeadZone) bits |= 1 << 4;
+  if (cp.dy < -kDeadZone) bits |= 1 << 5;
+  if (cp.dx < -kDeadZone) bits |= 1 << 6;
+  if (cp.dx > kDeadZone) bits |= 1 << 7;
+  return bits;
 }
 
 static void HandleCommand(uint32 j, bool pressed) {
@@ -415,13 +583,14 @@ static void ExitStep(const char *what) {
 // audio thread's health (see AudioCallback).
 static void LogPeriodic(const UiPerf *p) {
   static int seconds;
-  static int last_speedup = -1, last_gpu = -1, last_audio = -1, last_paused = -1;
+  static int last_speedup = -1, last_gpu = -1, last_audio = -1, last_paused = -1, last_wide = -1, last_pp = -1;
   if (g_ui.new3ds_speedup != last_speedup || g_ui.gpu_render != last_gpu || g_ui.audio_on != last_audio ||
-      g_ui.paused != last_paused) {
+      g_ui.paused != last_paused || g_ui.wide != last_wide || g_ui.pixel_perfect != last_pp) {
     last_speedup = g_ui.new3ds_speedup, last_gpu = g_ui.gpu_render, last_audio = g_ui.audio_on;
-    last_paused = g_ui.paused;
-    Debug_Log("settings: cpu %s, renderer %s, audio %s%s", g_ui.new3ds_speedup ? "804" : "268",
-              g_ui.gpu_render ? "GPU" : "CPU", g_ui.audio_on ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
+    last_paused = g_ui.paused, last_wide = g_ui.wide, last_pp = g_ui.pixel_perfect;
+    Debug_Log("settings: cpu %s, renderer %s, audio %s, display %s, wide %s%s", g_ui.new3ds_speedup ? "804" : "268",
+              g_ui.gpu_render ? "GPU" : "CPU", g_ui.audio_on ? "on" : "off",
+              g_ui.pixel_perfect ? "pixel perfect" : "scaled", g_ui.wide ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
   }
   if (++seconds % 5) return;
   Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | frameskip %s | room %04X",
@@ -441,9 +610,10 @@ static void LogPeriodic(const UiPerf *p) {
               TicksToMs(st->t_shadow), g_gpu_frame.band_count, g_gpu_frame.quad_count);
   }
   Debug_Log("audio: block %.1f ms (dsp %.1f spc %.1f lock %.1f) | callbacks %d, slowest %.1f ms, slower than "
-            "their buffer %d, late starts %d",
+            "their buffer %d, late starts %d, underruns %d",
             p->audio_ms, p->audio_part_ms[2], p->audio_part_ms[1], p->audio_part_ms[0], g_cb_count, g_cb_max_ms,
-            g_cb_slow, g_cb_gaps);
+            g_cb_slow, g_cb_gaps, g_audio_underruns);
+  g_audio_underruns = 0;
   g_cb_count = g_cb_slow = g_cb_gaps = 0;
   g_cb_max_ms = 0;
 }
@@ -456,7 +626,7 @@ int main(int argc, char** argv) {
   g_ppu_render_flags = kPpuRenderFlags_Height240 
                      | kPpuRenderFlags_NewRenderer
                      | kPpuRenderFlags_4x4Mode7;
-  g_config.audio_freq = kDefaultFreq;
+  g_config.audio_freq = kAudioRate;
   g_config.audio_channels = kDefaultChannels;
   g_config.audio_samples = kDefaultSamples;
 
@@ -468,18 +638,10 @@ int main(int argc, char** argv) {
   // Saves, save states and dumps use paths relative to the data folder.
   chdir(ROM_DATA_DIR);
 
-  // Initialize SDL
-  if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
-    printf("Failed to init SDL: %s\n", SDL_GetError());
-    return 1;
-  }
-
-  SDL_JoystickEventState(SDL_ENABLE);
-  SDL_GameControllerEventState(SDL_ENABLE);
-
-  if (SDL_NumJoysticks() > 0) {
-      SDL_GameControllerOpen(0);
-  }
+  g_start_tick = svcGetSystemTick();
+  osSetSpeedupEnable(true);   // New 3DS 804 MHz from the start; the Options toggle takes over later
+  gfxInit(GSP_RGBA8_OES, GSP_RGBA8_OES, false);
+  hidInit();
 
   Result rc = romfsInit();
   if (rc)
@@ -494,71 +656,35 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // Create window - 3DS top screen
-  SDL_Window *window = SDL_CreateWindow(
-    kWindowTitle,
-    SDL_WINDOWPOS_CENTERED_DISPLAY(0),
-    SDL_WINDOWPOS_CENTERED_DISPLAY(0),
-    400, 240,
-    SDL_WINDOW_SHOWN
-  );
-  if(window == NULL) {
-    printf("Failed to create window: %s\n", SDL_GetError());
-    return 1;
-  }
-  g_window = window;
-
-  // Create renderer - SOFTWARE for 3DS
-  g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-  if (g_renderer == NULL) {
-    printf("Failed to create renderer: %s\n", SDL_GetError());
-    return 1;
-  }
-
-  // Create texture
-  g_texture = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING,
-                                g_snes_width, g_snes_height);
-  if (g_texture == NULL) {
-    printf("Failed to create texture: %s\n", SDL_GetError());
-    return 1;
-  }
-
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
+  RetroAch_Init();
+  GameText_Init();
 
   // Setup audio
-  g_audio_mutex = SDL_CreateMutex();
-  g_apu_queue_mutex = SDL_CreateMutex();
-  if (!g_audio_mutex) Die("No mutex");
+  RecursiveLock_Init(&g_audio_mutex);
+  RecursiveLock_Init(&g_apu_queue_mutex);
 
   g_spc_player = SpcPlayer_Create();
   SpcPlayer_Initialize(g_spc_player);
 
-  SDL_AudioSpec want = { 0 }, have = { 0 };
-  want.freq = 44100;
-  want.format = AUDIO_S16;
-  want.channels = 2;
-  want.samples = 2048;
-  want.callback = &AudioCallback;
-  g_audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-  if (g_audio_device == 0) {
-    printf("Failed to open audio device: %s\n", SDL_GetError());
-  } else {
-    g_audio_channels = 2;
-    g_frames_per_block = (534 * have.freq) / 32000;
-    g_audiobuffer = (uint8 *)malloc(g_frames_per_block * have.channels * sizeof(int16));
-  }
-  // SDL put the audio thread on the system core with a 30 % time limit. The DSP needs
-  // about 1.5 ms of CPU per block at 804 MHz, so at 268 MHz (Old 3DS, or the speedup
-  // off) it sits right at that limit and the sound breaks up. Ask for more, like mzm:
-  // the largest share the system grants.
+  g_audio_channels = 2;
+  g_frames_per_block = kDspBlockFrames;
+  g_audiobuffer = (uint8 *)malloc(g_frames_per_block * g_audio_channels * sizeof(int16));
+
+  // The audio thread runs on the system core, which an application only gets a share
+  // of. The DSP needs about 1.5 ms of CPU per block at 804 MHz, so at 268 MHz (Old 3DS,
+  // or the speedup off) the SDL default of 30 % sat right at the limit and the sound
+  // broke up. Ask for more, like mzm: the largest share the system grants.
   static const u32 kCore1Limits[] = { 80, 70, 50 };
   u32 core1_limit = 0;
   Result core1_rc[3] = { 0 };
   for (size_t i = 0; i < sizeof(kCore1Limits) / sizeof(kCore1Limits[0]); i++)
     if (R_SUCCEEDED(core1_rc[i] = APT_SetAppCpuTimeLimit(kCore1Limits[i]))) break;
   APT_GetAppCpuTimeLimit(&core1_limit);
+  if (core1_limit == 0 && R_SUCCEEDED(APT_SetAppCpuTimeLimit(30)))
+    APT_GetAppCpuTimeLimit(&core1_limit);
+  g_audio_ok = AudioStart(core1_limit != 0);
 
   mkdir("saves", 0755);
   Debug_Init(APP_VERSION);
@@ -569,8 +695,9 @@ int main(int argc, char** argv) {
   {
     bool n3ds = false;
     APT_CheckNew3DS(&n3ds);
-    Debug_Log("console %s, audio device %s (%d Hz, %d samples)", n3ds ? "New 3DS" : "Old 3DS/2DS",
-              g_audio_device ? "open" : "FAILED", have.freq, have.samples);
+    Debug_Log("console %s, audio %s (%d Hz, %d frames x %d buffers)", n3ds ? "New 3DS" : "Old 3DS/2DS",
+              g_audio_ok ? "open" : "FAILED", kAudioRate, kAudioBufFrames, kAudioBufs);
+    if (!g_audio_ok) Debug_Log("audio failed: ndspInit %08lX", (unsigned long)g_ndsp_rc);
     Debug_Log("core 1 time limit: asked 80 -> %08lX, 70 -> %08lX, 50 -> %08lX; granted %lu %%",
               (unsigned long)core1_rc[0], (unsigned long)core1_rc[1], (unsigned long)core1_rc[2],
               (unsigned long)core1_limit);
@@ -582,7 +709,7 @@ int main(int argc, char** argv) {
   RtlReadSram();
 
   bool running = true;
-  uint32 lastTick = SDL_GetTicks();
+  uint32 lastTick = NowMs();
   uint32 frameCtr = 0;
   bool audio_running = false;
 
@@ -599,50 +726,60 @@ int main(int argc, char** argv) {
   printf("Super Metroid starting...\n");
 
   while (running) {
-    SDL_Event event;
+    RetroAch_Update();
 
-    while (SDL_PollEvent(&event)) {
-      switch (event.type) {
-      case SDL_JOYBUTTONDOWN:
-        HandleCommand(event.jbutton.button, true);
-        break;
-      case SDL_JOYBUTTONUP:
-        HandleCommand(event.jbutton.button, false);
-        break;
-      // Touch coordinates arrive normalised to the bottom screen (0..1).
-      case SDL_FINGERDOWN:
-        BottomUi_TouchDown((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
-        break;
-      case SDL_FINGERMOTION:
-        BottomUi_TouchMove((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
-        break;
-      case SDL_FINGERUP:
-        BottomUi_TouchUp();
-        break;
-      case SDL_QUIT:
-        ExitStep("quit event");
-        running = false;
-        break;
+    hidScanInput();
+    if (!aptMainLoop()) {
+      ExitStep("quit event");
+      running = false;
+    }
+    {
+      // The HID key bits are the Button numbers (A = 0 ... Y = 11).
+      const u32 down = hidKeysDown(), up = hidKeysUp();
+      for (int b = 0; b <= BTN_Y; b++) {
+        if (down & BIT(b)) HandleCommand(b, true);
+        if (up & BIT(b)) HandleCommand(b, false);
       }
+      // The touch screen is 320x240, the bottom UI's own coordinates.
+      static bool touching;
+      touchPosition tp;
+      hidTouchRead(&tp);
+      const bool pressed = tp.px != 0 || tp.py != 0;
+      if (pressed && !touching) BottomUi_TouchDown(tp.px, tp.py);
+      else if (pressed) BottomUi_TouchMove(tp.px, tp.py);
+      else if (touching) BottomUi_TouchUp();
+      touching = pressed;
     }
 
     bool want_audio = g_ui.audio_on && !g_ui.paused;
     if (want_audio != audio_running) {
       audio_running = want_audio;
-      if (g_audio_device)
-        SDL_PauseAudioDevice(g_audio_device, !audio_running);
+      g_audio_paused = !audio_running;
     }
     g_turbo = g_ui.turbo;
 
     if (g_ui.req_reset) {
       RtlReset(1);
       BottomUi_GameReset();
+      RetroAch_GameReset();
     }
-    if (g_ui.req_save_state) BottomUi_StateSaved(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot));
-    if (g_ui.req_load_state) BottomUi_StateLoaded(g_ui.save_slot, RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot));
+    if (g_ui.req_save_state) {
+      GameTextScreens_PutBack();
+      const bool ok = RtlSaveLoad(kSaveLoad_Save, g_ui.save_slot);
+      BottomUi_StateSaved(g_ui.save_slot, ok);
+      if (ok) RetroAch_StateSaved(g_ui.save_slot);
+    }
+    if (g_ui.req_load_state) {
+      const bool ok = RtlSaveLoad(kSaveLoad_Load, g_ui.save_slot);
+      BottomUi_StateLoaded(g_ui.save_slot, ok);
+      if (ok) RetroAch_StateLoaded(g_ui.save_slot);
+    }
     // A reset or a loaded state replaces VRAM without going through the PPU's data port,
     // which is how the GPU renderer learns what changed.
-    if (g_ui.req_reset || g_ui.req_load_state) GpuPpu_Invalidate();
+    if (g_ui.req_reset || g_ui.req_load_state) {
+      GpuPpu_Invalidate();
+      GameText_Forget();
+    }
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
     u64 t_logic = 0, t_draw = 0;
     bool presented = false, gpu_presented = false;
@@ -670,20 +807,22 @@ int main(int argc, char** argv) {
       // Decided before the frame runs, like the game state the margin depends on. Not
       // from `gpu`: the margin changes game logic (which enemies run), and that must not
       // depend on whether this frame happens to be drawn.
-      const int margin = g_ui.gpu_render ? WideMargin() : 0;
+      const int wide = g_ui.gpu_render ? WideMargin() : 0;
+      const int edge = wide ? 0 : StereoEdge();
+      const int margin = wide ? wide : edge;
       // PIXEL PERFECT also has 8 rows above and 8 below the 224 (SCALED fills the height).
-      const int extra = margin && g_ui.pixel_perfect ? 8 : 0;
-      GpuPpu_SetExtraRows(extra, extra);
+      const int extra = wide && g_ui.pixel_perfect ? 8 : 0;
 
-      g_gpu_ppu_obj_x = margin ? g_rtl_oam_x : NULL;
-      g_gpu_ppu_obj_y = margin ? g_rtl_oam_y : NULL;
-      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_hud : NULL;
-      SmWide_SetView(margin, extra, extra);
+      g_gpu_ppu_obj_x = margin ? g_rtl_oam_shown_x : NULL;
+      g_gpu_ppu_obj_y = margin ? g_rtl_oam_shown_y : NULL;
+      g_gpu_ppu_obj_hud = margin ? g_rtl_oam_shown_hud : NULL;
+      SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
-      int inputs = g_input1_state | g_gamepad_buttons;
+      int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
       Cheats_BeforeFrame();
       is_replay = RtlRunFrame(inputs);
+      RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
       if (capture) {
         Debug_FrameCaptureEnd(g_pixels);
@@ -693,6 +832,7 @@ int main(int argc, char** argv) {
         Debug_DumpScreen(g_pixels);
         BottomUi_Toast(Debug_LastMessage());
       }
+      if (g_ui.repause) g_ui.paused = true, g_ui.repause = false;   // the report's frame has been taken
       Cheats_AfterFrame();
       SmWarp_AfterFrame();
       t_logic = svcGetSystemTick() - t0;
@@ -704,23 +844,43 @@ int main(int argc, char** argv) {
         const char *why = NULL;
         const u64 t_build = svcGetSystemTick();
         // The margins this frame ended up with (SmWide leans them off room edges).
-        int margin_l, margin_r, hud_x, bg2_dx;
+        int margin_l, margin_r, hud_x, bg2_dx, rows_top, rows_bottom, hud_y;
         SmWide_Margins(&margin_l, &margin_r, &hud_x, &bg2_dx);
+        SmWide_Rows(&rows_top, &rows_bottom, &hud_y);
         GpuPpu_SetMargins(margin_l, margin_r);
+        GpuPpu_SetMessageBoxMap(SmWide_Gameplay() ? kSmWideMessageBoxMap : -1);
+        GpuPpu_SetCropToView(edge > 0);   // only the 3D's edge columns: not shown
+        GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
+        GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
-        GpuPpu_SetNarrowBg3Rows(margin_l || margin_r ? kSmWideHudRows : 0);
+        GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
-        GpuPpu_SetMode7UnderHud((margin_l || margin_r) && SmWide_Mode7());
+        int cone_window;
+        const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
+        GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
+        GpuPpu_SetMode7UnderHud(wide && SmWide_Mode7());
+        // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
+        const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();
+        GpuPpu_SetPlaneRule(by_hand ? SmPlanes_LayerRule : NULL);
+        GpuPpu_SetSlotPlanes(by_hand ? SmPlanes_SlotPlanes : NULL);
+        static bool was_by_hand;
+        if (by_hand != was_by_hand) {   // for the debug log: a room that has planes set by hand
+          was_by_hand = by_hand;
+          if (by_hand) Debug_Log("planes set by hand in room %04X (%d rules in the file)", (unsigned)room_ptr, SmPlanes_RuleCount());
+        }
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
-          SmWide_AddMasks(&g_gpu_frame);
+          SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
-          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect);
+          static uint32_t toast_px[512 * 64];
+          GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
+          GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
+          GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
@@ -741,7 +901,7 @@ int main(int argc, char** argv) {
           DrawPpuFrame(g_ui.pixel_perfect, g_top_wide);
         }
         g_top_by_gpu = gpu_presented;
-        g_top_wide = built && g_gpu_frame.x0 < 0;
+        g_top_wide = built && g_gpu_frame.x0 < 0 && g_gpu_frame.show_x0 < 0;
         t_draw = svcGetSystemTick() - t0;
         presented = true;
       }
@@ -814,7 +974,7 @@ int main(int argc, char** argv) {
         gspWaitForVBlank();
         UiDraw_VBlankSeen();
       } else {
-        SDL_Delay(16);
+        SleepMs(16);
       }
       frame_start = svcGetSystemTick();
       continue;
@@ -826,7 +986,7 @@ int main(int argc, char** argv) {
     if (swapped && work_ms < 15.0f) {
       gspWaitForVBlank();
       UiDraw_VBlankSeen();
-      lastTick = SDL_GetTicks();   // locked to the display: drop accumulated drift
+      lastTick = NowMs();   // locked to the display: drop accumulated drift
       skip_render = false;
       skipped_in_a_row = 0;
       frame_start = svcGetSystemTick();
@@ -836,7 +996,7 @@ int main(int argc, char** argv) {
     // Frame delay for 60 fps
     static const uint8 delays[3] = { 17, 17, 16 };
     lastTick += delays[frameCtr % 3];
-    uint32 curTick = SDL_GetTicks();
+    uint32 curTick = NowMs();
 
     if (lastTick > curTick) {
       uint32 delta = lastTick - curTick;
@@ -844,7 +1004,7 @@ int main(int argc, char** argv) {
         lastTick = curTick - 500;
         delta = 500;
       }
-      SDL_Delay(delta);
+      SleepMs(delta);
       skip_render = false;
       skipped_in_a_row = 0;
     } else {
@@ -859,23 +1019,20 @@ int main(int argc, char** argv) {
   // Cleanup. Each step is noted in debug/sm-exit.txt first: closing from the HOME menu
   // has been seen to hang on "Closing software", and the file shows the step it hung in.
   ExitStep("loop left");
+  RetroAch_Shutdown();
+  ExitStep("achievements done");
   GpuPpu3ds_Exit();
   ExitStep("gpu done");
   BottomUi_Exit();
   ExitStep("ui done");
-  SDL_PauseAudioDevice(g_audio_device, 1);
-  ExitStep("audio paused");
-  SDL_CloseAudioDevice(g_audio_device);
+  AudioStop();
   ExitStep("audio closed");
-  SDL_DestroyMutex(g_audio_mutex);
-  SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
-  SDL_DestroyTexture(g_texture);
-  SDL_DestroyRenderer(g_renderer);
-  SDL_DestroyWindow(window);
-  ExitStep("window destroyed");
-  SDL_Quit();
-  ExitStep("SDL_Quit done, returning");
+  hidExit();
+  gfxExit();
+  ExitStep("gfx closed");
+  romfsExit();
+  ExitStep("returning");
   if (g_exit_file) fclose(g_exit_file);
 
   return 0;

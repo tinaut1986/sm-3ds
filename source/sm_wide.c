@@ -1,6 +1,8 @@
 #include "sm_wide.h"
 
+#include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "src/types.h"
 #include "src/variables.h"
@@ -13,7 +15,8 @@
 
 static int g_margin_x, g_extra_top, g_extra_bottom;
 static int g_left, g_right;   // this frame's margins: 2 * g_margin_x in all, leaning off a room edge
-static int g_lean_from;       // the lean (first column, -g_left) when a door transition started
+static int g_top, g_bottom;   // this frame's extra rows, the same way: g_extra_top + g_extra_bottom in all
+static int g_lean_from, g_lean_from_y;   // the leans (-g_left, -g_top) when a door transition started
 static bool g_in_door, g_door_scrolling;
 static int g_door_last_count;
 static int g_bg2_dx;          // BG2 shift that keeps the parallax with the leaned view
@@ -21,6 +24,12 @@ static bool g_filled;
 static bool g_mode7;   // the last frame showed a mode 7 room (Ceres): the plane fills it all
 static int g_room[4];        // the room in screen pixels, as drawn (screen shake included)
 static int g_room_still[4];  // the same without the shake: what the lean follows
+
+// The X-ray scope is on and set up (it freezes time; the angle is set when its tilemaps are queued).
+static bool XrayActive(void) { return (time_is_frozen_flag & 0xff) && xray_angle && CanXrayShowBlocks(); }
+// The scope is switching off: the game points its window table at the empty one (0x980001) and
+// puts BG2 back, frames before it clears the freeze.
+static bool XrayOff(void) { return hdma_ptr_1.addr == 0x0001 && hdma_ptr_1.bank == 0x98; }
 
 // Whether the frame shows the room as it is in the level data. In a door transition only
 // while the old room fades out (its level data still loaded, the camera where it was) and
@@ -46,6 +55,16 @@ static bool RoomShown(void) {
     return false;
   }
 }
+
+// A mode 7 room on screen (Ceres). Not irq_enable_mode7 alone: Ceres Ridley's getaway sets
+// it for its mode 7 flight and nothing clears it until the room is left, while the room is
+// back in mode 1 (issue #17: margins neither filled nor masked after the fight).
+static bool Mode7Room(void) { return irq_enable_mode7 && (reg_BGMODE_fake & 7) == 7; }
+
+// Ceres Ridley's room: its mode 7 is the boss flying at Samus, not the room (as it is in the
+// elevator shaft), so the view keeps the fight's framing and side masks instead of
+// showing the plane's backdrop in the margins for a second.
+enum { kRoom_CeresRidley = 0xE0B5 };
 
 static inline int FloorDiv16(int v) { return v >> 4; }   // arithmetic shift: floor
 
@@ -108,7 +127,7 @@ static void FillLayer(Ppu *ppu, const uint16 *data, uint8 sc, uint16 hofs, uint1
   // vofs + r + 1.
   const int fx = (base_h & 15) + (int16)(hofs - base_h), fy = (base_v & 15) + (int16)(vofs - base_v);
   const int k0 = FloorDiv16(fx - g_left), k1 = FloorDiv16(fx + 255 + g_right);
-  const int j0 = FloorDiv16(fy + 1 - g_extra_top), j1 = FloorDiv16(fy + 224 + g_extra_bottom);
+  const int j0 = FloorDiv16(fy + 1 - g_top), j1 = FloorDiv16(fy + 224 + g_bottom);
   for (int k = k0; k <= k1; k++) {
     const int bx = lx0 + k;
     if (bx < 0 || bx >= w) continue;
@@ -169,21 +188,41 @@ static void HudSeeThrough(Ppu *ppu) {
 // Where the margins go: evenly, unless that shows beyond a room edge while the other side
 // has room to spare. Then the view leans away from the edge, which ends up on the screen's
 // border, as if the camera stopped there (the game's camera is left alone: door
-// transitions rely on it). Narrower rooms are centred.
-// x0 = first column shown, from -2m (all margin on the left) to 0 (all on the right), for a
-// room whose left and right edges are at screen columns `lo_edge` and `hi_edge`.
-static int LeanFor(int lo_edge, int hi_edge) {
-  const int m = g_margin_x;
-  const int lo = lo_edge, hi = hi_edge - (256 + 2 * m);
-  int x0 = lo <= hi ? (-m < lo ? lo : -m > hi ? hi : -m) : (lo + hi) / 2;
-  if (x0 > 0) x0 = 0;
-  if (x0 < -2 * m) x0 = -2 * m;
-  return x0;
+// transitions rely on it). Narrower rooms are centred. The extra rows above and below
+// (PIXEL PERFECT) lean the same way (issue #7); the HUD keeps its place on the screen.
+// Returns the first column (row) shown, from -total (all of it before the view) to 0 (all
+// after it), for a room whose edges are at screen columns (rows) `lo_edge` and `hi_edge`,
+// a view `size` wide and `before` of the `total` evenly.
+static int LeanFor(int lo_edge, int hi_edge, int before, int total, int size) {
+  const int lo = lo_edge, hi = hi_edge - (size + total);
+  int v0 = lo <= hi ? (-before < lo ? lo : -before > hi ? hi : -before) : (lo + hi) / 2;
+  if (v0 > 0) v0 = 0;
+  if (v0 < -total) v0 = -total;
+  return v0;
+}
+
+static int LeanX(int lo_edge, int hi_edge) { return LeanFor(lo_edge, hi_edge, g_margin_x, 2 * g_margin_x, 256); }
+
+static int LeanY(int lo_edge, int hi_edge) {
+  return LeanFor(lo_edge, hi_edge, g_extra_top, g_extra_top + g_extra_bottom, 224);
 }
 
 static void SetLean(int x0) {
   g_left = -x0;
   g_right = 2 * g_margin_x - g_left;
+}
+
+static void SetLeanY(int y0) {
+  g_top = -y0;
+  g_bottom = g_extra_top + g_extra_bottom - g_top;
+}
+
+// What the next frame's game logic treats as on screen: the margins and rows just chosen.
+static void PublishView(void) {
+  g_rtl_wide_margin_left = (uint16)g_left;
+  g_rtl_wide_margin_right = (uint16)g_right;
+  g_rtl_wide_extra_top = (uint16)g_top;
+  g_rtl_wide_extra_bottom = (uint16)g_bottom;
 }
 
 // During a door transition the lean moves from the old room's to the new room's along with
@@ -200,6 +239,7 @@ static void LeanDoor(void) {
     g_door_scrolling = false;
     g_door_last_count = door_transition_frame_counter;
     g_lean_from = -g_left;
+    g_lean_from_y = -g_top;
   }
   const bool across = !(door_direction & 2);
   const int frames = across ? 64 : 57, n = door_transition_frame_counter;
@@ -207,12 +247,18 @@ static void LeanDoor(void) {
   g_door_last_count = n;
   if (!g_door_scrolling || n <= 0) {
     SetLean(g_lean_from);
+    SetLeanY(g_lean_from_y);
     return;
   }
-  // Across, the camera ends at door_destination_x_pos; up or down it keeps its x.
+  // Across, the camera ends at door_destination_x_pos; up or down it keeps its x. Its y
+  // ends at door_destination_y_pos either way (output row r shows level row y + r + 1).
   const int cam = across ? (int16)door_destination_x_pos : (int16)layer1_x_pos;
-  const int to = LeanFor(-cam, room_width_in_blocks * 16 - cam);
-  SetLean(g_lean_from + (to - g_lean_from) * (n > frames ? frames : n) / frames);
+  const int cam_y = (int16)door_destination_y_pos;
+  const int to = LeanX(-cam, room_width_in_blocks * 16 - cam);
+  const int to_y = LeanY(-cam_y - 1, room_height_in_blocks * 16 - cam_y - 1);
+  const int k = n > frames ? frames : n;
+  SetLean(g_lean_from + (to - g_lean_from) * k / frames);
+  SetLeanY(g_lean_from_y + (to_y - g_lean_from_y) * k / frames);
 }
 
 // BG2's X as the game derives it from layer 1 (CalculateLayer2Xpos). The scrolling-sky
@@ -233,6 +279,17 @@ static int Layer2X(int l1) {
 // The leaned view stands for a camera (l1 + m - left) that the game does not have: BG1 and
 // sprites follow it by construction, BG2 must be moved to where its parallax would put it.
 static void Bg2Shift(void) {
+  // The scope's BG2 is a copy of BG1's blocks: no parallax to restore.
+  if (XrayActive()) {
+    g_bg2_dx = 0;
+    return;
+  }
+  // An enemy that draws its body in BG2 (Kraid) moves it with BG1 and its own sprites: no parallax to restore, or the body
+  // slides away from the arms.
+  if (g_rtl_enemy_bg2_room == room_ptr && room_ptr == 0xA59F) {   // Kraid's room
+    g_bg2_dx = 0;
+    return;
+  }
   const int l1 = (uint16)layer1_x_pos, d = g_margin_x - g_left;
   g_bg2_dx = d ? Layer2X(l1 + d) - Layer2X(l1) - d : 0;
 }
@@ -263,9 +320,142 @@ static void ExplosionExtent(void) {
 
 const int16_t (*SmWide_Window2Extent(void))[2] { return g_win2_on ? (const int16_t (*)[2])g_win2 : NULL; }
 
+// The X-ray scope's or a security eye's cone (g_rtl_xray_cone) per captured line, in view
+// columns, for the window it is drawn with (X-ray: 2, eyes: 1): the game cuts it to 0..255,
+// the margins need where it really is.
+// Each edge is a ray from the apex; on a line, the cone is the columns whose direction from
+// the apex lies within its angles. kGpuWinFar stands for "beyond any margin".
+static int16_t g_win1[kPpuCaptureLines][2];
+static bool g_win1_on;
+static int g_cone_window;
+
+// x on the line `dy` rows from the apex (dy != 0) along SM angle `a` (in the half that line
+// can be reached in).
+static double ConeX(double ax, double dy, double a) { return ax - dy * tan(a * (M_PI / 128)); }
+
+static void ConeSpan(int ax, int dy, int center, int half, int16_t out[2]) {
+  out[0] = kGpuWinNone;
+  const double a1 = center - half, a2 = center + half;
+  if (dy == 0) {   // the apex line: only straight sideways
+    const bool right = a1 <= 64 && a2 >= 64, left = a1 <= 192 && a2 >= 192;
+    if (right || left) out[0] = (int16_t)(left ? -kGpuWinFar : ax), out[1] = (int16_t)(right ? kGpuWinFar : ax + 1);
+    return;
+  }
+  // The angles a line above (below) the apex reaches: (-64, 64) ((64, 192)).
+  const double h0 = dy < 0 ? -64 : 64, h1 = dy < 0 ? 64 : 192;
+  for (int k = -1; k <= 1; k++) {
+    const double b1 = fmax(a1 + 256 * k, h0), b2 = fmin(a2 + 256 * k, h1);
+    if (b1 >= b2) continue;
+    // Above, x grows with the angle; below, it shrinks. An end at the half's edge is a ray
+    // along the line: unbounded.
+    double lo, hi;
+    if (dy < 0) {
+      lo = b1 <= h0 ? -kGpuWinFar : ConeX(ax, dy, b1);
+      hi = b2 >= h1 ? kGpuWinFar : ConeX(ax, dy, b2);
+    } else {
+      lo = b2 >= h1 ? -kGpuWinFar : ConeX(ax, dy, b2);
+      hi = b1 <= h0 ? kGpuWinFar : ConeX(ax, dy, b1);
+    }
+    lo = fmax(lo, -kGpuWinFar), hi = fmin(hi, kGpuWinFar);
+    out[0] = (int16_t)floor(lo + 0.5), out[1] = (int16_t)floor(hi + 0.5) + 1;
+    if (out[0] >= out[1]) out[0] = kGpuWinNone;
+    return;
+  }
+}
+
+static void ConeExtent(void) {
+  // The X-ray scope switching off leaves frames in which the game does not work the cone out but
+  // its windows are still on: the last one stands until the scope is done (time unfrozen), or
+  // the margins showed the BG2 pages' garbage there.
+  if (!g_rtl_xray_cone.fresh && g_win1_on && g_cone_window == 2 && (time_is_frozen_flag & 0xff) && !XrayOff()) return;
+  g_win1_on = g_rtl_xray_cone.fresh;
+  g_rtl_xray_cone.fresh = false;
+  if (!g_win1_on) return;
+  const RtlXrayCone *c = &g_rtl_xray_cone;
+  g_win1[0][0] = kGpuWinNone;
+  for (int l = 1; l < kPpuCaptureLines; l++)
+    // Measured against the game's own tables: its apex is column x - 1 of captured line y.
+    ConeSpan(c->x - 1, l - c->y, c->center & 0xff, c->half_width, g_win1[l]);
+  g_cone_window = c->table == 0x9800 ? 2 : 1;
+}
+
+const int16_t (*SmWide_WindowCone(int *window))[2] {
+  *window = g_cone_window;
+  return g_win1_on ? (const int16_t (*)[2])g_win1 : NULL;
+}
+
+// ---- The X-ray scope in the margins -------------------------------------------------------
+// While the scope is on, BG2 shows its cone: a copy of BG1's blocks with the ones it reveals
+// drawn as they are under it. The game builds that tilemap for its 17 block columns only
+// (Xray_SetupStage4, in the two 32x32 pages BG2SC points at). For the margins' block columns
+// the same tilemap is built here with the game's own block drawers (RtlXrayBuildBlock), over a
+// copy of what BG1 shows there, and written to the pages' other columns (a 64-column map: the
+// left margin wraps to its end). The pages are put back as they were when the scope is done.
+static uint16_t g_xmap[2048 + 128];    // the pages as the game lays them out (+ what its drawers write past the last row)
+static uint16_t g_xsnap[2048];   // BG2's pages before the scope
+static bool g_xsaved;
+static uint16_t g_xsnap_base;
+
+static int XIdx(int tc, int tr) { return ((tc & 63) >= 32 ? 1024 : 0) + (tr & 31) * 32 + (tc & 31); }
+
+static void XrayMargins(Ppu *ppu) {
+  if (!XrayActive()) {
+    if (g_xsaved)   // the scope is done: BG2 as it was
+      for (int i = 0; i < 2048; i++) VramPut(ppu, (uint16_t)(g_xsnap_base + i), g_xsnap[i]);
+    g_xsaved = false;
+    return;
+  }
+  const uint16_t base = (uint16_t)((reg_BG2SC & 0xfc) << 8);
+  if (!(reg_BG2SC & 1) || !(reg_BG1SC & 1)) return;
+  if (!g_xsaved) {
+    for (int i = 0; i < 2048; i++) g_xsnap[i] = ppu->vram[(base + i) & 0x7fff];
+    g_xsnap_base = base;
+    g_xsaved = true;
+  }
+  if (g_xsnap_base != base) return;
+  const uint16_t b1 = (uint16_t)((reg_BG1SC & 0xfc) << 8);
+  const int bxm = (uint16)(layer1_x_pos + bg1_x_offset) >> 4, bym = (uint16)(layer1_y_pos + bg1_y_offset) >> 4;
+  const int lx0 = FloorDiv16((int16)layer1_x_pos), ly0 = FloorDiv16((int16)layer1_y_pos);
+  const int fx = reg_BG2HOFS & 15;
+  int k0 = FloorDiv16(fx - g_left), k1 = FloorDiv16(fx + 255 + g_right);
+  if (k0 >= 0 && k1 <= 16) return;   // no margin columns
+  if (k1 - k0 > 31) k1 = k0 + 31;
+  // BG1's blocks, as BG1 shows them (its margins are filled by now).
+  for (int k = k0; k <= k1; k++)
+    for (int j = 0; j < 16; j++)
+      for (int d = 0; d < 4; d++) {
+        const int dx = d & 1, dy = d >> 1;
+        g_xmap[XIdx(2 * k + dx, 2 * j + dy)] =
+            ppu->vram[(b1 + XIdx(2 * (bxm + k) + dx, 2 * (bym + j) + dy)) & 0x7fff];
+      }
+  // The blocks the scope reveals, drawn as the game does: a row at a time, left to right.
+  const int w = room_width_in_blocks, h = room_height_in_blocks;
+  for (int j = 0; j < 16; j++) {
+    const int lr = ly0 + j;
+    if (lr < 0 || lr >= h) continue;
+    for (int k = k0; k <= k1; k++) {
+      const int lc = lx0 + k;
+      if (lc < 0 || lc >= w) continue;
+      const uint16 dst = (uint16)(2 * XIdx(2 * k, 2 * j));
+      if (k == k0 && lc > 0) RtlXrayBuildBlock(g_xmap, 0, dst, (uint16)(lr * w + lc), true);
+      RtlXrayBuildBlock(g_xmap, k == k1 ? 1 : 2, dst, (uint16)(lr * w + lc), false);
+    }
+  }
+  // Out to the margins' columns; the game's own (0..16) stay as it built them.
+  for (int k = k0; k <= k1; k++) {
+    if (k >= 0 && k <= 16) continue;
+    for (int j = 0; j < 16; j++)
+      for (int d = 0; d < 4; d++) {
+        const int idx = XIdx(2 * k + (d & 1), 2 * j + (d >> 1));
+        VramPut(ppu, (uint16_t)(base + idx), g_xmap[idx]);
+      }
+  }
+}
+
 static void BeforePpuDraw(void) {
   g_filled = false;
   ExplosionExtent();
+  ConeExtent();
   // A screen shake moves the room on the screen for a frame or two; the lean must not
   // follow it, or the whole view jitters against the sprites (Ceres escape).
   const uint16 base_h = bg1_x_offset + layer1_x_pos, base_v = bg1_y_offset + layer1_y_pos;
@@ -282,33 +472,36 @@ static void BeforePpuDraw(void) {
   Ppu *ppu = g_snes->ppu;
   const bool door = game_state == kGameState_9_HitDoorBlock || game_state == kGameState_10_LoadingNextRoom ||
                     game_state == kGameState_11_LoadingNextRoom;
-  const bool shown = RoomShown() && !irq_enable_mode7;
+  const bool shown = RoomShown() && !Mode7Room();
   if (door && !shown) LeanDoor();
   // A mode 7 room: the plane holds the whole room (outside it, transparent), so nothing is
   // filled or masked; only the HUD's blank cells let it show under the HUD.
-  g_mode7 = RoomShown() && irq_enable_mode7;
+  g_mode7 = RoomShown() && Mode7Room();
   if (g_mode7) {
     g_in_door = false;
-    SetLean(-g_margin_x);
+    if (room_ptr == kRoom_CeresRidley) {   // framed as in the rest of the fight
+      SetLean(LeanX(g_room_still[0], g_room_still[2]));
+      SetLeanY(LeanY(g_room_still[1], g_room_still[3]));
+    } else {
+      SetLean(-g_margin_x);
+      SetLeanY(-g_extra_top);
+    }
     g_bg2_dx = 0;
-    g_rtl_wide_margin_left = (uint16)g_left;
-    g_rtl_wide_margin_right = (uint16)g_right;
+    PublishView();
     if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
     return;
   }
   if (!shown) {
     HudRestore(ppu);   // margins masked: a door transition's rooms disagree
     if (door) Bg2Shift();
-    g_rtl_wide_margin_left = (uint16)g_left;
-    g_rtl_wide_margin_right = (uint16)g_right;
+    PublishView();
     return;
   }
   g_in_door = false;
-  SetLean(LeanFor(g_room_still[0], g_room_still[2]));
+  SetLean(LeanX(g_room_still[0], g_room_still[2]));
+  SetLeanY(LeanY(g_room_still[1], g_room_still[3]));
   Bg2Shift();
-  // The next frame's game logic treats the margins as on screen.
-  g_rtl_wide_margin_left = (uint16)g_left;
-  g_rtl_wide_margin_right = (uint16)g_right;
+  PublishView();
   FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, bg1_x_offset + layer1_x_pos,
             bg1_y_offset + layer1_y_pos, layer1_x_pos, layer1_y_pos, false);
   // BG2 from the level's background data, when the game streams it like BG1 (otherwise it
@@ -320,23 +513,29 @@ static void BeforePpuDraw(void) {
     FillLayer(ppu, custom_background, reg_BG2SC, reg_BG2HOFS + g_bg2_dx, reg_BG2VOFS,
               bg2_x_scroll + layer2_x_pos + g_bg2_dx, bg2_y_scroll + layer2_y_pos, layer2_x_pos + g_bg2_dx,
               layer2_y_pos, g_bg2_dx != 0);
+  XrayMargins(ppu);
   if (g_rtl_wide_hud_over_room) HudSeeThrough(ppu);
   g_filled = true;
 }
 
-void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
+void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room) {
   if (margin_x != g_margin_x) {   // even until the next gameplay frame works out the lean
     g_left = g_right = margin_x;
     g_bg2_dx = 0;
     g_in_door = false;
     g_rtl_wide_margin_left = g_rtl_wide_margin_right = (uint16)margin_x;
   }
+  if (extra_top != g_extra_top || extra_bottom != g_extra_bottom) {
+    g_top = extra_top;
+    g_bottom = extra_bottom;
+    g_in_door = false;
+    g_rtl_wide_extra_top = (uint16)extra_top;
+    g_rtl_wide_extra_bottom = (uint16)extra_bottom;
+  }
   g_margin_x = margin_x;
   g_extra_top = extra_top;
   g_extra_bottom = extra_bottom;
-  g_rtl_wide_hud_over_room = margin_x || extra_top || extra_bottom;
-  g_rtl_wide_extra_top = (uint16)extra_top;
-  g_rtl_wide_extra_bottom = (uint16)extra_bottom;
+  g_rtl_wide_hud_over_room = hud_over_room;
   const bool on = margin_x || extra_top || extra_bottom;
   g_rtl_before_ppu_draw = on ? BeforePpuDraw : NULL;
   if (!on) {
@@ -345,9 +544,18 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom) {
   }
 }
 
+void SmWide_Rows(int *top, int *bottom, int *hud_y) {
+  *top = g_top;
+  *bottom = g_bottom;
+  // The HUD keeps its place on the screen: centred in the frame's rows, like the 224.
+  *hud_y = (g_bottom - g_top) / 2;
+}
+
 bool SmWide_Filled(void) { return g_filled; }
 
 bool SmWide_Mode7(void) { return g_mode7; }
+
+bool SmWide_Gameplay(void) { return RoomShown() || game_state == kGameState_11_LoadingNextRoom; }
 
 void SmWide_Margins(int *left, int *right, int *hud_x, int *bg2_dx) {
   *left = g_left;
@@ -379,8 +587,32 @@ static bool ScreenShown(int sx, int sy) {
   return scrolls[sy * room_width_in_scrolls + sx] != 0 || !ScreenUniform(sx, sy);
 }
 
-void SmWide_AddMasks(GpuFrame *f) {
-  if (g_mode7) return;
+// A mode 7 room's lines below the HUD that are mode 1 (Ceres Ridley's getaway: the floor
+// rows, by HDMA) read tilemaps nobody fills for the margins, so those show garbage.
+static void MaskMode1Lines(GpuFrame *f, const PpuLineCapture *cap) {
+  for (int r = kSmWideHudRows; r < f->y1;) {
+    const int line = r < kGpuRows ? r + 1 : kGpuRows;   // the extra rows below repeat the last line
+    if (cap->line[line].mode == 7) { r++; continue; }
+    int r1 = r + 1;
+    while (r1 < f->y1 && cap->line[r1 < kGpuRows ? r1 + 1 : kGpuRows].mode != 7) r1++;
+    if (f->x0 < 0) GpuPpu_AddMask(f, f->x0, r, -f->x0, r1 - r);
+    if (f->x1 > 256) GpuPpu_AddMask(f, 256, r, f->x1 - 256, r1 - r);
+    r = r1;
+  }
+}
+
+void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap) {
+  if (g_mode7 && room_ptr == kRoom_CeresRidley) {
+    // The side margins (outside the room, black all fight); the extra rows above and below
+    // keep the room's rows BG1 still holds from the last fill.
+    if (f->x0 < 0) GpuPpu_AddMask(f, f->x0, f->y0, -f->x0, f->y1 - f->y0);
+    if (f->x1 > 256) GpuPpu_AddMask(f, 256, f->y0, f->x1 - 256, f->y1 - f->y0);
+    return;
+  }
+  if (g_mode7) {
+    MaskMode1Lines(f, cap);
+    return;
+  }
   // What the frame shows beyond the game's own 256x224 view: the side margins (full
   // height) and the extra rows above and below it.
   const int regions[4][4] = {
@@ -391,17 +623,10 @@ void SmWide_AddMasks(GpuFrame *f) {
     const int c0 = regions[k][0], r0 = regions[k][1], c1 = regions[k][2], r1 = regions[k][3];
     if (c0 >= c1 || r0 >= r1) continue;
     if (!g_filled) {
-      if (r0 < 0) GpuPpu_AddMask(f, c0, r0, c1 - c0, (r1 < 0 ? r1 : 0) - r0);
-      if (r1 > 31) GpuPpu_AddMask(f, c0, r0 > 31 ? r0 : 31, c1 - c0, r1 - (r0 > 31 ? r0 : 31));
-      // The HUD's rows (0-30) too, but not the HUD's own columns: it may sit in a margin
-      // when the view leans. HudLinesTM keeps the room's layers on there, and the margins'
-      // tilemap columns hold whatever the last fill left (a door transition showed stale
-      // BG1 blocks beside the HUD).
-      const int hr0 = r0 > 0 ? r0 : 0, hr1 = r1 < 31 ? r1 : 31, hud0 = (g_right - g_left) / 2, hud1 = hud0 + 256;
-      if (hr0 < hr1) {
-        if (c0 < hud0) GpuPpu_AddMask(f, c0, hr0, (c1 < hud0 ? c1 : hud0) - c0, hr1 - hr0);
-        if (c1 > hud1) GpuPpu_AddMask(f, c0 > hud1 ? c0 : hud1, hr0, c1 - (c0 > hud1 ? c0 : hud1), hr1 - hr0);
-      }
+      // All of it: the margins' tilemap columns hold whatever the last fill left (a door
+      // transition showed stale BG1 blocks beside the HUD). The HUD is drawn over the masks
+      // (GpuFrame.hud_first), so it shows even where it sits in a margin.
+      GpuPpu_AddMask(f, c0, r0, c1 - c0, r1 - r0);
       continue;
     }
     // The parts outside the room or in a red scroll screen made of one block (filler).

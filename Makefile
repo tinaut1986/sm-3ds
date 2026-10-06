@@ -85,19 +85,6 @@ DATA := data
 INCLUDES := $(SOURCES) include
 ROMFS := romfs
 RESOURCES := resources
-SDL := SDL
-
-.PHONY: sdl
-
-sdl: $(SDL)/build/libSDL2.a
-$(SDL)/build/libSDL2.a:
-	@cd $(TOPDIR)/$(SDL) && \
-	cmake -S. -Bbuild -DCMAKE_TOOLCHAIN_FILE="$(DEVKITPRO)/cmake/3DS.cmake" \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG" \
-		-DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" && \
-	cmake --build build --parallel && \
-	chmod +x build/sdl2-config
 
 #---------------------------------------------------------------------------------
 # Resource Setup
@@ -115,7 +102,7 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mfpu=vfp
 
 COMMON_FLAGS := -Wall -Wno-strict-aliasing -Wno-unused-value -Wno-unused-const-variable -Wno-unused-but-set-variable \
 	-O3 -Ofast -mword-relocations -fomit-frame-pointer \
-	-ffast-math $(ARCH) $(INCLUDE) -D__3DS__ -mno-unaligned-access $(BUILD_FLAGS)
+	-ffast-math $(ARCH) $(INCLUDE) -D__3DS__ -D_3DS -mno-unaligned-access $(BUILD_FLAGS)
 # 	-flto -fwhole-program \
 #     -funroll-loops \
 #     -finline-functions \
@@ -135,7 +122,7 @@ else
 	EXTRA_CFLAGS :=
 endif
 
-CFLAGS := $(COMMON_FLAGS) -std=gnu99 $(shell $(CURDIR)/../$(SDL)/build/sdl2-config --cflags 2>/dev/null) -DSYSTEM_VOLUME_MIXER_AVAILABLE=1 $(EXTRA_CFLAGS)
+CFLAGS := $(COMMON_FLAGS) -std=gnu99 -DSYSTEM_VOLUME_MIXER_AVAILABLE=1 $(EXTRA_CFLAGS)
 CXXFLAGS := $(COMMON_FLAGS) -std=gnu++17
 # CXXFLAGS += -fno-rtti -fno-exceptions
 
@@ -143,14 +130,22 @@ ASFLAGS := $(ARCH)
 LDFLAGS = -specs=3dsx.specs $(ARCH) -Wl,-Map,$(notdir $*.map) \
 		  -Wl,--gc-sections -Wl,--as-needed
 
-LIBS := $(TOPDIR)/$(SDL)/build/libSDL2main.a $(TOPDIR)/$(SDL)/build/libSDL2.a -lcitro2d -lcitro3d -lctru -lm
+LIBS := -lcitro2d -lcitro3d -lctru -lm
 LIBDIRS := $(PORTLIBS) $(CTRULIB) ./lib
 
 # SM game sources
 SM_DIR := sm
 SM_SRCS := $(wildcard $(SM_DIR)/src/*.c) $(wildcard $(SM_DIR)/src/snes/*.c) $(SM_DIR)/third_party/gl_core/gl_core_3_1.c
-SM_SRCS := $(filter-out $(SM_DIR)/src/main.c, $(SM_SRCS))
+# main.c and the OpenGL output are the PC frontend; the 3DS build has no SDL (key codes: third_party/sdl_keys)
+SM_SRCS := $(filter-out $(SM_DIR)/src/main.c $(SM_DIR)/src/opengl.c, $(SM_SRCS))
 SM_CFILES := $(notdir $(SM_SRCS))
+
+# rcheevos, the RetroAchievements library (third_party/rcheevos/VERSION.txt). Its
+# rc_compat.h picks the libctru mutex with -D_3DS.
+RC_DIR := third_party/rcheevos
+RC_SRCS := $(wildcard $(RC_DIR)/src/*.c) $(wildcard $(RC_DIR)/src/rapi/*.c) \
+	$(wildcard $(RC_DIR)/src/rcheevos/*.c) $(RC_DIR)/src/rhash/md5.c
+RC_CFILES := $(notdir $(RC_SRCS))
 
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -183,7 +178,7 @@ $(shell printf '$(BUILD_CONFIG_H_TEXT)' > $(BUILD_CONFIG_H).tmp && \
 #---------------------------------------------------------------------------------
 recurse = $(shell find $2 -type $1 -name '$3' 2> /dev/null)
 
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.c))) $(SM_CFILES)
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.c))) $(SM_CFILES) $(RC_CFILES)
 ALL_CPP := $(foreach dir,$(SOURCES),$(call recurse,f,$(dir),*.cpp))
 CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(call recurse,f,$(dir),*.cpp)))
 
@@ -201,11 +196,11 @@ export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 	$(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD) \
-	-I$(CURDIR)/$(SDL)/build/include -I$(CURDIR)/$(SDL)/include \
-	-I$(CURDIR)/$(SM_DIR) -I$(CURDIR)/$(SM_DIR)/src
+	-I$(CURDIR)/third_party/sdl_keys \
+	-I$(CURDIR)/$(SM_DIR) -I$(CURDIR)/$(SM_DIR)/src \
+	-I$(CURDIR)/$(RC_DIR)/include -I$(CURDIR)/$(RC_DIR)/src -I$(CURDIR)/$(RC_DIR)/src/rhash
 
-export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
-				   -L$(SDL)/build
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 ifeq ($(strip $(CPPFILES)),)
 	export LD := $(CC)
@@ -216,7 +211,9 @@ endif
 export DEPSDIR := $(CURDIR)/$(BUILD)
 export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir) $(call recurse,d,$(CURDIR)/$(dir),*)) \
                 $(foreach dir,$(DATA),$(CURDIR)/$(dir) $(call recurse,d,$(CURDIR)/$(dir),*)) \
-                $(CURDIR)/$(SM_DIR)/src $(CURDIR)/$(SM_DIR)/src/snes $(CURDIR)/$(SM_DIR)/third_party/gl_core
+                $(CURDIR)/$(SM_DIR)/src $(CURDIR)/$(SM_DIR)/src/snes $(CURDIR)/$(SM_DIR)/third_party/gl_core \
+                $(CURDIR)/$(RC_DIR)/src $(CURDIR)/$(RC_DIR)/src/rapi $(CURDIR)/$(RC_DIR)/src/rcheevos \
+                $(CURDIR)/$(RC_DIR)/src/rhash
 
 export TOPDIR := $(CURDIR)
 OUTPUT_DIR := $(TOPDIR)/$(OUTPUT)
@@ -224,7 +221,7 @@ EMPTY :=
 SPACE := $(EMPTY) $(EMPTY)
 OUTPUT_FILE := $(OUTPUT_DIR)/$(subst $(SPACE),,$(APP_TITLE))
 
-.PHONY: $(BUILD) clean all format clean_sdl print-version ftp test
+.PHONY: $(BUILD) clean all format print-version ftp test
 
 #---------------------------------------------------------------------------------
 # Initial Targets
@@ -280,9 +277,6 @@ fmt:
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(OUTPUT) $(DEVEL_OBJECTS) $(PARSER_OUT)
-
-clean_sdl:
-	@rm -fr $(SDL)/build
 
 #---------------------------------------------------------------------------------
 else
@@ -360,7 +354,7 @@ APP_LONG_DESC := $(shell printf '%s %s' "$(APP_TITLE)" "$(VERSION)" | cut -c1-64
 icon.icn: $(TOPDIR)/$(ICON) version.h
 	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_LONG_DESC)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
 
-$(OUTPUT_FILE).elf: $(OFILES) $(SDL)/build/libSDL2.a
+$(OUTPUT_FILE).elf: $(OFILES)
 
 # The shader header is generated; make sure it exists before its user compiles.
 gpu_ppu_3ds.o: gpu_ppu.shbin.o

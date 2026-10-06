@@ -407,6 +407,7 @@ void ClearUnusedOam(void) {
   for (int i = oam_next_ptr >> 2; i < 0x80; i++)
     oam_ent[i].ycoord = 0xf0;
   oam_next_ptr = 0;
+  g_rtl_oam_built = true;   // 3DS port: the frame rebuilt OAM, see g_rtl_oam_shown_x
 }
 
 void ClearOamExt(void) {  // 0x808B1A
@@ -905,6 +906,7 @@ void NmiUpdateIoRegisters(void) {  // 0x8091EE
 }
 
 void NmiUpdatePalettesAndOam(void) {  // 0x80933A
+  RtlOamShown();   // 3DS port: this OAM reaches the PPU, see g_rtl_oam_shown_x
   WriteRegWord(DMAP0, 0x400);
   WriteRegWord(A1T0L, ADDR16_OF_RAM(*oam_ent));
   WriteReg(A1B0, 0);
@@ -2640,6 +2642,19 @@ int16 g_rtl_oam_anchor_x = kRtlOamUnknown, g_rtl_oam_anchor_y = kRtlOamUnknown;
 uint8 g_rtl_oam_hud[128];
 bool g_rtl_oam_hud_drawing;
 
+int16 g_rtl_oam_shown_x[128], g_rtl_oam_shown_y[128];
+uint8 g_rtl_oam_shown_hud[128];
+
+bool g_rtl_oam_built;
+
+void RtlOamShown(void) {
+  if (!g_rtl_oam_built) return;   // the OAM going up is still the last frame's
+  g_rtl_oam_built = false;
+  memcpy(g_rtl_oam_shown_x, g_rtl_oam_x, sizeof(g_rtl_oam_x));
+  memcpy(g_rtl_oam_shown_y, g_rtl_oam_y, sizeof(g_rtl_oam_y));
+  memcpy(g_rtl_oam_shown_hud, g_rtl_oam_hud, sizeof(g_rtl_oam_hud));
+}
+
 void RtlOamXReset(void) {
   for (int i = 0; i < 128; i++) g_rtl_oam_x[i] = g_rtl_oam_y[i] = kRtlOamUnknown, g_rtl_oam_hud[i] = 0;
   RtlOamClearAnchor();
@@ -2654,7 +2669,7 @@ void RtlOamXReset(void) {
 // mode 7 VRAM: only the sprites join the HUD, and the renderer draws the plane under it.
 static uint8 HudLinesTM(void) {
   if (!g_rtl_wide_hud_over_room) return 4;
-  return 4 | (gameplay_TM & (irq_enable_mode7 ? 0x10 : 0x13));
+  return 4 | (gameplay_TM & (irq_enable_mode7 && (reg_BGMODE_fake & 7) == 7 ? 0x10 : 0x13));
 }
 
 // Also the sub screen without BG3: there BG3 is the HUD, not the room's FX layer.

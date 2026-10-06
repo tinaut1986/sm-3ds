@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "gpu_ppu.h"
+#include "stereo_depth.h"
 
 // Lazy: nothing of citro3d is touched until the GPU renderer is first switched on.
 // Returns false if it could not start (then keep using the CPU renderer).
@@ -18,17 +19,31 @@ void GpuPpu3ds_Exit(void);
 // BottomUi_DrawOverlayInto), drawn at the top-left corner; NULL hides it.
 void GpuPpu3ds_SetOverlay(const uint32_t *px);
 
+// Achievement notice for the next frames: 512x64 column-major RGBA8 with the 300x36 box in
+// its top-left corner (BottomUi_DrawTopToastInto), drawn centred at the top; NULL hides it.
+void GpuPpu3ds_SetToast(const uint32_t *px);
+
 // Timing of the last DrawAndPresent: waiting for the GPU to finish the frame before, and
 // building plus submitting the command list.
 void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms);
 
 // Draws `f` and queues it for the top screen, centred: scaled to 274x240, or 1:1 with
 // `pixel_perfect`.
-void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect);
+// `slider`: the 3D slider (0 = one flat eye); `gameplay`: the room is on screen (stereo
+// planes; otherwise the frame is drawn flat, its HUD list and text excepted).
+void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slider, bool gameplay, StereoScreen screen);
 
 // Waits until the GPU has finished everything queued, so the CPU can write the top
 // framebuffer again (when switching back to the CPU renderer).
 void GpuPpu3ds_WaitIdle(void);
+
+// Debug views: every quad is tinted, blended over its own picture so the scene stays readable.
+//   kPlaneTintPlanes: the colour of its stereo plane (StereoDepth_PlaneColor)
+//   kPlaneTintOrder:  a one-colour ramp by its drawing order, the compositor level (back dark .. front bright)
+//   kPlaneTintDepth:  the same ramp by its stereoscopic depth, the plane's shift (far dark .. near bright)
+// Where the two ramps differ is what does not fit between how the game draws it and where 3D puts it.
+enum { kPlaneTintOff, kPlaneTintPlanes, kPlaneTintOrder, kPlaneTintDepth, kPlaneTintModes };
+void GpuPpu3ds_SetPlaneTint(int mode);
 
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.

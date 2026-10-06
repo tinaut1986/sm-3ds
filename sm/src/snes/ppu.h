@@ -190,7 +190,8 @@ typedef struct PpuLineState {
   bool mathEnabled[6];
 } PpuLineState;
 
-enum { kPpuCaptureLines = 240 };
+// 256: room for the GPU renderer's extra rows below the 224 (3DS port, gpu_ppu.c).
+enum { kPpuCaptureLines = 256 };
 typedef struct PpuLineCapture {
   PpuLineState line[kPpuCaptureLines];   // [1..last_line] are valid
   int last_line;
@@ -205,6 +206,10 @@ extern PpuLineCapture *g_ppu_line_capture;
 // Optional (3DS GPU renderer): one byte per 8 VRAM words, set to 1 when a VRAM data port
 // write changes a word in that group. The owner clears it. Loading a state bypasses it.
 extern uint8_t *g_ppu_vram_dirty;
+// 3DS port: when set, a copy of VRAM as the game wrote it (VMDATA, DMA), so code that
+// changes VRAM after the game (source/game_text_screens.c) can read and put back the
+// game's own words. NULL: no copy kept.
+extern uint16_t *g_ppu_vram_shadow;
 void ppu_saveLineState(const Ppu *ppu, PpuLineState *st);
 // Draws lines [first, last] with the CPU renderer from captured states, then puts
 // the PPU registers back as they were.
