@@ -1955,7 +1955,7 @@ void WriteEnemyOams(void) {  // 0xA0944A
         // 3DS port: each part anchors its own pieces (a part may be far from the enemy's
         // position, more than the 128 px RtlOamTag can tell apart).
         RtlOamSetAnchor((int16)(E->x_pos - layer1_x_pos + ext->xpos), (int16)(E->y_pos - layer1_y_pos + ext->ypos));
-        if (((x + 128) & 0xFE00) == 0 && ((y + 128) & 0xFE00) == 0) {
+        if (RtlSpriteXInRange(x) && ((y + 128) & 0xFE00) == 0) {   // 3DS port: x widened by the WIDE margins
           if (HIBYTE(y))
             DrawSpritemapWithBaseTileOffscreen(E->bank, ext->spritemap, x, y, r3, r0);
           else

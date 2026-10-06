@@ -130,7 +130,7 @@ static uint64_t g_wide_hash = 1469598103934665603ull;   // every WIDE frame, mar
 
 static StereoPlane QuadStereoPlane(const StereoFrame *sf, const GpuQuad *qd, bool hud);
 
-static int g_eproj_margin_frames, g_eproj_margin_max, g_eproj_left_first = -1;
+static int g_eproj_margin_frames, g_eproj_margin_max, g_eproj_left_first = -1, g_eproj_far_frames;
 
 static void TestWide(const char *label) {
   int ml, mr, hud_x, bg2_dx;   // this frame's margins, leaning off room edges (SmWide)
@@ -559,6 +559,12 @@ static void TestFrame(const char *label, bool check_capture) {
     for (int i = 0; i < 18; i++)
       if (eproj_id[i] && (int16)(eproj_x_pos[i] - layer1_x_pos) < -8 && (int16)(eproj_x_pos[i] - layer1_x_pos) > -60 && g_eproj_left_first < 0)
         g_eproj_left_first = g_frames, printf("EPROJ_MARGIN first projectile in the left margin: frame %d, eproj %04X at x %d\n", g_frames, eproj_id[i], (int16)(eproj_x_pos[i] - layer1_x_pos));
+    for (int i = 0; i < 18; i++)   // beyond the -128 px the game draws a projectile down to (it needs a margin wider than that)
+      if (eproj_id[i] && (!getenv("EPROJ_ID") || eproj_id[i] == strtol(getenv("EPROJ_ID"), NULL, 16)) &&
+          (int16)(eproj_x_pos[i] - layer1_x_pos) < -128 && (int16)(eproj_x_pos[i] - layer1_x_pos) > -300) {
+        g_eproj_far_frames++;
+        break;
+      }
     g_eproj_margin_frames += out > 0;
     g_eproj_margin_max = out > g_eproj_margin_max ? out : g_eproj_margin_max;
   }
@@ -841,7 +847,7 @@ static void Report(void) {
   if (g_music_rooms)
     printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
            g_music_wrong);
-  if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once)\n", g_eproj_margin_frames, g_eproj_margin_max);
+  if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once), %d with one more than 128 px left of the view\n", g_eproj_margin_frames, g_eproj_margin_max, g_eproj_far_frames);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,
          g_refused);
   if (getenv("WIDE"))
