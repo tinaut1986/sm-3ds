@@ -15,7 +15,7 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.3` (so far: a charging bolt on the bottom screen's battery, and WIDE showing projectile and enemy pieces in the rows above the picture, #41). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.2.3` (so far: a charging bolt on the bottom screen's battery, and WIDE showing projectile and enemy pieces in the rows above the picture, #41, and HOME showing the game and not freezing the console after closing it, #20). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
 **Branches:** none open. `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
@@ -1207,3 +1207,16 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   sprites the game adds on top (refills, map station, bosses; `$82:C7CB` tables) are ours, as plain letter blocks. Zoom 1X/2X/3X
   = 5/8/12 px a cell (`map_zoom` in `config.ini`); 1X shows the 64 columns of an area in 320 px, the 8x8 tile averaged down.
   Picking a room (debug) resolves on release so a drag can scroll.
+- 2026-10-06: Closing the game from HOME froze the console for the next application (FBI, ftpd; #20), and HOME showed the
+  game's screens black. Two causes, both found by elimination on the 2DS (a `bisect.txt` that stopped the game after each
+  subsystem's set-up, since removed; every stage was clean until citro3d, and the CPU renderer never froze it):
+  (1) citro3d ends a frame asynchronously (the swap is a callback when its GPU queue finishes) and HOME takes the GPU away,
+  so a frame in flight is never acknowledged, and every wait on the queue (`C3D_RenderTargetDelete`, `C3D_Fini`) never
+  returns; skipping the teardown, as the code did since 2026-10-01, left the GPU half done for the next application.
+  `AptHook` (`gpu_ppu_3ds.c`) drains the queue with an empty frame while the app still has the GPU, and the real close tears
+  citro3d down on a thread with a timeout. Not one more frame runs after the quit event. Tried and not the cause: the 3D
+  mode left on, `AffinityMask`, tearing citro3d down in the suspend hook (it then restarted wrongly on return: black).
+  (2) The framebuffers were 32-bit (RGBA8, inherited from the upstream frontend): HOME cannot capture those. Both screens are
+  now 24-bit like mzm's; the CPU drawing keeps its 32-bit pixels in a buffer per screen (`UiDraw_Screen`), converted by
+  `UiDraw_Present` right before the swap. Why mzm never had either problem was not established (it already used 24 bits and its
+  GPU queue is probably empty when HOME is pressed). `debug/sm-exit.txt` now also records the GPU steps of the exit.

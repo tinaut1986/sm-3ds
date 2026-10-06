@@ -7,6 +7,7 @@
 #include "src/sm_rtl.h"
 #include "src/variables.h"
 #include "bottom_ui.h"
+#include "ui_draw.h"
 #include "ui_lang.h"
 #include "cheats.h"
 #include "debug_tools.h"
@@ -33,7 +34,7 @@ static void Dump(const char *name) {
   FILE *f = fopen(name, "wb");
   fprintf(f, "P6\n320 240\n255\n");
   for (int y = 0; y < 240; y++) for (int x = 0; x < 320; x++) {
-    const uint8_t *p = &fb[GFX_BOTTOM][(x * 240 + (239 - y)) * 4];   // A,B,G,R
+    const uint8_t *p = &((const uint8_t *)UiDraw_Screen(GFX_BOTTOM).px)[(x * 240 + (239 - y)) * 4];   // A,B,G,R
     fputc(p[3], f); fputc(p[2], f); fputc(p[1], f);
   }
   fclose(f);

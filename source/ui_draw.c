@@ -26,11 +26,30 @@ void UiDraw_WaitSwapShown(void) {
   g_swap_tick = 0;
 }
 
+// The screens' framebuffers are 24-bit (BGR8): HOME draws the background of a suspended
+// application from them and cannot read 32-bit ones (it showed black, #20). The CPU drawing
+// code works in 32 bits (0xRRGGBBAA), so it draws into these two buffers, and UiDraw_Present
+// converts one to the real framebuffer when it is about to be swapped.
+static uint32_t g_shadow_top[400 * 240], g_shadow_bottom[320 * 240];
+
 Surface UiDraw_Screen(gfxScreen_t screen) {
+  return screen == GFX_TOP ? (Surface){ g_shadow_top, 400, 240 } : (Surface){ g_shadow_bottom, 320, 240 };
+}
+
+void UiDraw_Present(gfxScreen_t screen, bool both_eyes) {
   UiDraw_WaitSwapShown();
-  u16 w, h;   // libctru reports the rotated size: w = 240, h = width in pixels
-  u8 *fb = gfxGetFramebuffer(screen, GFX_LEFT, &w, &h);
-  return (Surface){ (uint32_t *)fb, h, w };
+  const uint32_t *src = screen == GFX_TOP ? g_shadow_top : g_shadow_bottom;
+  const int n = screen == GFX_TOP ? 400 * 240 : 320 * 240;
+  uint8_t *dst = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
+  for (int i = 0; i < n; i++) {   // column-major, origin bottom-left, in both
+    const uint32_t c = src[i];
+    dst[0] = (uint8_t)(c >> 8);    // B
+    dst[1] = (uint8_t)(c >> 16);   // G
+    dst[2] = (uint8_t)(c >> 24);   // R
+    dst += 3;
+  }
+  if (both_eyes && screen == GFX_TOP)
+    memcpy(gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL), gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL), n * 3);
 }
 
 static int g_clip_y0, g_clip_y1 = 1 << 30;
