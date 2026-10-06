@@ -940,7 +940,7 @@ void GpuPpu3ds_Exit(void) {
   // software" in every call that waits for the GPU queue (an empty frame first, then
   // C3D_RenderTargetDelete; 2DS logs, 2026-10-01). After HOME, citro3d's APT suspend
   // hook has stopped its vblank handling and the queue never drains. The app is exiting:
-  // the system reclaims the GPU memory with the process, and gfxExit (SDL_Quit) stops
+  // the system reclaims the GPU memory with the process, and gfxExit stops
   // the GSP event thread that citro3d's callbacks run on.
   Debug_Log("exit: citro3d left as is");
   g_ready = false;
