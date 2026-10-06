@@ -19,6 +19,7 @@
 #include "stereo_depth.h"
 #include "ui_draw.h"
 #include "updater.h"
+#include "states_store.h"
 #include "ui_lang.h"
 #include "retro_ach.h"
 
@@ -27,7 +28,6 @@
 #define REFRESH_FRAMES 15   // periodic redraw so live numbers (and the clock) keep moving
 #define TAP_FLASH_MS 150    // how long a tapped button shows pressed
 #define ARM_MS 2000         // a save-state button waits this long for its second tap
-#define STATE_SLOTS 10
 
 UiOptions g_ui = {
   .audio_on = true,
@@ -44,7 +44,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -704,156 +704,297 @@ static void StatusTouch(int x, int y) {
 }
 
 // ---- States tab -----------------------------------------------------------------
-// Ten save-state slots (saves/saveN.sav). Each save also writes saves/saveN.txt with
-// where and when, which is what the rows show. Save and load need a second tap.
+// Any number of save states (states_store.c), newest first as cards, scrolled by dragging the
+// list or its bar like the achievements. NEW saves into a fresh one; a tap on a card opens it
+// (MODAL_STATE): the screenshot of the top screen, what Samus had, a colour mark to tell it
+// apart, and LOAD / SAVE OVER / DELETE, each with a second tap to confirm.
 
-typedef struct {
-  bool used, has_info;
-  long long saved_at;
-  unsigned area, room, health, max_health, missiles, max_missiles;
-  unsigned hours, minutes;
-} SlotInfo;
-
-static SlotInfo g_slots[STATE_SLOTS];
-static int g_arm_slot = -1, g_arm_action;   // action 1 = save, 2 = load
+enum {
+  kStListY0 = 46, kStListY1 = 238,
+  kStCardX = 6, kStCardW = 300, kStCardPitch = 34, kStCardH = 32,
+  kStBarX = 310, kStBarW = 4, kStBarHitX = 306,
+  kStDragSlop = 6,
+  kStListMax = 512,   // shown; the rest are older ones (the count says how many there are)
+};
+static StateInfo g_states[kStListMax];
+static int g_states_n, g_states_total;
+static int g_st_scroll;
+static struct { bool active, dragging, bar; int start_y, last_y; } g_st_touch;
+static StateInfo g_st_detail;               // the card opened
+static uint16_t g_st_shot[kStateShotW * kStateShotH];
+static bool g_st_shot_ok;
+static int g_arm_state = -1, g_arm_action;   // action 1 = load, 2 = save over, 3 = delete
 static u64 g_arm_ms;
 
-static void RefreshSlot(int i) {
-  SlotInfo *si = &g_slots[i];
-  memset(si, 0, sizeof(*si));
-  char path[32];
-  snprintf(path, sizeof(path), "saves/save%d.sav", i);
-  struct stat st;
-  si->used = stat(path, &st) == 0;
-  snprintf(path, sizeof(path), "saves/save%d.txt", i);
-  FILE *f = si->used ? fopen(path, "r") : NULL;
-  if (!f) return;
-  char line[64];
-  while (fgets(line, sizeof(line), f)) {
-    char key[24];
-    long long v;
-    if (sscanf(line, "%23[^=]=%lld", key, &v) != 2) continue;
-    if (!strcmp(key, "saved_at")) si->saved_at = v;
-    else if (!strcmp(key, "area")) si->area = (unsigned)v;
-    else if (!strcmp(key, "room")) si->room = (unsigned)v;
-    else if (!strcmp(key, "health")) si->health = (unsigned)v;
-    else if (!strcmp(key, "max_health")) si->max_health = (unsigned)v;
-    else if (!strcmp(key, "missiles")) si->missiles = (unsigned)v;
-    else if (!strcmp(key, "max_missiles")) si->max_missiles = (unsigned)v;
-    else if (!strcmp(key, "hours")) si->hours = (unsigned)v;
-    else if (!strcmp(key, "minutes")) si->minutes = (unsigned)v;
-  }
-  fclose(f);
-  si->has_info = true;
-}
+static const uint32_t kMarkColors[kStateMarks] = {
+  RGB(70, 85, 110), RGB(235, 70, 70), RGB(240, 150, 50), RGB(235, 215, 70),
+  RGB(80, 210, 110), RGB(70, 205, 215), RGB(80, 130, 245), RGB(185, 105, 240),
+};
 
 static void RefreshSlots(void) {
-  for (int i = 0; i < STATE_SLOTS; i++) RefreshSlot(i);
+  g_states_total = States_Scan(g_states, kStListMax);
+  g_states_n = g_states_total < kStListMax ? g_states_total : kStListMax;
 }
 
-static void WriteSlotInfo(int slot) {
-  char path[32];
-  snprintf(path, sizeof(path), "saves/save%d.txt", slot);
-  FILE *f = fopen(path, "w");
-  if (!f) return;
-  fprintf(f, "saved_at=%lld\narea=%u\nroom=%u\nhealth=%u\nmax_health=%u\nmissiles=%u\nmax_missiles=%u\nhours=%u\nminutes=%u\n",
-          (long long)time(NULL), (unsigned)area_index, (unsigned)room_index, (unsigned)samus_health,
-          (unsigned)samus_max_health, (unsigned)samus_missiles, (unsigned)samus_max_missiles,
-          (unsigned)game_time_hours, (unsigned)game_time_minutes);
-  fclose(f);
+// The number a state shows: its place in time, 1 the oldest (the list is newest first). It is not
+// the file's id, which only ever grows: delete the 4 and the 5 becomes the 4.
+static int StPosition(int id) {
+  for (int i = 0; i < g_states_n; i++)
+    if (g_states[i].id == id) return g_states_total - i;
+  return id;
 }
 
-#define SLOT_Y0 38
-#define SLOT_PITCH 19
-static Rect SlotSaveRect(int i) { return (Rect){ 252, SLOT_Y0 + i * SLOT_PITCH, 28, 17 }; }
-static Rect SlotLoadRect(int i) { return (Rect){ 284, SLOT_Y0 + i * SLOT_PITCH, 28, 17 }; }
-
-static bool Armed(int slot, int action) {
-  return g_arm_slot == slot && g_arm_action == action && osGetTime() - g_arm_ms < ARM_MS;
+static int StMaxScroll(void) {
+  const int content = g_states_n * kStCardPitch - (kStCardPitch - kStCardH);
+  return content > kStListY1 - kStListY0 ? content - (kStListY1 - kStListY0) : 0;
 }
 
-// 12x12 floppy disk (from mzm) and a 14x11 folder, centred on (cx, cy).
-static void DrawFloppy(Surface s, int cx, int cy, uint32_t ink, uint32_t bg) {
-  const int x = cx - 6, y = cy - 6;
-  UiFillRect(s, x, y, 12, 12, ink);
-  UiFillRect(s, x + 3, y, 6, 4, bg);
-  UiFillRect(s, x + 6, y + 1, 2, 2, ink);
-  UiFillRect(s, x + 2, y + 7, 8, 5, bg);
-  UiFillRect(s, x + 3, y + 8, 6, 1, ink);
-  UiFillRect(s, x + 3, y + 10, 6, 1, ink);
+static void StClampScroll(void) {
+  const int max = StMaxScroll();
+  if (g_st_scroll > max) g_st_scroll = max;
+  if (g_st_scroll < 0) g_st_scroll = 0;
 }
 
-static void DrawFolder(Surface s, int cx, int cy, uint32_t ink, uint32_t bg) {
-  const int x = cx - 7, y = cy - 5;
-  UiFillRect(s, x, y, 6, 2, ink);            // tab
-  UiFillRect(s, x, y + 2, 14, 9, ink);       // body
-  UiFillRect(s, x + 1, y + 4, 12, 1, bg);    // the opening
+static void StScrollToBar(int y) {
+  g_st_scroll = (y - kStListY0) * StMaxScroll() / (kStListY1 - kStListY0);
+  StClampScroll();
 }
 
-static void DrawSlotButton(Surface s, Rect r, bool enabled, bool armed, bool save) {
-  const uint32_t body = !enabled ? RGB(30, 34, 40) : armed ? RGB(120, 90, 20) : save ? RGB(24, 60, 34) : RGB(24, 46, 70);
-  const uint32_t edge = save ? RGB(70, 150, 90) : RGB(80, 140, 200);
-  const uint32_t ink = enabled ? RGB(200, 235, 220) : RGB(90, 100, 115);
-  if (armed) {
-    UiDrawBoxLabel(s, r, body, edge, RGB(255, 235, 150), Pressed(r), "OK?");
+static Rect StNewRect(void) { return (Rect){ 232, 27, 80, 15 }; }
+
+// The state's own numbers from the game's RAM, for the file next to it.
+static void CurrentStateInfo(StateInfo *si, int id, int mark) {
+  memset(si, 0, sizeof(*si));
+  si->id = id;
+  si->has_info = true;
+  si->saved_at = (long long)time(NULL);
+  si->area = area_index, si->room = room_index;
+  si->health = samus_health, si->max_health = samus_max_health, si->reserve = samus_reserve_health, si->max_reserve = samus_max_reserve_health;
+  si->missiles = samus_missiles, si->max_missiles = samus_max_missiles;
+  si->supers = samus_super_missiles, si->max_supers = samus_max_super_missiles;
+  si->pbs = samus_power_bombs, si->max_pbs = samus_max_power_bombs;
+  si->hours = game_time_hours, si->minutes = game_time_minutes;
+  si->mark = mark;
+  snprintf(si->version, sizeof(si->version), "%s", g_rom_info.version);
+}
+
+static void DrawStateCard(Surface s, int y, const StateInfo *si) {
+  const int x = kStCardX;
+  UiFillRect(s, x, y, kStCardW, kStCardH, RGB(35, 45, 65));
+  UiFillRect(s, x + 1, y + 1, kStCardW - 2, kStCardH - 2, RGB(18, 22, 34));
+  UiFillRect(s, x + 1, y + 1, 6, kStCardH - 2, kMarkColors[si->mark]);
+  UiDrawTextf(s, x + 14, y + 6, COL_TEXT, "%d", g_states_total - (int)(si - g_states));
+  if (!si->has_info) {
+    UiDrawText(s, x + 14, y + 19, 1, COL_DIM, Tr(kStrSavedNoDetails));
     return;
   }
-  UiDrawBox(s, r, body, edge, Pressed(r));
-  if (save) DrawFloppy(s, r.x + r.w / 2, r.y + r.h / 2, ink, body);
-  else DrawFolder(s, r.x + r.w / 2, r.y + r.h / 2, ink, body);
+  UiDrawTextf(s, x + 54, y + 6, RGB(170, 210, 245), "%s %02X", TrAreaShort(si->area < kSmAreaCount ? si->area : 0), si->room);
+  UiDrawTextf(s, x + 110, y + 6, COL_ENERGY, "E%u", si->health);
+  if (si->max_missiles) UiDrawTextf(s, x + 152, y + 6, COL_MISSILE, "M%u", si->missiles);
+  UiDrawTextf(s, x + 14, y + 19, COL_DIM, "%u:%02u", si->hours, si->minutes);
+  const time_t t = (time_t)si->saved_at;
+  struct tm *tm = gmtime(&t);
+  if (tm) UiDrawTextf(s, x + 70, y + 19, COL_DIM, "%04d-%02d-%02d %02d:%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min);
 }
 
 static void DrawStates(Surface s) {
-  UiDrawTextCentered(s, SCREEN_W / 2, 28, COL_TITLE, Tr(kStrSaveStates));
-  for (int i = 0; i < STATE_SLOTS; i++) {
-    const SlotInfo *si = &g_slots[i];
-    const int y = SLOT_Y0 + i * SLOT_PITCH;
-    UiFillRect(s, 8, y, 240, 17, RGB(14, 22, 34));
-    UiFillRect(s, 8, y, 240, 1, RGB(60, 80, 110));
-    UiDrawTextf(s, 12, y + 5, COL_TEXT, "%d", i);
-    if (!si->used) {
-      UiDrawText(s, 26, y + 5, 1, COL_FAINT, Tr(kStrEmpty));
-    } else if (!si->has_info) {
-      UiDrawText(s, 26, y + 5, 1, COL_DIM, Tr(kStrSavedNoDetails));
-    } else {
-      UiDrawTextf(s, 26, y + 5, RGB(170, 210, 245), "%s %02X", TrAreaShort(si->area < kSmAreaCount ? si->area : 0), si->room);
-      UiDrawTextf(s, 74, y + 5, COL_ENERGY, "E%u", si->health);
-      if (si->max_missiles) UiDrawTextf(s, 110, y + 5, COL_MISSILE, "M%u", si->missiles);
-      const time_t t = (time_t)si->saved_at;
-      struct tm *tm = gmtime(&t);
-      if (tm) UiDrawTextf(s, 150, y + 5, COL_DIM, "%02d-%02d %02d:%02d", tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min);
-    }
-    DrawSlotButton(s, SlotSaveRect(i), true, Armed(i, 1), true);
-    DrawSlotButton(s, SlotLoadRect(i), si->used, Armed(i, 2), false);
+  char buf[48];
+  snprintf(buf, sizeof(buf), "%s: %d", Tr(kStrSaveStates), g_states_total);
+  UiDrawText(s, 8, 31, 1, COL_TITLE, buf);
+  UiDrawBoxLabel(s, StNewRect(), RGB(24, 60, 34), RGB(70, 150, 90), RGB(200, 235, 220), Pressed(StNewRect()), Tr(kStrNewState));
+  if (!g_states_n) {
+    UiDrawTextCentered(s, SCREEN_W / 2, 120, COL_DIM, Tr(kStrStatesNone));
+    return;
   }
-  UiDrawTextCentered(s, SCREEN_W / 2, 229, COL_DIM, Tr(kStrTapTwice));
+  StClampScroll();
+  UiClipY(kStListY0, kStListY1);
+  for (int i = 0; i < g_states_n; i++) {
+    const int y = kStListY0 - g_st_scroll + i * kStCardPitch;
+    if (y + kStCardH <= kStListY0) continue;
+    if (y >= kStListY1) break;
+    DrawStateCard(s, y, &g_states[i]);
+  }
+  UiNoClip();
+  const int max = StMaxScroll();
+  if (max > 0) {
+    const int track = kStListY1 - kStListY0;
+    int thumb = track * track / (track + max);
+    if (thumb < 16) thumb = 16;
+    UiFillRect(s, kStBarX, kStListY0, kStBarW, track, RGB(60, 24, 36));
+    UiFillRect(s, kStBarX, kStListY0 + g_st_scroll * (track - thumb) / max, kStBarW, thumb, RGB(80, 160, 240));
+  }
 }
 
 static void StatesTouch(int x, int y) {
-  for (int i = 0; i < STATE_SLOTS; i++) {
-    int action = UiIn(SlotSaveRect(i), x, y) ? 1 : UiIn(SlotLoadRect(i), x, y) ? 2 : 0;
-    if (!action) continue;
-    if (action == 2 && !g_slots[i].used) return;
-    if (Armed(i, action)) {
-      g_ui.save_slot = i;
-      if (action == 1) g_ui.req_save_state = true;
-      else g_ui.req_load_state = true;
-      g_arm_slot = -1;
-    } else {
-      g_arm_slot = i;
+  if (UiIn(StNewRect(), x, y)) {
+    g_ui.save_slot = States_NextId();
+    g_ui.req_save_state = true;
+  } else if (y >= kStListY0 && y < kStListY1 && g_states_n) {
+    // A card opens on release, and only if the touch never became a drag.
+    g_st_touch.active = true;
+    g_st_touch.dragging = false;
+    g_st_touch.bar = x >= kStBarHitX && StMaxScroll() > 0;
+    g_st_touch.start_y = g_st_touch.last_y = y;
+    if (g_st_touch.bar) StScrollToBar(y);
+  }
+}
+
+static bool StatesTouchMove(int y) {
+  if (!g_st_touch.active) return false;
+  const int before = g_st_scroll;
+  if (g_st_touch.bar) {
+    StScrollToBar(y);
+  } else if (g_st_touch.dragging || abs(y - g_st_touch.start_y) >= kStDragSlop) {
+    g_st_touch.dragging = true;
+    g_st_scroll += g_st_touch.last_y - y;
+    StClampScroll();
+  } else {
+    return false;
+  }
+  g_st_touch.last_y = y;
+  return g_st_scroll != before;
+}
+
+static void StatesTouchUp(void) {
+  if (!g_st_touch.active) return;
+  g_st_touch.active = false;
+  if (g_st_touch.dragging || g_st_touch.bar) return;
+  const int at = g_st_touch.start_y - kStListY0 + g_st_scroll;
+  const int i = at / kStCardPitch;
+  if (i >= 0 && i < g_states_n && at % kStCardPitch < kStCardH) {
+    g_st_detail = g_states[i];
+    g_st_shot_ok = States_ReadShot(g_st_detail.id, g_st_shot);
+    g_arm_state = -1;
+    g_modal = MODAL_STATE;
+  }
+}
+
+// ---- One state in full -----------------------------------------------------------
+static Rect StMarkRect(int i) { return (Rect){ 62 + i * 30, 172, 26, 14 }; }
+static Rect StButtonRect(int i) { return (Rect){ 12 + i * 76, 198, 72, 22 }; }   // LOAD, SAVE OVER, DELETE, CLOSE
+
+static bool StArmed(int action) { return g_arm_state == g_st_detail.id && g_arm_action == action && osGetTime() - g_arm_ms < ARM_MS; }
+
+static void DrawStateDetail(Surface s) {
+  const StateInfo *si = &g_st_detail;
+  UiFillRect(s, 6, 26, 308, 210, COL_TITLE);
+  UiFillRect(s, 8, 28, 304, 206, RGB(8, 11, 20));
+  UiDrawTextf(s, 16, 33, COL_TITLE, "%d", StPosition(si->id));
+  if (si->has_info) {
+    const time_t t = (time_t)si->saved_at;
+    struct tm *tm = gmtime(&t);
+    char buf[24] = "";
+    if (tm) snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min);
+    UiDrawText(s, 304 - UiTextWidth(buf, 1), 33, 1, COL_DIM, buf);
+  }
+  // The screenshot, 1:1.
+  const int sx = 14, sy = 46;
+  UiFillRect(s, sx - 1, sy - 1, kStateShotW + 2, kStateShotH + 2, RGB(60, 75, 100));
+  if (g_st_shot_ok) {
+    for (int y = 0; y < kStateShotH; y++) {
+      for (int x = 0; x < kStateShotW; x++) {
+        const uint16_t c = g_st_shot[y * kStateShotW + x];
+        const unsigned r = c >> 11 & 31, g = c >> 5 & 63, b = c & 31;
+        s.px[(sx + x) * s.h + (s.h - 1 - (sy + y))] = RGB(r << 3 | r >> 2, g << 2 | g >> 4, b << 3 | b >> 2);
+      }
+    }
+  } else {
+    UiFillRect(s, sx, sy, kStateShotW, kStateShotH, RGB(14, 18, 28));
+    UiDrawTextCentered(s, sx + kStateShotW / 2, sy + kStateShotH / 2 - 3, COL_FAINT, Tr(kStrNoImage));
+  }
+  // What Samus had.
+  const int tx = 222;
+  int y = 46;
+  if (si->has_info) {
+    UiDrawTextf(s, tx, y, RGB(170, 210, 245), "%s %02X", TrAreaShort(si->area < kSmAreaCount ? si->area : 0), si->room), y += 13;
+    UiDrawTextf(s, tx, y, COL_ENERGY, "E %u/%u", si->health, si->max_health), y += 12;
+    if (si->max_reserve) UiDrawTextf(s, tx, y, COL_RESERVE, "RES %u/%u", si->reserve, si->max_reserve), y += 12;
+    UiDrawTextf(s, tx, y, COL_MISSILE, "M %u/%u", si->missiles, si->max_missiles), y += 12;
+    UiDrawTextf(s, tx, y, COL_GOOD, "S %u/%u", si->supers, si->max_supers), y += 12;
+    UiDrawTextf(s, tx, y, COL_WARN, "PB %u/%u", si->pbs, si->max_pbs), y += 12;
+    UiDrawTextf(s, tx, y, COL_DIM, "%s %u:%02u", Tr(kStrTime), si->hours, si->minutes), y += 14;
+    if (si->version[0] && si->version[0] != '-') UiDrawTextf(s, tx, y, COL_FAINT, "%.14s", si->version);
+  } else {
+    UiDrawText(s, tx, y, 1, COL_DIM, Tr(kStrSavedNoDetails));
+  }
+  // The mark.
+  UiDrawText(s, 16, 175, 1, COL_DIM, Tr(kStrMark));
+  for (int i = 0; i < kStateMarks; i++) {
+    const Rect r = StMarkRect(i);
+    UiFillRect(s, r.x - 1, r.y - 1, r.w + 2, r.h + 2, i == si->mark ? RGB(255, 255, 255) : RGB(30, 38, 55));
+    UiFillRect(s, r.x, r.y, r.w, r.h, kMarkColors[i]);
+  }
+  // LOAD, SAVE OVER and DELETE take a second tap.
+  static const UiStr kLabels[3] = { kStrLoad, kStrSaveOver, kStrDelete };
+  for (int i = 0; i < 3; i++) {
+    const Rect r = StButtonRect(i);
+    const bool armed = StArmed(i + 1);
+    const bool enabled = i != 0 || true;
+    (void)enabled;
+    if (armed) UiDrawBoxLabel(s, r, RGB(120, 90, 20), i == 2 ? RGB(180, 60, 60) : RGB(80, 140, 200), RGB(255, 235, 150), Pressed(r), "OK?");
+    else if (i == 2) UiDrawBoxLabel(s, r, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(r), Tr(kLabels[i]));
+    else UiDrawBoxLabel(s, r, i == 0 ? RGB(24, 46, 70) : RGB(24, 60, 34), i == 0 ? RGB(80, 140, 200) : RGB(70, 150, 90), COL_TEXT, Pressed(r), Tr(kLabels[i]));
+  }
+  UiDrawBoxLabel(s, StButtonRect(3), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(StButtonRect(3)), Tr(kStrClose));
+}
+
+static void StateDetailTouch(int x, int y) {
+  StateInfo *si = &g_st_detail;
+  for (int i = 0; i < kStateMarks; i++) {
+    if (!UiIn(StMarkRect(i), x, y)) continue;
+    si->mark = i;
+    if (si->has_info) States_WriteInfo(si);
+    for (int k = 0; k < g_states_n; k++)
+      if (g_states[k].id == si->id) g_states[k].mark = i;
+    return;
+  }
+  if (UiIn(StButtonRect(3), x, y)) {
+    g_modal = MODAL_NONE;
+    return;
+  }
+  for (int i = 0; i < 3; i++) {
+    if (!UiIn(StButtonRect(i), x, y)) continue;
+    const int action = i + 1;
+    if (!StArmed(action)) {
+      g_arm_state = si->id;
       g_arm_action = action;
       g_arm_ms = osGetTime();
+      return;
+    }
+    g_arm_state = -1;
+    if (action == 3) {
+      const int number = StPosition(si->id);
+      BottomUi_Busy();
+      States_Delete(si->id);
+      RefreshSlots();
+      StClampScroll();
+      char buf[48];
+      snprintf(buf, sizeof(buf), Tr(kStrStateDeleted), number);
+      Toast(buf);
+      g_modal = MODAL_NONE;
+    } else {
+      g_ui.save_slot = si->id;
+      if (action == 1) g_ui.req_load_state = true;
+      else g_ui.req_save_state = true;
+      g_modal = MODAL_NONE;
     }
     return;
   }
-  g_arm_slot = -1;
+  g_arm_state = -1;
 }
 
-void BottomUi_StateSaved(int slot, bool ok) {
-  if (ok) WriteSlotInfo(slot);
-  RefreshSlot(slot);
+void BottomUi_StateSaved(int slot, bool ok, const uint16_t *shot) {
+  if (ok) {
+    // Saving over a state keeps its mark.
+    StateInfo old, now;
+    const bool had = States_ReadInfo(slot, &old);
+    CurrentStateInfo(&now, slot, had ? old.mark : 0);
+    States_WriteInfo(&now);
+    if (shot) States_WriteShot(slot, shot);
+  }
+  RefreshSlots();
   char buf[64];
-  snprintf(buf, sizeof(buf), Tr(ok ? kStrSavedSlot : kStrSaveFailed), slot);
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrSavedSlot : kStrSaveFailed), StPosition(slot));
   Toast(buf);
 }
 
@@ -867,7 +1008,7 @@ static void ForgetDebugState(void) {
 void BottomUi_StateLoaded(int slot, bool ok) {
   if (ok) ForgetDebugState();
   char buf[64];
-  snprintf(buf, sizeof(buf), Tr(ok ? kStrLoadedSlot : kStrLoadFailed), slot);
+  snprintf(buf, sizeof(buf), Tr(ok ? kStrLoadedSlot : kStrLoadFailed), StPosition(slot));
   Toast(buf);
 }
 
@@ -1762,7 +1903,7 @@ static void LoadConfig(void) {
 static void SelectTab(Tab t) {
   g_tab = t;
   g_modal = MODAL_NONE;
-  g_arm_slot = -1;
+  g_arm_state = -1;
   if (t == TAB_STATES) RefreshSlots();
 }
 
@@ -1789,6 +1930,7 @@ static void TouchDownImpl(int x, int y) {
   switch (g_modal) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
   case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
+  case MODAL_STATE: StateDetailTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -1821,15 +1963,31 @@ void BottomUi_TouchDown(int x, int y) {
 
 void BottomUi_TouchMove(int x, int y) {
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
+  if (g_tab == TAB_STATES && g_modal == MODAL_NONE && StatesTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
 }
 
 void BottomUi_TouchUp(void) {
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE) AchievementsTouchUp();
+  if (g_tab == TAB_STATES && g_modal == MODAL_NONE) StatesTouchUp();
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();
   g_map_touch.active = false;
   g_ra_touch.active = false;
   g_dirty = 2;
+}
+
+void BottomUi_Busy(void) {
+  // The buffer still holds the last frame of the UI: put the box over it and show it now.
+  Surface s = UiDraw_Screen(GFX_BOTTOM);
+  const Rect r = { 70, 98, 180, 40 };
+  UiFillRect(s, r.x, r.y, r.w, r.h, COL_MODAL_EDGE);
+  UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_MODAL);
+  UiDrawTextCentered(s, r.x + r.w / 2, r.y + 16, COL_TITLE, Tr(kStrWait));
+  UiDraw_Present(GFX_BOTTOM, false);
+  gfxFlushBuffers();
+  gfxScreenSwapBuffers(GFX_BOTTOM, false);
+  UiDraw_Swapped();
+  g_dirty = 2;   // the next frame draws the tab again
 }
 
 static void DrawBottom(const UiPerf *p) {
@@ -1850,6 +2008,7 @@ static void DrawBottom(const UiPerf *p) {
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
+  case MODAL_STATE: DrawStateDetail(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;

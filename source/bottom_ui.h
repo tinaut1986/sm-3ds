@@ -64,6 +64,10 @@ bool BottomUi_Init(const UiRomInfo *rom);
 void BottomUi_Exit(void);
 
 // Touch: x,y in bottom-screen pixels (0..319, 0..239).
+// Before something that blocks the main loop for a while (writing a state or a dump to the SD
+// card): shows PLEASE WAIT on the bottom screen at once, since nothing draws until it is done.
+void BottomUi_Busy(void);
+
 void BottomUi_TouchDown(int x, int y);
 void BottomUi_TouchMove(int x, int y);
 void BottomUi_TouchUp(void);
@@ -78,7 +82,7 @@ void BottomUi_Toast(const char *msg);
 
 // The main loop reports what it did with req_save_state / req_load_state /
 // req_reset, so the States tab can describe the slot and forget stale debug state.
-void BottomUi_StateSaved(int slot, bool ok);
+void BottomUi_StateSaved(int slot, bool ok, const uint16_t *shot);   // `shot`: the top screen, 200x120 RGB565, or NULL
 void BottomUi_StateLoaded(int slot, bool ok);
 void BottomUi_GameReset(void);
 
