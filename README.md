@@ -69,7 +69,8 @@ mark, and LOAD, SAVE OVER and DELETE, each confirmed with a second tap). The Opt
 pacing (AUTO, LOCK 30 or NO SKIP), audio (with a loudspeaker to switch it quickly), the FPS counter and the
 corner it sits in, the 804 MHz mode (New 3DS), the language, the image (PIXEL P. or SCALED) and view (ORIGINAL or
 WIDE), the updates (AUTO or NO, STABLE releases or + BETAS, and a button to look now; a newer one asks before
-installing) and reset.
+installing), the HUD (it can hide, on the top screen, the half the open bottom tab shows: the energy and weapons on STATUS,
+the minimap on MAP) and reset.
 
 ### Languages
 

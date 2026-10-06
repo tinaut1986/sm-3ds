@@ -138,6 +138,9 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrChannel] = { "CHANNEL", "CANAL", "CANAL", "CANAL", "CANAL" },
   [kStrChanStable] = { "STABLE", "ESTABLES", "ESTABLES", "STABLES", "ESTÁVEIS" },
   [kStrChanBeta] = { "+ BETAS", "+ BETAS", "+ BETES", "+ BÊTAS", "+ BETAS" },
+  [kStrHud] = { "HUD", "HUD", "HUD", "HUD", "HUD" },
+  [kStrHudHidden] = { "HIDDEN WITH ITS TAB", "OCULTO CON SU PESTAÑA", "AMAGAT AMB LA PESTANYA", "MASQUÉ AVEC SON ONGLET", "OCULTO COM A ABA" },
+  [kStrHudShown] = { "ALWAYS SHOWN", "SIEMPRE VISIBLE", "SEMPRE VISIBLE", "TOUJOURS VISIBLE", "SEMPRE VISÍVEL" },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };

@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
   collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100; equipped_items = 0x0001 | 0x0004 | 0x1000;
   collected_beams = 0x1000 | 0x0002; equipped_beams = 0x1000;
   game_time_hours = 3; game_time_minutes = 27; game_time_seconds = 9;
+  hud_item_index = 2;   // the super missiles selected with SELECT
   boss_bits_for_area[1] = 3; boss_bits_for_area[0] = 1;
   map_station_byte_array[1] = 1;
   int n; const SmRoom *rooms = SmMap_Rooms(&n);

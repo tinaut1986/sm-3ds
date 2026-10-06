@@ -622,8 +622,12 @@ static void DrawStatus(Surface s) {
   const unsigned max[3] = { samus_max_missiles, samus_max_super_missiles, samus_max_power_bombs };
   for (int i = 0; i < 3; i++) {
     const int x = 8 + i * 103;
-    UiFillRect(s, x, 73, 98, 26, COL_PANEL);
-    UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
+    // The weapon the SELECT button has chosen (the HUD's highlighted item): missiles 1, super missiles 2,
+    // power bombs 3. The top screen's HUD can be hidden while this tab is open, so it shows here.
+    const bool picked = hud_item_index == (uint16)(i + 1);
+    UiFillRect(s, x, 73, 98, 26, picked ? RGB(48, 44, 14) : COL_PANEL);
+    UiFrameRect(s, x, 73, 98, 26, picked ? COL_WARN : COL_BORDER);
+    if (picked) UiFrameRect(s, x + 1, 74, 96, 24, COL_WARN);
     UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], TrAmmo(i));
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
     UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
@@ -637,6 +641,11 @@ static void DrawStatus(Surface s) {
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrItem(i));
+    // The grapple beam (4) and the X-ray scope (5) are chosen with SELECT too.
+    if ((hud_item_index == 4 && kSmItems[i].mask == 0x4000) || (hud_item_index == 5 && kSmItems[i].mask == 0x8000)) {
+      UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
+      UiFrameRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_WARN);
+    }
   }
 #if DEBUG_TOOLS
   {
@@ -1031,13 +1040,14 @@ void BottomUi_GameReset(void) {
 //   FPS | CPU         LANGUAGE
 //   IMAGE | VIEW      UPDATE | CHANNEL
 //   UPDATES           RESET GAME
+//   HUD
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_COUNT
 } OptCell;
 
-enum { kOptResetSlot = 7, kOptSpeakerW = 34 };
+enum { kOptResetSlot = 7, kOptHudSlot = 8, kOptSpeakerW = 34 };
 
 static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
 static Rect OptHalf(int slot, int half) {
@@ -1056,6 +1066,7 @@ static Rect OptRect(OptCell c) {
   case OPT_WIDE: return OptHalf(4, 1);
   case OPT_AUTO_UPDATE: return OptHalf(5, 0);
   case OPT_CHANNEL: return OptHalf(5, 1);
+  case OPT_HUD: return OptSlot(kOptHudSlot);
   default: return OptSlot(6);
   }
 }
@@ -1134,6 +1145,8 @@ static void DrawOptions(Surface s) {
     }
     DrawOptCell(s, OptRect(OPT_UPDATES), Tr(kStrUpdates), value, col);
   }
+  DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
+              g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
                  Tr(kStrResetGame));
 
@@ -1178,6 +1191,7 @@ static void OptionsTouch(int x, int y) {
       g_ui.update_beta = !g_ui.update_beta;
       Updater_SetBeta(g_ui.update_beta);
       break;
+    case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
     }
@@ -1931,11 +1945,11 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta; } SavedOptions;
+typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide };
 }
 
 static void SaveConfig(void) {
@@ -1944,8 +1958,8 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom, o.auto_update, o.update_beta);
+          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom, o.auto_update, o.update_beta, o.hud_hide);
   fclose(f);
 }
 
@@ -1975,6 +1989,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
     else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
     else if (!strcmp(key, "update_beta")) g_ui.update_beta = v != 0;
+    else if (!strcmp(key, "hud_auto_hide")) g_ui.hud_auto_hide = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
@@ -2058,6 +2073,11 @@ void BottomUi_TouchUp(void) {
   g_map_touch.active = false;
   g_ra_touch.active = false;
   g_dirty = 2;
+}
+
+int BottomUi_HudHidden(void) {
+  if (!g_ui.hud_auto_hide) return 0;
+  return g_tab == TAB_STATUS ? 1 : g_tab == TAB_MAP ? 2 : 0;
 }
 
 void BottomUi_Busy(void) {

@@ -503,6 +503,29 @@ static void CheckIntroCursor(const char *label) {
 // pinned off the view (SAMUS_PIN) there must be some, or the test did not look at anything.
 static int g_edge_frames, g_edge_untagged, g_edge_outside;
 
+// HIDE_HUD=n (1 the status half, 2 the minimap, 3 both): the HUD's halves are not drawn (OPTIONS -> HUD).
+// In gameplay frames the CPU renderer's picture must be black where they were, in its lines 0-30; with
+// the other half still drawn somewhere. g_hud_hidden_px counts the pixels that are not.
+static int g_hud_frames, g_hud_lit_hidden, g_hud_lit_shown;
+static void CheckHiddenHud(void) {
+  const int hide = atoi(getenv("HIDE_HUD"));
+  if (game_state != kGameState_8_MainGameplay) return;
+  g_hud_frames++;
+  if (getenv("HIDE_HUD_ROWS") && g_hud_frames == 5)
+    for (int y = 0; y < 34; y++) {
+      int n = 0;
+      for (int x = 0; x < 256; x++) n += (*(const uint32_t *)&g_px[y * kPitch + x * 4] & 0xffffff) != 0;
+      printf("HUD row %d lit %d\n", y, n);
+    }
+  for (int y = 0; y < 31; y++) {   // line 31 already shows the room: the HUD's IRQ ends there
+    for (int x = 0; x < 256; x++) {
+      const bool map_side = x >= 208;
+      const bool hidden = map_side ? (hide & 2) : (hide & 1);
+      if (*(const uint32_t *)&g_px[y * kPitch + x * 4] & 0xffffff) { if (hidden) g_hud_lit_hidden++; else g_hud_lit_shown++; }
+    }
+  }
+}
+
 static void CheckEdgeSprites(const char *label) {
   const Ppu *ppu = g_snes->ppu;
   g_edge_frames++;
@@ -546,6 +569,7 @@ static void TestFrame(const char *label, bool check_capture) {
   g_frames++;
   if (getenv("INTRO_CURSOR_CHECK")) CheckIntroCursor(label);
   if (getenv("EDGE_CHECK")) CheckEdgeSprites(label);
+  if (getenv("HIDE_HUD")) CheckHiddenHud();
   if (getenv("ENEMY_MARGIN"))   // ENEMY_MARGIN=ptr: frames with an enemy of that kind more than 40 px left of the normal view
     for (int i = 0; i < 32; i++)
       if (gEnemyData(i * 64)->enemy_ptr == strtol(getenv("ENEMY_MARGIN"), NULL, 16) &&
@@ -870,6 +894,9 @@ static void Report(void) {
     printf("INTRO CURSOR frames %d, bad %d, blinking %d\n", g_cursor_frames, g_cursor_bad, g_cursor_blink);
   if (getenv("EDGE_CHECK"))
     printf("EDGE frames %d, untagged %d, tagged outside the view %d\n", g_edge_frames, g_edge_untagged, g_edge_outside);
+  if (getenv("HIDE_HUD"))
+    printf("HIDE_HUD frames %d, lit pixels in the hidden halves %d, in the shown ones %d\n", g_hud_frames, g_hud_lit_hidden,
+           g_hud_lit_shown);
   if (getenv("WIDE")) printf("WIDE image hash %016llx\n", (unsigned long long)g_wide_hash);
   // Game state at the end, for tools/test: any change to the game logic changes it.
   uint64_t h = 1469598103934665603ull;
@@ -909,6 +936,7 @@ int main(int argc, char **argv) {
   if (getenv("WIDE"))
     SmWide_SetView(atoi(getenv("WIDE")), getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0,
                    getenv("WIDE_Y") ? atoi(getenv("WIDE_Y")) : 0, !getenv("WIDE_EDGE"));
+  if (getenv("HIDE_HUD")) SmWide_HideHud(atoi(getenv("HIDE_HUD")) & 1, atoi(getenv("HIDE_HUD")) & 2);
   if (!strcmp(argv[2], "state")) {
     // The state is copied to saves/save9.sav by run.sh.
     if (!RtlSaveLoad(kSaveLoad_Load, 9)) return 4;

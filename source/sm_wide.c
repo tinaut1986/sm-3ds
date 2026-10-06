@@ -518,6 +518,49 @@ static void BeforePpuDraw(void) {
   g_filled = true;
 }
 
+// ---- Hiding the HUD's halves -----------------------------------------------------------
+// OPTIONS -> HUD hides, on the top screen, the half of the HUD the bottom screen's tab shows:
+// the status half (energy, reserve, ammunition and the selected weapon: columns 0-25 of the HUD's
+// four tile rows) on the STATUS tab, the minimap (columns 26-31) on the MAP tab. The cells become
+// the HUD's blank entry, which the WIDE view makes see-through like the rest. The game rewrites
+// rows 1-3 of its HUD tilemap into VRAM every frame (HandleHudTilemap), so those come back by
+// themselves; row 0 is written once, and holds the minimap's top border, so it is put back here.
+enum { kHudMapCol = 26 };
+static bool g_hide_status, g_hide_map, g_hud_touched, g_wide_on;
+
+static void HudHide(Ppu *ppu) {
+  if (!RoomShown() || (!g_hide_status && !g_hide_map && !g_hud_touched)) return;
+  for (int r = 0; r < 4; r++) {
+    for (int c = 0; c < 32; c++) {
+      const bool hide = c >= kHudMapCol ? g_hide_map : g_hide_status;
+      if (hide) VramPut(ppu, kHudMap + r * 32 + c, kHudBlank);
+    }
+  }
+  if (!g_hide_map) {   // the minimap's top border, as InitializeHud writes it (kHudTilemaps)
+    for (int c = kHudMapCol; c < 32; c++) {
+      const uint16_t entry = c == 31 ? 0x2C1C : 0x2C1D;
+      if (ppu->vram[kHudMap + c] == kHudBlank) VramPut(ppu, kHudMap + c, entry);
+    }
+  }
+  g_hud_touched = g_hide_status || g_hide_map;
+}
+
+static void Dispatch(void) {
+  HudHide(g_snes->ppu);
+  if (g_wide_on) BeforePpuDraw();
+}
+
+static void InstallHook(void) {
+  g_rtl_before_ppu_draw = g_wide_on || g_hide_status || g_hide_map || g_hud_touched ? Dispatch : NULL;
+}
+
+void SmWide_HideHud(bool status, bool map) {
+  g_hide_status = status;
+  g_hide_map = map;
+  if (status || map) g_hud_touched = true;
+  InstallHook();
+}
+
 void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over_room) {
   if (margin_x != g_margin_x) {   // even until the next gameplay frame works out the lean
     g_left = g_right = margin_x;
@@ -537,7 +580,8 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over
   g_extra_bottom = extra_bottom;
   g_rtl_wide_hud_over_room = hud_over_room;
   const bool on = margin_x || extra_top || extra_bottom;
-  g_rtl_before_ppu_draw = on ? BeforePpuDraw : NULL;
+  g_wide_on = on;
+  InstallHook();
   if (!on) {
     g_filled = false;
     HudRestore(g_snes->ppu);

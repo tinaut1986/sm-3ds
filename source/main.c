@@ -848,6 +848,10 @@ int main(int argc, char** argv) {
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
       Cheats_BeforeFrame();
+      {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
+        const int hidden = BottomUi_HudHidden();
+        SmWide_HideHud(hidden & 1, hidden & 2);
+      }
       is_replay = RtlRunFrame(inputs);
       RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
