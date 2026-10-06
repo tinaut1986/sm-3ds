@@ -1334,12 +1334,14 @@ static bool SameBgConfig(const BgLayer *a, const BgLayer *b) {
          a->tileAdr == b->tileAdr && a->bigTiles == b->bigTiles;
 }
 
-// The HUD's rows as the first gameplay line `g` draws, keeping what HDMA changes per line
+// The HUD's rows as a gameplay line `g` draws, keeping what HDMA changes per line
 // (BG1/BG2, the windows' bounds): the room under the HUD gets the FX layer and the colour
-// math the rows below have (fog, rain, water), as it would if the screen went on up there.
+// math the rows below have (fog, rain, water, lava), as it would if the screen went on up there.
 // Not where the FX layer would read the HUD's own tilemap rows (SM keeps both in one BG3
-// map, the HUD in its first 4 rows): there the line keeps its own settings without BG3 (the
-// HUD is drawn from the HUD list), as before.
+// map, the HUD in its first 4 rows): the layer's scroll puts its blank rows there (a lava
+// surface below the HUD), so the line keeps its own settings without BG3 (the HUD is drawn
+// from the HUD list). `g` is the line after the first one below the HUD: the first one is
+// still before the layer's HDMA (a stale scroll), so it is built from `g` too.
 static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLineState *g, int line) {
   const BgLayer *fx = &g->bgLayer[2], *hb = &hud->bgLayer[2];
   const int map_rows = fx->tilemapHigher ? 64 : 32, row = ((line + fx->vScroll) >> 3) & (map_rows - 1);
@@ -1392,7 +1394,9 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     work.last_line = orig->last_line;
     work.midframe_data_writes = orig->midframe_data_writes;
     for (int l = kGpuRows + 1; l <= last; l++) work.line[l] = orig->line[kGpuRows];
-    for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[g], l);
+    const int src = g < kGpuRows ? g + 1 : g;   // the line whose BG3 scroll and colour math the HUD's rows copy
+    for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[src], l);
+    if (g_hud_synth && src != g && orig->line[g].bgLayer[2].vScroll != orig->line[src].bgLayer[2].vScroll) SynthHudLine(&work.line[g], &orig->line[g], &orig->line[src], g);
     cap = &work;
   }
   for (int l = 1; l <= last; l++)
