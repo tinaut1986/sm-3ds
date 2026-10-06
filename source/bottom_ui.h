@@ -35,17 +35,23 @@ typedef struct {
   const char *version;
 } UiRomInfo;
 
+// Frame pacing (OPTIONS -> FRAMES). The game logic always runs at 60 Hz; this is about drawing.
+// AUTO drops the drawing of a frame that is late (the default), LOCK 30 draws one frame in two,
+// NO SKIP draws every frame whatever it costs (debugging).
+enum { kPaceAuto, kPaceLock30, kPaceNoSkip, kPaceCount };
+
 // Options the main loop reads every frame.
 typedef struct {
   bool paused;
-  bool frameskip;        // when late, drop rendering (not logic) to hold game speed
+  int pacing;            // kPaceAuto, kPaceLock30 or kPaceNoSkip (OPTIONS -> FRAMES)
   bool audio_on;
-  bool fps_overlay;      // small FPS counter on the top screen
+  int fps_overlay;       // small FPS counter on the top screen: 0 off, 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right
   bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can; on by default
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   bool pixel_perfect;    // top screen 256x224 at 1:1; otherwise scaled to 274x240
   int plane_tint;        // debug tint (GPU renderer): 0 off, 1 by plane, 2 by drawing order, 3 by stereo depth
   bool auto_update;      // look for a newer build at boot (config.ini); the check only asks
+  bool update_beta;      // the updates it looks for: only releases, or the betas too
   bool wide;             // WIDE view: more of the room on the sides in gameplay (GPU renderer)
   int save_slot;        // 0..9, for save states
   // One-shot requests, consumed by the main loop.

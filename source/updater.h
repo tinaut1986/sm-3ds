@@ -32,6 +32,9 @@ typedef enum {
 // (a failure, as with no Wi-Fi, says nothing). `beta`: also offer pre-releases.
 void Updater_Init(bool auto_check, bool beta);
 
+// Which updates to offer from now on: only releases, or the betas too.
+void Updater_SetBeta(bool beta);
+
 // A manual check; a newer build raises the install prompt, the result is in the state.
 void Updater_CheckNow(void);
 

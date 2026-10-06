@@ -31,8 +31,9 @@
 
 UiOptions g_ui = {
   .audio_on = true,
-  .frameskip = true,
+  .pacing = kPaceAuto,
   .auto_update = true,
+  .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
   // the CPU renderer), and any frame it cannot draw goes to the CPU renderer anyway.
@@ -1023,35 +1024,102 @@ void BottomUi_GameReset(void) {
 }
 
 // ---- Options tab ----------------------------------------------------------------
+// Two columns of eight slots. A slot is one button, or two half buttons that share its width
+// (each shows its own setting and its current value, a tap changes it).
+//
+//   FRAMES            AUDIO [speaker]
+//   FPS | CPU         LANGUAGE
+//   IMAGE | VIEW      UPDATE | CHANNEL
+//   UPDATES           RESET GAME
 
-typedef enum { OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_AUTO_UPDATE, OPT_UPDATES, OPT_COUNT } OptCell;
+typedef enum {
+  OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
+  OPT_UPDATES, OPT_COUNT
+} OptCell;
 
-// Two columns; RESET GAME takes the last row's free cell.
-static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
-static Rect ResetRect(void) { return OptRect(OPT_COUNT); }
+enum { kOptResetSlot = 7, kOptSpeakerW = 34 };
 
-static void DrawOptCell(Surface s, int i, const char *label, const char *value, uint32_t value_col) {
-  const Rect r = OptRect(i);
+static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
+static Rect OptHalf(int slot, int half) {
+  const Rect r = OptSlot(slot);
+  return (Rect){ r.x + half * 77, r.y, 73, r.h };
+}
+
+static Rect OptRect(OptCell c) {
+  switch (c) {
+  case OPT_PACING: return OptSlot(0);
+  case OPT_AUDIO: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
+  case OPT_FPS: return OptHalf(2, 0);
+  case OPT_SPEEDUP: return OptHalf(2, 1);
+  case OPT_LANGUAGE: return OptSlot(3);
+  case OPT_DISPLAY: return OptHalf(4, 0);
+  case OPT_WIDE: return OptHalf(4, 1);
+  case OPT_AUTO_UPDATE: return OptHalf(5, 0);
+  case OPT_CHANNEL: return OptHalf(5, 1);
+  default: return OptSlot(6);
+  }
+}
+static Rect SpeakerRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
+static Rect ResetRect(void) { return OptSlot(kOptResetSlot); }
+
+static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
   UiDrawText(s, r.x + 6, r.y + 5, 1, COL_TEXT, label);
   UiDrawText(s, r.x + 6, r.y + 17, 1, value_col, value);
 }
 
-static void DrawOnOffCell(Surface s, int i, const char *label, bool on) {
-  DrawOptCell(s, i, label, Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
+// A loudspeaker, 16x12 around (cx, cy): waves when the sound is on, a red cross when it is off.
+static void DrawSpeaker(Surface s, int cx, int cy, bool on, uint32_t ink) {
+  UiFillRect(s, cx - 8, cy - 2, 4, 5, ink);                       // the box
+  for (int i = 0; i < 4; i++) UiFillRect(s, cx - 4 + i, cy - 2 - i, 1, 5 + 2 * i, ink);   // the cone
+  if (on) {
+    UiFillRect(s, cx + 2, cy - 2, 1, 5, ink);
+    UiFillRect(s, cx + 3, cy - 3, 1, 1, ink), UiFillRect(s, cx + 3, cy + 3, 1, 1, ink);
+    UiFillRect(s, cx + 5, cy - 4, 1, 9, ink);
+  } else {
+    for (int i = 0; i < 7; i++) {
+      UiFillRect(s, cx + 1 + i, cy - 3 + i, 2, 1, COL_BAD);
+      UiFillRect(s, cx + 1 + i, cy + 3 - i, 2, 1, COL_BAD);
+    }
+  }
+}
+
+// The FPS counter's corner: a small screen with a block in the corner, or NO.
+static void DrawFpsCornerIcon(Surface s, Rect r, int corner) {
+  const int x = r.x + 6, y = r.y + 16;
+  if (!corner) {
+    UiDrawText(s, x, y + 1, 1, COL_DIM, Tr(kStrNo));
+    return;
+  }
+  UiFrameRect(s, x, y, 22, 11, RGB(110, 130, 170));
+  const int bx = corner == 2 || corner == 4 ? x + 22 - 9 : x + 1, by = corner >= 3 ? y + 11 - 5 : y + 1;
+  UiFillRect(s, bx, by, 8, 4, COL_GOOD);
 }
 
 static void DrawOptions(Surface s) {
-  DrawOnOffCell(s, OPT_FRAMESKIP, Tr(kStrFrameSkip), g_ui.frameskip);
-  DrawOnOffCell(s, OPT_AUDIO, Tr(kStrAudio), g_ui.audio_on);
-  DrawOnOffCell(s, OPT_FPS, Tr(kStrFpsOverlay), g_ui.fps_overlay);
-  if (g_is_new3ds) DrawOptCell(s, OPT_SPEEDUP, "CPU (NEW 3DS)", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
+  static const UiStr kPaceNames[kPaceCount] = { kStrAuto, kStrPaceLock, kStrPaceNoSkip };
+  DrawOptCell(s, OptRect(OPT_PACING), Tr(kStrPacing), Tr(kPaceNames[g_ui.pacing]), g_ui.pacing == kPaceNoSkip ? COL_WARN : COL_GOOD);
+
+  // AUDIO opens its own window one day (a volume for each kind of sound); for now a tap on it, or
+  // on the loudspeaker beside it, which stays the shortcut, switches the sound.
+  DrawOptCell(s, OptRect(OPT_AUDIO), Tr(kStrAudio), Tr(g_ui.audio_on ? kStrOn : kStrOff), g_ui.audio_on ? COL_GOOD : COL_DIM);
+  const Rect sp = SpeakerRect();
+  UiDrawBox(s, sp, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(sp));
+  DrawSpeaker(s, sp.x + sp.w / 2 - 2, sp.y + sp.h / 2, g_ui.audio_on, g_ui.audio_on ? COL_GOOD : COL_DIM);
+
+  const Rect fr = OptRect(OPT_FPS);
+  DrawOptCell(s, fr, "FPS", "", COL_TEXT);
+  DrawFpsCornerIcon(s, fr, g_ui.fps_overlay);
+  if (g_is_new3ds) DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
-  else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
-  DrawOptCell(s, OPT_DISPLAY, Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelPerfect : kStrScaled), COL_GOOD);
-  DrawOnOffCell(s, OPT_WIDE, Tr(kStrWideView), g_ui.wide);
-  DrawOptCell(s, OPT_LANGUAGE, Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
-  DrawOnOffCell(s, OPT_AUTO_UPDATE, Tr(kStrAutoUpdate), g_ui.auto_update);
+  else DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", "268 MHZ", COL_FAINT);
+  DrawOptCell(s, OptRect(OPT_LANGUAGE), Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  DrawOptCell(s, OptRect(OPT_DISPLAY), Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelP : kStrScaled), COL_GOOD);
+  DrawOptCell(s, OptRect(OPT_WIDE), Tr(kStrView), Tr(g_ui.wide ? kStrViewWide : kStrViewOriginal), g_ui.wide ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_AUTO_UPDATE), Tr(kStrUpdate), Tr(g_ui.auto_update ? kStrAuto : kStrNo),
+              g_ui.auto_update ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_CHANNEL), Tr(kStrChannel), Tr(g_ui.update_beta ? kStrChanBeta : kStrChanStable),
+              g_ui.update_beta ? COL_WARN : COL_GOOD);
   {
     char value[40];
     uint32_t col = COL_GOOD;
@@ -1064,7 +1132,7 @@ static void DrawOptions(Surface s) {
     case UPD_ERROR: snprintf(value, sizeof(value), "%s", Tr(kStrUpdError)); col = COL_WARN; break;
     default: snprintf(value, sizeof(value), "%s", Tr(kStrUpdTap)); col = COL_DIM; break;
     }
-    DrawOptCell(s, OPT_UPDATES, Tr(kStrUpdates), value, col);
+    DrawOptCell(s, OptRect(OPT_UPDATES), Tr(kStrUpdates), value, col);
   }
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
                  Tr(kStrResetGame));
@@ -1084,15 +1152,19 @@ static void OptionsTouch(int x, int y) {
     g_modal = MODAL_RESET;
     return;
   }
+  if (UiIn(SpeakerRect(), x, y)) {
+    g_ui.audio_on = !g_ui.audio_on;
+    return;
+  }
   for (int i = 0; i < OPT_COUNT; i++) {
-    if (!UiIn(OptRect(i), x, y)) continue;
+    if (!UiIn(OptRect((OptCell)i), x, y)) continue;
     switch ((OptCell)i) {
-    case OPT_FRAMESKIP:
-      g_ui.frameskip = !g_ui.frameskip;
-      if (!g_ui.frameskip) Toast(Tr(kStrFrameSkipOffToast));
+    case OPT_PACING:
+      g_ui.pacing = (g_ui.pacing + 1) % kPaceCount;
+      if (g_ui.pacing == kPaceNoSkip) Toast(Tr(kStrFrameSkipOffToast));
       break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
-    case OPT_FPS: g_ui.fps_overlay = !g_ui.fps_overlay; break;
+    case OPT_FPS: g_ui.fps_overlay = (g_ui.fps_overlay + 1) % 5; break;
     case OPT_SPEEDUP:
       if (!g_is_new3ds) return;
       g_ui.new3ds_speedup = !g_ui.new3ds_speedup;
@@ -1102,6 +1174,10 @@ static void OptionsTouch(int x, int y) {
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
     case OPT_AUTO_UPDATE: g_ui.auto_update = !g_ui.auto_update; break;
+    case OPT_CHANNEL:
+      g_ui.update_beta = !g_ui.update_beta;
+      Updater_SetBeta(g_ui.update_beta);
+      break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
     }
@@ -1855,11 +1931,11 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update; } SavedOptions;
+typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update };
+  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta };
 }
 
 static void SaveConfig(void) {
@@ -1867,9 +1943,9 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\nauto_update=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom, o.auto_update);
+  fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
+          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom, o.auto_update, o.update_beta);
   fclose(f);
 }
 
@@ -1890,13 +1966,15 @@ static void LoadConfig(void) {
     int v;
     if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
     if (!strcmp(key, "tab") && v >= 0 && v < TAB_COUNT && TabVisible((Tab)v)) g_tab = (Tab)v;
-    else if (!strcmp(key, "frameskip")) g_ui.frameskip = v != 0;
+    else if (!strcmp(key, "pacing") && v >= 0 && v < kPaceCount) g_ui.pacing = (int)v;
+    else if (!strcmp(key, "frameskip")) g_ui.pacing = v ? kPaceAuto : kPaceNoSkip;   // the old on/off setting
     else if (!strcmp(key, "audio")) g_ui.audio_on = v != 0;
-    else if (!strcmp(key, "fps_overlay")) g_ui.fps_overlay = v != 0;
+    else if (!strcmp(key, "fps_overlay") && v >= 0 && v <= 4) g_ui.fps_overlay = (int)v;   // 1 was "on": the top-left corner
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
     else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
+    else if (!strcmp(key, "update_beta")) g_ui.update_beta = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
@@ -2080,7 +2158,11 @@ enum { kOverlayMaxW = 60, kOverlayH = 51 };
 
 static void DrawTopToastCpu(void);
 
-static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
+// The corner of the surface the overlay sits in: 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right.
+static int OverlayX(Surface s, int corner, int w) { return corner == 2 || corner == 4 ? s.w - w : 0; }
+static int OverlayY(Surface s, int corner, int h) { return corner >= 3 ? s.h - h : 0; }
+
+static void DrawOverlay(Surface s, int corner, const UiPerf *p, uint32_t box) {
   char line[5][12];
   snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
   snprintf(line[1], sizeof(line[1]), "L%.1f", p->logic_ms);
@@ -2094,29 +2176,33 @@ static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
   }
   int w = chars * 6 + 3;
   if (w > kOverlayMaxW) w = kOverlayMaxW;
-  UiFillRect(s, 0, 0, w, kOverlayH, box);
+  const int x0 = OverlayX(s, corner, w), y0 = OverlayY(s, corner, kOverlayH);
+  UiFillRect(s, x0, y0, w, kOverlayH, box);
   const uint32_t col[5] = { FpsColor(p->game_fps), COL_TEXT, COL_TEXT, COL_TEXT, COL_DIM };
-  for (int i = 0; i < 5; i++) UiDrawText(s, 2, 2 + i * 10, 1, col[i], line[i]);
+  for (int i = 0; i < 5; i++) UiDrawText(s, x0 + 2, y0 + 2 + i * 10, 1, col[i], line[i]);
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
   DrawTopToastCpu();
-  // The game is centred (274 or 256 px wide on a 400 px screen); use the left margin,
-  // which the game never redraws. The top screen is double buffered, so clear
-  // it for two frames after the overlay is switched off.
-  static int clear_frames;
+  // The game is centred (274 or 256 px wide on a 400 px screen); the overlay sits in a margin,
+  // which the game never redraws, at the corner chosen in OPTIONS. Where it was is cleared for
+  // two frames after a change: the top screen is double buffered.
+  static int clear_frames, drawn_corner, clear_corner;
   Surface s = UiDraw_Screen(GFX_TOP);
-  if (!g_ui.fps_overlay) {
-    if (clear_frames > 0) {
-      clear_frames--;
-      UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
-    }
-    return;
+  const int corner = g_ui.fps_overlay;
+  if (corner != drawn_corner) {
+    if (drawn_corner) clear_corner = drawn_corner, clear_frames = 2;
+    drawn_corner = corner;
   }
-  clear_frames = 2;
+  if (clear_frames > 0) {
+    clear_frames--;
+    UiFillRect(s, OverlayX(s, clear_corner, kOverlayMaxW), OverlayY(s, clear_corner, kOverlayH), kOverlayMaxW, kOverlayH,
+               RGB(0, 0, 0));
+  }
+  if (!corner) return;
   // The box shrinks with the numbers: clear what a wider one left in this buffer.
-  UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
-  DrawOverlay(s, p, RGB(0, 0, 0));
+  UiFillRect(s, OverlayX(s, corner, kOverlayMaxW), OverlayY(s, corner, kOverlayH), kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
+  DrawOverlay(s, corner, p, RGB(0, 0, 0));
 }
 
 // The achievement notice on the top screen, CPU path: drawn over the frame; once gone, the
@@ -2148,7 +2234,7 @@ bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   if (!g_ui.fps_overlay) return false;
   Surface s = { px, w, h };
   UiFillRect(s, 0, 0, w, h, 0);   // transparent around the box
-  DrawOverlay(s, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
+  DrawOverlay(s, g_ui.fps_overlay, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
   return true;
 }
 

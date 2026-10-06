@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
   TapTab(kOptions);
   Tap(8 + 5, 30 + 2 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(240, 171);                     // RESET GAME
+  Tap(240, 147);                     // RESET GAME
   Shot("options, reset window");
   Tap(216, 148);                     // cancel
   // The updater: its cell in every state, and the prompts over the tab.
@@ -229,7 +229,22 @@ int main(int argc, char **argv) {
   extern int g_preview_upd_progress;
   extern bool g_preview_upd_kept;
   extern const char *g_preview_upd_message;
-  Tap(8 + 5, 30 + 4 * 34 + 5);       // UPDATES: check
+  // The half buttons and the loudspeaker: a tap changes each.
+  Tap(8 + 5, 64 + 5);                // FPS: top-left
+  Tap(8 + 5, 64 + 5);                // top-right
+  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // the loudspeaker: sound off
+  Tap(8 + 5, 30 + 5);                // FRAMES: LOCK 30
+  Tap(162 + 77 + 5, 98 + 5);         // CHANNEL: + BETAS
+  Tap(8 + 77 + 5, 98 + 5);           // VIEW: WIDE
+  Shot("options, half buttons changed (FPS corner, sound off, LOCK 30, + BETAS, WIDE)");
+  Tap(8 + 5, 30 + 5);                // FRAMES: NO SKIP (the toast)
+  Shot("options, NO SKIP toast");
+  Tap(8 + 5, 30 + 5);                // FRAMES: AUTO again
+  Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5);   // FPS back to NO
+  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // sound on
+  Tap(162 + 77 + 5, 98 + 5);         // CHANNEL: back
+  Tap(8 + 77 + 5, 98 + 5);           // VIEW: back
+  Tap(8 + 5, 132 + 5);               // UPDATES: check
   if (g_preview_upd_state != UPD_CHECKING) { fprintf(stderr, "UPDATES did not start a check\n"); return 1; }
   Shot("options, checking for updates");
   g_preview_upd_state = UPD_UP_TO_DATE;
@@ -256,14 +271,14 @@ int main(int argc, char **argv) {
   // last option cell (left column, fourth row) and cycles.
   for (int lang = 1; lang < kLangCount; lang++) {
     TapTab(kOptions);
-    Tap(8 + 5, 30 + 3 * 34 + 5);     // LANGUAGE
+    Tap(162 + 5, 64 + 5);            // LANGUAGE
     if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
-    Tap(8 + 5, 30 + 5);              // FRAME SKIP off: its toast
+    Tap(8 + 5, 30 + 5), Tap(8 + 5, 30 + 5);   // FRAMES: LOCK 30, then NO SKIP: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
-    Tap(8 + 5, 30 + 5);
-    Tap(240, 171);                   // RESET GAME
+    Tap(8 + 5, 30 + 5);              // FRAMES: AUTO again
+    Tap(240, 147);                   // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel

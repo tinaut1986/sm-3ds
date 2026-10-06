@@ -43,13 +43,12 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrGameReset] = { "Game reset", "Partida reiniciada", "Partida reiniciada", "Partie réinitialisée",
                       "Jogo reiniciado" },
   // Options tab (a cell's label fits 23 characters).
-  [kStrFrameSkip] = { "FRAME SKIP", "SALTO DE FOTOGRAMAS", "SALT DE FOTOGRAMES", "SAUT D'IMAGES", "SALTO DE QUADROS" },
+  [kStrPacing] = { "FRAMES", "FOTOGRAMAS", "FOTOGRAMES", "IMAGES", "QUADROS" },
   [kStrAudio] = { "AUDIO", "AUDIO", "ÀUDIO", "SON", "ÁUDIO" },
-  [kStrFpsOverlay] = { "FPS OVERLAY", "CONTADOR DE FPS", "COMPTADOR D'FPS", "COMPTEUR FPS", "CONTADOR DE FPS" },
   [kStrDisplay] = { "DISPLAY", "IMAGEN", "IMATGE", "IMAGE", "IMAGEM" },
-  [kStrPixelPerfect] = { "PIXEL PERFECT", "PÍXEL PERFECTO", "PÍXEL PERFECTE", "PIXEL PARFAIT", "PIXEL PERFEITO" },
+  [kStrPixelP] = { "PIXEL P.", "PÍXEL P.", "PÍXEL P.", "PIXEL P.", "PIXEL P." },
   [kStrScaled] = { "SCALED", "ESCALADA", "ESCALADA", "ÉTIRÉE", "ESCALADA" },
-  [kStrWideView] = { "WIDE VIEW", "VISTA AMPLIA", "VISTA ÀMPLIA", "VUE LARGE", "VISTA AMPLA" },
+  [kStrView] = { "VIEW", "VISTA", "VISTA", "VUE", "VISTA" },
   [kStrLanguage] = { "LANGUAGE", "IDIOMA", "IDIOMA", "LANGUE", "IDIOMA" },
   [kStrResetGame] = { "RESET GAME", "REINICIAR PARTIDA", "REINICIAR PARTIDA", "RELANCER LA PARTIE", "REINICIAR JOGO" },
   // A toast: one line of at most 52 characters.
@@ -105,7 +104,7 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrRaWin] = { "WIN CONDITION", "CONDICIÓN DE VICTORIA", "CONDICIÓ DE VICTÒRIA", "CONDITION DE VICTOIRE",
                   "CONDIÇÃO DE VITÓRIA" },
   [kStrClose] = { "CLOSE", "CERRAR", "TANCA", "FERMER", "FECHAR" },
-  [kStrAutoUpdate] = { "AUTO UPDATE", "ACTUALIZAR AUTO", "ACTUALITZAR AUTO", "MISE À JOUR AUTO", "ATUALIZAR AUTO" },
+  [kStrUpdate] = { "UPDATE", "ACTUALIZAR", "ACTUALITZAR", "MISE À JOUR", "ATUALIZAR" },
   [kStrUpdates] = { "UPDATES", "ACTUALIZACIONES", "ACTUALITZACIONS", "MISES À JOUR", "ATUALIZAÇÕES" },
   [kStrUpdTap] = { "TAP TO CHECK", "TOCA PARA BUSCAR", "TOCA PER CERCAR", "TOUCHER: VÉRIFIER", "TOQUE PARA VERIFICAR" },
   [kStrUpdChecking] = { "CHECKING...", "BUSCANDO...", "CERCANT...", "VÉRIFICATION...", "VERIFICANDO..." },
@@ -132,6 +131,13 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrDelete] = { "DELETE", "BORRAR", "ESBORRAR", "SUPPRIMER", "APAGAR" },
   [kStrStateDeleted] = { "STATE %d DELETED", "ESTADO %d BORRADO", "ESTAT %d ESBORRAT", "ÉTAT %d SUPPRIMÉ", "ESTADO %d APAGADO" },
   [kStrWait] = { "PLEASE WAIT...", "ESPERA...", "ESPERA...", "PATIENTEZ...", "AGUARDE..." },
+  [kStrPaceLock] = { "LOCK 30", "30 FIJOS", "30 FIXOS", "30 FIXES", "30 FIXOS" },
+  [kStrPaceNoSkip] = { "NO SKIP", "SIN SALTO", "SENSE SALT", "SANS SAUT", "SEM SALTO" },
+  [kStrViewOriginal] = { "ORIGINAL", "ORIGINAL", "ORIGINAL", "ORIGINALE", "ORIGINAL" },
+  [kStrViewWide] = { "WIDE", "AMPLIADA", "AMPLIADA", "LARGE", "AMPLIADA" },
+  [kStrChannel] = { "CHANNEL", "CANAL", "CANAL", "CANAL", "CANAL" },
+  [kStrChanStable] = { "STABLE", "ESTABLES", "ESTABLES", "STABLES", "ESTÁVEIS" },
+  [kStrChanBeta] = { "+ BETAS", "+ BETAS", "+ BETES", "+ BÊTAS", "+ BETAS" },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };

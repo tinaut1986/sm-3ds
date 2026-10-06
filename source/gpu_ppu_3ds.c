@@ -594,9 +594,11 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
 enum { kOverlaySize = 64 };
 static C3D_Tex g_overlay_tex;
 static bool g_overlay_on;
+static int g_overlay_corner = 1;
 
-void GpuPpu3ds_SetOverlay(const uint32_t *px) {
+void GpuPpu3ds_SetOverlay(const uint32_t *px, int corner) {
   g_overlay_on = px && g_ready;
+  g_overlay_corner = corner >= 1 && corner <= 4 ? corner : 1;
   if (!g_overlay_on) return;
   uint32_t *dst = (uint32_t *)g_overlay_tex.data;
   for (int x = 0; x < kOverlaySize; x++) {
@@ -693,7 +695,9 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
     EnvTexture();
     C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
     BatchBegin();
-    PushQuad(text_dx, 0, kOverlaySize + text_dx, kOverlaySize, 0, 0, 1, 1, 0);
+    const int ox = (g_overlay_corner == 2 || g_overlay_corner == 4 ? 400 - kOverlaySize : 0) + text_dx;
+    const int oy = g_overlay_corner >= 3 ? 240 - kOverlaySize : 0;
+    PushQuad(ox, oy, ox + kOverlaySize, oy + kOverlaySize, 0, 0, 1, 1, 0);
     BatchDraw();
     BlendOff();
   }

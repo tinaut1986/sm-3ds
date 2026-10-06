@@ -10,6 +10,7 @@ bool g_preview_upd_kept;
 const char *g_preview_upd_message = "";
 
 void Updater_Init(bool auto_check, bool beta) { (void)auto_check, (void)beta; }
+void Updater_SetBeta(bool beta) { (void)beta; }
 void Updater_CheckNow(void) { g_preview_upd_state = UPD_CHECKING; }
 UpdState Updater_State(void) { return g_preview_upd_state; }
 UpdPrompt Updater_Prompt(void) { return g_preview_upd_prompt; }
