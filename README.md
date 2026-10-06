@@ -92,14 +92,14 @@ Needs devkitARM with libctru, citro2d/citro3d (the
 in `tools/bin/` (Linux x86-64). No ROM is needed to build.
 
 ```sh
-git clone --recurse-submodules https://github.com/tinaut1986/sm-3ds.git
+git clone https://github.com/tinaut1986/sm-3ds.git
 cd sm-3ds
 ./build_3ds.sh          # interactive: build, optionally find the 3DS and send it
 ```
 
 `build_3ds.sh` asks for debug (the default: debug tab, teleport, cheats on the
 Status tab, see [`docs/debug-tools.md`](docs/debug-tools.md)) or production,
-builds SDL2 the first time, then the CIA
+builds the CIA
 (`output/SuperMetroid3DSPort.cia`). With ftpd or FBI's FTP server running on
 the console, it can scan the local network for it and upload the CIA to
 `/cias/sm-3ds-<version>.cia`. Non-interactive forms:
@@ -115,7 +115,6 @@ the console, it can scan the local network for it and upload the CIA to
 Or with make directly (`DEVKITPRO` defaults to `/opt/devkitpro`):
 
 ```sh
-make sdl                                               # once
 make -j FULL_NATIVE=1 cia                              # -> output/SuperMetroid3DSPort.cia
 make -j FULL_NATIVE=1 DEBUG_TOOLS=1 cia                # with the debug tools
 make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload

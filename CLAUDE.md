@@ -34,10 +34,10 @@ issues or specs.
 
 | Path | Origin | Notes |
 |---|---|---|
-| `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (still SDL2 for input/audio, see PLAN P1.3), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
+| `source/` | CharlesAverill/sm-3ds, now mostly ours | 3DS frontend: `main.c` (libctru `hid` for input, NDSP for audio), ROM loader, bottom UI (`bottom_ui.c`, `ui_draw.c`, `ui_font.c`), cheats, map and teleport (`sm_map.c`, `sm_warp.c`), debug tools. |
 | `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
 | `third_party/rcheevos/` (vendored) | RetroAchievements/rcheevos, mzm's copy (`VERSION.txt`) | RetroAchievements library, MIT. No local changes: updates are a straight re-copy. |
-| `SDL/` (submodule) | libsdl-org/SDL, SDL2 branch | Planned to be dropped in favour of libctru + citro3d directly (see PLAN). |
+| `third_party/sdl_keys/` (vendored) | SDL 2.32 `SDL_keycode.h` / `SDL_scancode.h` (zlib) | The only trace of SDL in the 3DS build: `sm/src/config.c` names keys the SDL way. The `SDL/` submodule is gone. |
 | `romfs/` | | Only a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
 
 Other local checkouts:
@@ -151,10 +151,8 @@ the `devkitpro/devkitarm:20260610` image, same as mzm). `bannertool` and
 `makerom` are committed in `tools/bin/` (copied from mzm).
 
 ```sh
-git submodule update --init --recursive
 export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
 export PATH=$PWD/tools/bin:/opt/devkitpro/tools/bin:$PATH
-make sdl                        # once; builds SDL/build/libSDL2.a
 make -j FULL_NATIVE=1 cia       # -> output/SuperMetroid3DSPort.cia
 make -j FULL_NATIVE=1 ftp FTP_HOST=<3ds ip>   # build + upload to /cias/
 ```
@@ -166,7 +164,7 @@ through `build/build_config.h`, so switching it needs no clean. See
 `docs/debug-tools.md`.
 
 `./build_3ds.sh` (`tools/build_3ds.py`, from mzm) wraps the same steps: it
-builds SDL if missing, can scan the LAN for the console's FTP server (port
+can scan the LAN for the console's FTP server (port
 5000) and upload the CIA as `cias/sm-3ds-<version>.cia`. `--mode debug|prod`
 (debug by default), `--ftp [IP]`, `--no-ftp`, `--clean`, `--dry-run`; no flags =
 interactive menu. The last IP

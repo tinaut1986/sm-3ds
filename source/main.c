@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "SDL2/SDL.h"
 #include <3ds.h>
 
 #include "src/snes/ppu.h"
@@ -56,7 +55,7 @@ enum Button {
   BTN_ZR = 15,
 };
 
-static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len);
+static void AudioCallback(uint8 *stream, int len);
 static void HandleInput(int keyCode, int keyMod, bool pressed);
 static void HandleCommand(uint32 j, bool pressed);
 
@@ -72,11 +71,6 @@ static uint8_t g_my_pixels[256 * 4 * 240];
 
 int g_got_mismatch_count;
 
-static const char kWindowTitle[] = "Super Metroid 3DS";
-static SDL_Window *g_window;
-static SDL_Renderer *g_renderer;
-static SDL_Texture *g_texture;
-
 static uint8 g_turbo, g_replay_turbo = true;
 static uint8 g_gamepad_buttons;
 static int g_input1_state;
@@ -84,7 +78,6 @@ static bool g_display_perf;
 static int g_curr_fps;
 static int g_ppu_render_flags = 0;
 static int g_snes_width = 256, g_snes_height = 240;
-static int g_sdl_audio_mixer_volume = SDL_MIX_MAXVOLUME;
 static volatile float g_audio_ms;   // last audio block, written by the audio thread
 
 extern Snes *g_snes;
@@ -252,30 +245,40 @@ static void RecordTop(const uint32_t *top, uint32_t frame, u64 t_logic, u64 t_dr
   SceneRec_AddFrame(top, &meta);
 }
 
-static SDL_mutex *g_audio_mutex;
+static RecursiveLock g_audio_mutex;
 static uint8 *g_audiobuffer, *g_audiobuffer_cur, *g_audiobuffer_end;
 static int g_frames_per_block;
 static uint8 g_audio_channels;
-static SDL_AudioDeviceID g_audio_device;
 
 void RtlApuLock(void) {
-  SDL_LockMutex(g_audio_mutex);
+  RecursiveLock_Lock(&g_audio_mutex);
 }
 
 void RtlApuUnlock(void) {
-  SDL_UnlockMutex(g_audio_mutex);
+  RecursiveLock_Unlock(&g_audio_mutex);
 }
 
 // Separate from the audio mutex, which the audio callback holds for a whole
 // block: see RtlPushApuState.
-static SDL_mutex *g_apu_queue_mutex;
+static RecursiveLock g_apu_queue_mutex;
 
 void RtlApuQueueLock(void) {
-  SDL_LockMutex(g_apu_queue_mutex);
+  RecursiveLock_Lock(&g_apu_queue_mutex);
 }
 
 void RtlApuQueueUnlock(void) {
-  SDL_UnlockMutex(g_apu_queue_mutex);
+  RecursiveLock_Unlock(&g_apu_queue_mutex);
+}
+
+// Milliseconds since start-up, from the system tick (268 MHz, so no float and no wrap for 49 days).
+static u64 g_start_tick;
+
+static uint32 NowMs(void) {
+  return (uint32)((svcGetSystemTick() - g_start_tick) / (SYSCLOCK_ARM11 / 1000));
+}
+
+static void SleepMs(uint32 ms) {
+  svcSleepThread((s64)ms * 1000000);
 }
 
 // Audio thread health, for the periodic log line: how long a callback took against the
@@ -285,14 +288,15 @@ static volatile float g_cb_max_ms;
 static volatile int g_cb_count, g_cb_slow, g_cb_gaps;
 static volatile u64 g_cb_last;
 
-static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
+// Fills `len` bytes (stereo s16) of the NDSP buffer; runs on the audio thread.
+static void AudioCallback(uint8 *stream, int len) {
   const u64 cb_start = svcGetSystemTick();
-  Uint8 *const stream_start = stream;
+  uint8 *const stream_start = stream;
   const int stream_len = len;
   const float buffer_ms = len * 1000.0f / (44100 * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
-  if (SDL_LockMutex(g_audio_mutex)) Die("Mutex lock failed!");
+  RecursiveLock_Lock(&g_audio_mutex);
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
       u64 t0 = svcGetSystemTick();
@@ -302,22 +306,130 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
       g_audiobuffer_end = g_audiobuffer + g_frames_per_block * g_audio_channels * sizeof(int16);
     }
     int n = IntMin(len, g_audiobuffer_end - g_audiobuffer_cur);
-    if (g_sdl_audio_mixer_volume == SDL_MIX_MAXVOLUME) {
-      memcpy(stream, g_audiobuffer_cur, n);
-    } else {
-      SDL_memset(stream, 0, n);
-      SDL_MixAudioFormat(stream, g_audiobuffer_cur, AUDIO_S16, n, g_sdl_audio_mixer_volume);
-    }
+    memcpy(stream, g_audiobuffer_cur, n);
     g_audiobuffer_cur += n;
     stream += n;
     len -= n;
   }
-  SDL_UnlockMutex(g_audio_mutex);
+  RecursiveLock_Unlock(&g_audio_mutex);
   RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
   g_cb_slow += cb_ms > buffer_ms;
   g_cb_count++;
+}
+
+// NDSP output: one channel, a ring of wave buffers refilled by a thread that waits for
+// the DSP to hand one back. Same layout as the SDL driver it replaces (3 buffers of
+// 2048 frames, thread just above the main one), so the latency and the thread's
+// placement on the system core do not change.
+enum { kAudioRate = 44100, kAudioBufs = 3, kAudioBufFrames = 2048, kAudioStack = 128 * 1024 };
+
+static ndspWaveBuf g_wave[kAudioBufs];
+static uint8 *g_wave_mem;               // linear memory, kAudioBufs blocks
+static LightEvent g_wave_done;          // a wave buffer went back to FREE
+static Thread g_audio_thread;
+static dspHookCookie g_dsp_hook;
+static Result g_ndsp_rc;                // ndspInit failed: no dspfirm.cdc dumped
+static bool g_audio_ok;                 // NDSP is up and the thread runs
+static volatile bool g_audio_quit;
+static volatile bool g_audio_paused = true;   // silence instead of the game's sound
+
+static void AudioFrameFinished(void *arg) {
+  for (int i = 0; i < kAudioBufs; i++)
+    if (g_wave[i].status == NDSP_WBUF_DONE) g_wave[i].status = NDSP_WBUF_FREE;
+  LightEvent_Signal(&g_wave_done);
+}
+
+static void AudioDspHook(DSP_HookType hook) {
+  if (hook == DSPHOOK_ONCANCEL) {   // the DSP is going away: stop feeding it
+    g_audio_quit = true;
+    LightEvent_Signal(&g_wave_done);
+  }
+}
+
+static void AudioThreadMain(void *arg) {
+  const int bytes = kAudioBufFrames * 2 * sizeof(int16);
+  int next = 0;
+  while (!g_audio_quit) {
+    ndspWaveBuf *wb = &g_wave[next];
+    if (wb->status != NDSP_WBUF_FREE) {
+      LightEvent_Wait(&g_wave_done);
+      continue;
+    }
+    uint8 *dst = (uint8 *)wb->data_vaddr;
+    if (g_audio_paused) memset(dst, 0, bytes);
+    else AudioCallback(dst, bytes);
+    DSP_FlushDataCache(dst, bytes);
+    ndspChnWaveBufAdd(0, wb);
+    next = (next + 1) % kAudioBufs;
+  }
+}
+
+// Starts NDSP and the thread. `core1_ok`: the application may use the system core.
+static bool AudioStart(bool core1_ok) {
+  Result rc = ndspInit();
+  if (R_FAILED(rc)) {
+    g_ndsp_rc = rc;   // logged once the debug log is up
+    return false;
+  }
+  const size_t block = kAudioBufFrames * 2 * sizeof(int16);
+  g_wave_mem = (uint8 *)linearAlloc(block * kAudioBufs);
+  if (!g_wave_mem) { ndspExit(); return false; }
+  memset(g_wave_mem, 0, block * kAudioBufs);
+  DSP_FlushDataCache(g_wave_mem, block * kAudioBufs);
+
+  ndspChnReset(0);
+  ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
+  ndspChnSetRate(0, kAudioRate);
+  ndspChnSetFormat(0, NDSP_FORMAT_STEREO_PCM16);
+  float mix[12] = { 0 };
+  mix[0] = mix[1] = 1.0f;
+  ndspChnSetMix(0, mix);
+  memset(g_wave, 0, sizeof(g_wave));
+  for (int i = 0; i < kAudioBufs; i++) {
+    g_wave[i].data_vaddr = g_wave_mem + i * block;
+    g_wave[i].nsamples = kAudioBufFrames;
+  }
+  LightEvent_Init(&g_wave_done, RESET_ONESHOT);
+  ndspSetCallback(AudioFrameFinished, NULL);
+  dspHook(&g_dsp_hook, AudioDspHook);
+
+  // One step above the main thread (0x30, video is 0x18), as SDL placed it.
+  s32 prio = 0x30;
+  svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+  prio = prio - 1 < 0x19 ? 0x19 : (prio - 1 > 0x2F ? 0x2F : prio - 1);
+  g_audio_thread = threadCreate(AudioThreadMain, NULL, kAudioStack, prio, core1_ok ? 1 : -1, false);
+  if (!g_audio_thread) {
+    dspUnhook(&g_dsp_hook);
+    ndspSetCallback(NULL, NULL);
+    ndspExit();
+    linearFree(g_wave_mem);
+    g_wave_mem = NULL;
+    return false;
+  }
+  return true;
+}
+
+static void AudioStop(void) {
+  if (!g_audio_ok) return;
+  g_audio_quit = true;
+  LightEvent_Signal(&g_wave_done);
+  threadJoin(g_audio_thread, U64_MAX);
+  threadFree(g_audio_thread);
+  dspUnhook(&g_dsp_hook);
+  ndspSetCallback(NULL, NULL);
+  ndspChnReset(0);
+  ndspExit();
+  linearFree(g_wave_mem);
+  g_wave_mem = NULL;
+  g_audio_ok = false;
+}
+
+// sm/src/config.c looks key names up with SDL when it reads a keymap. There is no
+// keyboard here and no SDL linked: every name is unknown.
+int SDL_GetKeyFromName(const char *name) {
+  return 0;
 }
 
 int idx_of_btn(enum Button b) {
@@ -347,9 +459,9 @@ int idx_of_btn(enum Button b) {
     case BTN_R:
       return 11;
     default:
-      // SDL numbers the joystick buttons after the HID key bits, so touching the
-      // screen (KEY_TOUCH, bit 20), ZL/ZR and others arrive here too. They are not
-      // game buttons: falling off the end of this function used to return garbage
+      // The button numbers are the HID key bits, so anything else (ZL/ZR, the
+      // touch screen's KEY_TOUCH, bit 20) can arrive here. They are not game
+      // buttons: falling off the end of this function used to return garbage
       // that ended up as "D-pad up" on every tap.
       return -1;
   }
@@ -510,18 +622,10 @@ int main(int argc, char** argv) {
   // Saves, save states and dumps use paths relative to the data folder.
   chdir(ROM_DATA_DIR);
 
-  // Initialize SDL
-  if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
-    printf("Failed to init SDL: %s\n", SDL_GetError());
-    return 1;
-  }
-
-  SDL_JoystickEventState(SDL_ENABLE);
-  SDL_GameControllerEventState(SDL_ENABLE);
-
-  if (SDL_NumJoysticks() > 0) {
-      SDL_GameControllerOpen(0);
-  }
+  g_start_tick = svcGetSystemTick();
+  osSetSpeedupEnable(true);   // New 3DS 804 MHz from the start; the Options toggle takes over later
+  gfxInit(GSP_RGBA8_OES, GSP_RGBA8_OES, false);
+  hidInit();
 
   Result rc = romfsInit();
   if (rc)
@@ -536,73 +640,35 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // Create window - 3DS top screen
-  SDL_Window *window = SDL_CreateWindow(
-    kWindowTitle,
-    SDL_WINDOWPOS_CENTERED_DISPLAY(0),
-    SDL_WINDOWPOS_CENTERED_DISPLAY(0),
-    400, 240,
-    SDL_WINDOW_SHOWN
-  );
-  if(window == NULL) {
-    printf("Failed to create window: %s\n", SDL_GetError());
-    return 1;
-  }
-  g_window = window;
-
-  // Create renderer - SOFTWARE for 3DS
-  g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-  if (g_renderer == NULL) {
-    printf("Failed to create renderer: %s\n", SDL_GetError());
-    return 1;
-  }
-
-  // Create texture
-  g_texture = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING,
-                                g_snes_width, g_snes_height);
-  if (g_texture == NULL) {
-    printf("Failed to create texture: %s\n", SDL_GetError());
-    return 1;
-  }
-
   UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
   GameText_Init();
 
   // Setup audio
-  g_audio_mutex = SDL_CreateMutex();
-  g_apu_queue_mutex = SDL_CreateMutex();
-  if (!g_audio_mutex) Die("No mutex");
+  RecursiveLock_Init(&g_audio_mutex);
+  RecursiveLock_Init(&g_apu_queue_mutex);
 
   g_spc_player = SpcPlayer_Create();
   SpcPlayer_Initialize(g_spc_player);
 
-  SDL_AudioSpec want = { 0 }, have = { 0 };
-  want.freq = 44100;
-  want.format = AUDIO_S16;
-  want.channels = 2;
-  want.samples = 2048;
-  want.callback = &AudioCallback;
-  g_audio_device = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-  if (g_audio_device == 0) {
-    printf("Failed to open audio device: %s\n", SDL_GetError());
-  } else {
-    g_audio_channels = 2;
-    g_frames_per_block = (534 * have.freq) / 32000;
-    g_audiobuffer = (uint8 *)malloc(g_frames_per_block * have.channels * sizeof(int16));
-  }
-  // SDL put the audio thread on the system core with a 30 % time limit. The DSP needs
-  // about 1.5 ms of CPU per block at 804 MHz, so at 268 MHz (Old 3DS, or the speedup
-  // off) it sits right at that limit and the sound breaks up. Ask for more, like mzm:
-  // the largest share the system grants.
+  g_audio_channels = 2;
+  g_frames_per_block = (534 * kAudioRate) / 32000;
+  g_audiobuffer = (uint8 *)malloc(g_frames_per_block * g_audio_channels * sizeof(int16));
+
+  // The audio thread runs on the system core, which an application only gets a share
+  // of. The DSP needs about 1.5 ms of CPU per block at 804 MHz, so at 268 MHz (Old 3DS,
+  // or the speedup off) the SDL default of 30 % sat right at the limit and the sound
+  // broke up. Ask for more, like mzm: the largest share the system grants.
   static const u32 kCore1Limits[] = { 80, 70, 50 };
   u32 core1_limit = 0;
   Result core1_rc[3] = { 0 };
   for (size_t i = 0; i < sizeof(kCore1Limits) / sizeof(kCore1Limits[0]); i++)
     if (R_SUCCEEDED(core1_rc[i] = APT_SetAppCpuTimeLimit(kCore1Limits[i]))) break;
   APT_GetAppCpuTimeLimit(&core1_limit);
+  if (core1_limit == 0 && R_SUCCEEDED(APT_SetAppCpuTimeLimit(30)))
+    APT_GetAppCpuTimeLimit(&core1_limit);
+  g_audio_ok = AudioStart(core1_limit != 0);
 
   mkdir("saves", 0755);
   Debug_Init(APP_VERSION);
@@ -613,8 +679,9 @@ int main(int argc, char** argv) {
   {
     bool n3ds = false;
     APT_CheckNew3DS(&n3ds);
-    Debug_Log("console %s, audio device %s (%d Hz, %d samples)", n3ds ? "New 3DS" : "Old 3DS/2DS",
-              g_audio_device ? "open" : "FAILED", have.freq, have.samples);
+    Debug_Log("console %s, audio %s (%d Hz, %d frames x %d buffers)", n3ds ? "New 3DS" : "Old 3DS/2DS",
+              g_audio_ok ? "open" : "FAILED", kAudioRate, kAudioBufFrames, kAudioBufs);
+    if (!g_audio_ok) Debug_Log("audio failed: ndspInit %08lX", (unsigned long)g_ndsp_rc);
     Debug_Log("core 1 time limit: asked 80 -> %08lX, 70 -> %08lX, 50 -> %08lX; granted %lu %%",
               (unsigned long)core1_rc[0], (unsigned long)core1_rc[1], (unsigned long)core1_rc[2],
               (unsigned long)core1_limit);
@@ -626,7 +693,7 @@ int main(int argc, char** argv) {
   RtlReadSram();
 
   bool running = true;
-  uint32 lastTick = SDL_GetTicks();
+  uint32 lastTick = NowMs();
   uint32 frameCtr = 0;
   bool audio_running = false;
 
@@ -643,39 +710,35 @@ int main(int argc, char** argv) {
   printf("Super Metroid starting...\n");
 
   while (running) {
-    SDL_Event event;
     RetroAch_Update();
 
-    while (SDL_PollEvent(&event)) {
-      switch (event.type) {
-      case SDL_JOYBUTTONDOWN:
-        HandleCommand(event.jbutton.button, true);
-        break;
-      case SDL_JOYBUTTONUP:
-        HandleCommand(event.jbutton.button, false);
-        break;
-      // Touch coordinates arrive normalised to the bottom screen (0..1).
-      case SDL_FINGERDOWN:
-        BottomUi_TouchDown((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
-        break;
-      case SDL_FINGERMOTION:
-        BottomUi_TouchMove((int)(event.tfinger.x * 320), (int)(event.tfinger.y * 240));
-        break;
-      case SDL_FINGERUP:
-        BottomUi_TouchUp();
-        break;
-      case SDL_QUIT:
-        ExitStep("quit event");
-        running = false;
-        break;
+    hidScanInput();
+    if (!aptMainLoop()) {
+      ExitStep("quit event");
+      running = false;
+    }
+    {
+      // The HID key bits are the Button numbers (A = 0 ... Y = 11).
+      const u32 down = hidKeysDown(), up = hidKeysUp();
+      for (int b = 0; b <= BTN_Y; b++) {
+        if (down & BIT(b)) HandleCommand(b, true);
+        if (up & BIT(b)) HandleCommand(b, false);
       }
+      // The touch screen is 320x240, the bottom UI's own coordinates.
+      static bool touching;
+      touchPosition tp;
+      hidTouchRead(&tp);
+      const bool pressed = tp.px != 0 || tp.py != 0;
+      if (pressed && !touching) BottomUi_TouchDown(tp.px, tp.py);
+      else if (pressed) BottomUi_TouchMove(tp.px, tp.py);
+      else if (touching) BottomUi_TouchUp();
+      touching = pressed;
     }
 
     bool want_audio = g_ui.audio_on && !g_ui.paused;
     if (want_audio != audio_running) {
       audio_running = want_audio;
-      if (g_audio_device)
-        SDL_PauseAudioDevice(g_audio_device, !audio_running);
+      g_audio_paused = !audio_running;
     }
     g_turbo = g_ui.turbo;
 
@@ -895,7 +958,7 @@ int main(int argc, char** argv) {
         gspWaitForVBlank();
         UiDraw_VBlankSeen();
       } else {
-        SDL_Delay(16);
+        SleepMs(16);
       }
       frame_start = svcGetSystemTick();
       continue;
@@ -907,7 +970,7 @@ int main(int argc, char** argv) {
     if (swapped && work_ms < 15.0f) {
       gspWaitForVBlank();
       UiDraw_VBlankSeen();
-      lastTick = SDL_GetTicks();   // locked to the display: drop accumulated drift
+      lastTick = NowMs();   // locked to the display: drop accumulated drift
       skip_render = false;
       skipped_in_a_row = 0;
       frame_start = svcGetSystemTick();
@@ -917,7 +980,7 @@ int main(int argc, char** argv) {
     // Frame delay for 60 fps
     static const uint8 delays[3] = { 17, 17, 16 };
     lastTick += delays[frameCtr % 3];
-    uint32 curTick = SDL_GetTicks();
+    uint32 curTick = NowMs();
 
     if (lastTick > curTick) {
       uint32 delta = lastTick - curTick;
@@ -925,7 +988,7 @@ int main(int argc, char** argv) {
         lastTick = curTick - 500;
         delta = 500;
       }
-      SDL_Delay(delta);
+      SleepMs(delta);
       skip_render = false;
       skipped_in_a_row = 0;
     } else {
@@ -946,19 +1009,14 @@ int main(int argc, char** argv) {
   ExitStep("gpu done");
   BottomUi_Exit();
   ExitStep("ui done");
-  SDL_PauseAudioDevice(g_audio_device, 1);
-  ExitStep("audio paused");
-  SDL_CloseAudioDevice(g_audio_device);
+  AudioStop();
   ExitStep("audio closed");
-  SDL_DestroyMutex(g_audio_mutex);
-  SDL_DestroyMutex(g_apu_queue_mutex);
   free(g_audiobuffer);
-  SDL_DestroyTexture(g_texture);
-  SDL_DestroyRenderer(g_renderer);
-  SDL_DestroyWindow(window);
-  ExitStep("window destroyed");
-  SDL_Quit();
-  ExitStep("SDL_Quit done, returning");
+  hidExit();
+  gfxExit();
+  ExitStep("gfx closed");
+  romfsExit();
+  ExitStep("returning");
   if (g_exit_file) fclose(g_exit_file);
 
   return 0;

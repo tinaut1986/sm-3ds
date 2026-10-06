@@ -18,7 +18,8 @@ boxes below. History: `git log` and the decisions log.
 **Release line:** `release/v0.2.2` (tag `v0.2.1` shipped as a beta on 2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked; before it `v0.2.0` on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
 tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
+**Branches:** none open. `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
+New 3DS ("as before"); the Old 3DS/2DS check is still pending, list in P1.3's status. `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
 were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
 priorities in 9AD9, A6A1, A011 and the spikes' row at the WIDE edge (#33, #24, #28), the ash following what it covers (9CB3, #35),
 no flashing of the A66A statues with WIDE (#19), the menu and RetroAchievements after cheats (#27, #29), the PLANE TINT views
@@ -160,6 +161,15 @@ Lessons from mzm that apply directly:
   *Done when:* same features as upstream, SDL gone, FPS not worse than P0.3.
   Note: SDL currently puts the audio thread on the system core (30 % cap) and
   delivers touch as finger events; keep both behaviours.
+  Status 2026-10-06 (`feat/libctru-input-audio`, merged; New 3DS checked by the owner, Old 3DS/2DS not yet): input
+  (`hidScanInput`, key edges, `hidTouchRead`), time (system tick) and audio (NDSP, one
+  channel, 3 x 2048-frame buffers, thread on core 1 one priority above the main one) no
+  longer go through SDL; `libSDL2` is not linked, `make sdl` is gone, the CIA is 0.5 MB
+  smaller; the `SDL` submodule is gone (the key codes `sm/src/config.c` reads are vendored in
+  `third_party/sdl_keys/`). To check on the console: buttons
+  and circle pad, touch on every bottom tab, sound (music, effects, the achievement
+  chime, pause and resume, no crackle at 268 MHz on an Old 3DS), fps as before, HOME and
+  closing the software, sleep mode and wake-up (sound back).
 - [ ] **P1.4** Present the frame on the GPU: upload the 256x224 PPU output as
   a texture, scale with citro3d.
   *Done when:* no per-pixel CPU copy remains in the frontend.
@@ -1122,3 +1132,11 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
   none, so it waits for someone's feedback or hardware.
 - 2026-10-06: P3.4 ticked with the options menu, the file-select map, the ending and the credits left flat:
   nobody has asked for depth there. Each is one case in `ScreenPlane` plus a line in `stereo-test` when wanted.
+- 2026-10-06: P1.3 first half: SDL is out of the runtime (input, touch, ticks, mutexes, audio), `main.c` talks to libctru. Kept the SDL
+  driver's behaviour on purpose so nothing shifts: audio thread on core 1 (asked at 80/70/50 %, 30 % as last resort), priority one
+  above main, 3 buffers of 2048 frames, silence while paused, `osSetSpeedupEnable(true)` at start (SDL's `main` did it). The pause
+  keeps feeding silent buffers, as SDL did. `sm/src/opengl.c` is no longer built (it only called SDL's GL). `sm/src/config.c` still
+  needs SDL's key codes (vendored in `third_party/sdl_keys/`, zlib) and `SDL_GetKeyFromName` (stubbed in `main.c`); with that the
+  `SDL` submodule is removed and `make sdl` / `git clone --recurse-submodules` are no longer needed. The
+  host tests give the same 26 FAILs with and without the change (wide-rows, wide-xray*, intro-cursor-*; checked against
+  `release/v0.2.2`), so they say nothing about this branch.
