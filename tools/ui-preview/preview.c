@@ -24,7 +24,7 @@ void osSetSpeedupEnable(bool e) {}
 Result ptmuInit(void) { return 0; }
 void ptmuExit(void) {}
 Result PTMU_GetBatteryLevel(u8 *out) { *out = 3; return 0; }
-Result PTMU_GetBatteryChargeState(u8 *out) { *out = 0; return 0; }
+Result PTMU_GetBatteryChargeState(u8 *out) { *out = 1; return 0; }
 u8 osGetWifiStrength(void) { return 2; }
 void NORETURN Die(const char *e) { exit(1); }
 void Warning(const char *e) {}

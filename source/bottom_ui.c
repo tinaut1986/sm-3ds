@@ -139,6 +139,24 @@ static void DrawSystemStatus(Surface s) {
     const uint32_t fill = g_charging ? RGB(90, 210, 120) : g_battery <= 1 ? RGB(230, 80, 60)
                         : g_battery == 2 ? RGB(235, 190, 70) : RGB(110, 205, 130);
     if (w > 0) UiFillRect(s, bx + 2, by + 2, w, 4, fill);
+    if (g_charging) {
+      // Plugged in and charging: a lightning bolt over the battery, 5x8, dark edge so it
+      // reads on the fill, on the shell and on the empty part alike.
+      static const uint8_t kBolt[8] = { 0x03, 0x06, 0x0C, 0x1E, 0x07, 0x06, 0x0C, 0x18 };   // bit 4 = left
+      for (int pass = 0; pass < 2; pass++) {
+        for (int y = 0; y < 8; y++) {
+          for (int x = 0; x < 5; x++) {
+            if (!(kBolt[y] >> (4 - x) & 1)) continue;
+            if (pass == 0) {
+              UiFillRect(s, bx + 5 + x - 1, by + y, 3, 1, COL_BG);
+              UiFillRect(s, bx + 5 + x, by + y - 1, 1, 3, COL_BG);
+            } else {
+              UiFillRect(s, bx + 5 + x, by + y, 1, 1, RGB(255, 245, 160));
+            }
+          }
+        }
+      }
+    }
   } else {
     UiFillRect(s, bx + 5, by + 3, 4, 2, dim);
   }
