@@ -15,11 +15,10 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.2.2` (tag `v0.2.1` shipped as a beta on 2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked; before it `v0.2.0` on 2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards). Last stable: `v0.1.3` (2026-10-02: WIDE fixes, debug
-tools pass, Ceres escape fixes); before it `v0.1.2` (2026-10-01) and betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.2.3` (nothing on it yet). Last stable: `v0.2.2` (2026-10-06, on `main`: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** `feat/map-like-ingame` (2026-10-06, #31, worktree `.claude/worktrees/map-like-ingame`, cut from `release/v0.2.2`): map tab
-from the game's tiles, zoom, refill/map/boss icons; seen only in the host preview, not on a console yet. Before it: none open.
+**Branches:** none open. `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
 were merged into `release/v0.2.1` (now `v0.2.2`) at the owner's request. Checked on the console by the owner: block fixes and render
