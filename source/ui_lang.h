@@ -18,7 +18,7 @@ typedef enum {
   kStrEnergy, kStrMax, kStrReserve, kStrAuto, kStrManual, kStrItems, kStrBeams, kStrMapStations, kStrRoom,
   kStrSaveStates, kStrEmpty, kStrSavedNoDetails, kStrTapTwice,
   kStrSavedSlot, kStrSaveFailed, kStrLoadedSlot, kStrLoadFailed, kStrGameReset,
-  kStrPause, kStrTurbo, kStrFrameSkip, kStrAudio, kStrFpsOverlay, kStrDisplay, kStrPixelPerfect,
+  kStrFrameSkip, kStrAudio, kStrFpsOverlay, kStrDisplay, kStrPixelPerfect,
   kStrScaled, kStrWideView, kStrLanguage, kStrResetGame, kStrFrameSkipOffToast,
   kStrResetQuestion, kStrResetLost1, kStrResetLost2, kStrReset, kStrCancel,
   kStrRaAchievements, kStrRaLogin, kStrRaLogout, kStrRaDisabled, kStrRaNoAccount, kStrRaConnecting, kStrRaOnline,

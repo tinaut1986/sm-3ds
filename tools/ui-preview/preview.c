@@ -184,23 +184,23 @@ int main(int argc, char **argv) {
   Tap(230, 95);                      // ORDER: next
   Shot("achievements, settings changed");
   TapTab(kOptions);
-  Tap(8 + 5, 30 + 3 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
+  Tap(8 + 5, 30 + 2 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(160, 178);
+  Tap(240, 137);                     // RESET GAME
   Shot("options, reset window");
   Tap(216, 148);                     // cancel
   // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
-  // last option cell (left column, fifth row) and cycles.
+  // last option cell (left column, fourth row) and cycles.
   for (int lang = 1; lang < kLangCount; lang++) {
     TapTab(kOptions);
-    Tap(8 + 5, 30 + 4 * 34 + 5);
+    Tap(8 + 5, 30 + 3 * 34 + 5);     // LANGUAGE
     if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
-    Tap(8 + 5, 30 + 1 * 34 + 5);     // FRAME SKIP off: its toast
+    Tap(8 + 5, 30 + 5);              // FRAME SKIP off: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
-    Tap(8 + 5, 30 + 1 * 34 + 5);
-    Tap(240, 171);                   // RESET GAME
+    Tap(8 + 5, 30 + 5);
+    Tap(240, 137);                   // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel

@@ -876,7 +876,7 @@ void BottomUi_GameReset(void) {
 
 // ---- Options tab ----------------------------------------------------------------
 
-typedef enum { OPT_PAUSE, OPT_TURBO, OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_COUNT } OptCell;
+typedef enum { OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_COUNT } OptCell;
 
 // Two columns; RESET GAME takes the last row's free cell.
 static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
@@ -894,8 +894,6 @@ static void DrawOnOffCell(Surface s, int i, const char *label, bool on) {
 }
 
 static void DrawOptions(Surface s) {
-  DrawOnOffCell(s, OPT_PAUSE, Tr(kStrPause), g_ui.paused);
-  DrawOnOffCell(s, OPT_TURBO, Tr(kStrTurbo), g_ui.turbo);
   DrawOnOffCell(s, OPT_FRAMESKIP, Tr(kStrFrameSkip), g_ui.frameskip);
   DrawOnOffCell(s, OPT_AUDIO, Tr(kStrAudio), g_ui.audio_on);
   DrawOnOffCell(s, OPT_FPS, Tr(kStrFpsOverlay), g_ui.fps_overlay);
@@ -926,8 +924,6 @@ static void OptionsTouch(int x, int y) {
   for (int i = 0; i < OPT_COUNT; i++) {
     if (!UiIn(OptRect(i), x, y)) continue;
     switch ((OptCell)i) {
-    case OPT_PAUSE: g_ui.paused = !g_ui.paused; break;
-    case OPT_TURBO: g_ui.turbo = !g_ui.turbo; break;
     case OPT_FRAMESKIP:
       g_ui.frameskip = !g_ui.frameskip;
       if (!g_ui.frameskip) Toast(Tr(kStrFrameSkipOffToast));

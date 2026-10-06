@@ -38,7 +38,6 @@ typedef struct {
 // Options the main loop reads every frame.
 typedef struct {
   bool paused;
-  bool turbo;            // skip 15 of 16 renders while on (fast-forward)
   bool frameskip;        // when late, drop rendering (not logic) to hold game speed
   bool audio_on;
   bool fps_overlay;      // small FPS counter on the top screen

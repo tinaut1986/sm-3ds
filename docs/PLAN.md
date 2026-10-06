@@ -195,10 +195,10 @@ Lessons from mzm that apply directly:
   for players (install, ROM, data folder) and builders.
 - [ ] **P1.7** Controls and options: remappable buttons, in-game reset,
   pause/options menu, config file on SD.
-  Status 2026-10-01: done except remapping. Options tab: pause, turbo,
-  frameskip, audio, FPS overlay, 804 MHz, save state slots, reset;
+  Status 2026-10-01: done except remapping. Options tab: frameskip, audio, FPS overlay, 804 MHz,
+  display, WIDE, language, reset (pause and turbo cells removed 2026-10-06, #43);
   `config.ini` in the data folder keeps tab, frameskip, audio, overlay, 804 MHz
-  and slot (not pause/turbo/cheats on purpose).
+  and slot (not pause/cheats on purpose).
 - [x] **P1.8** Debug tooling like mzm's.
   Done 2026-09-30, used on hardware to diagnose real bugs (load-state assert,
   teleport crash, stale door drawing, audio lock stall): log to SD with marks,
