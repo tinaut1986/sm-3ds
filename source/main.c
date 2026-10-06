@@ -757,7 +757,6 @@ int main(int argc, char** argv) {
       audio_running = want_audio;
       g_audio_paused = !audio_running;
     }
-    g_turbo = g_ui.turbo;
 
     if (g_ui.req_reset) {
       RtlReset(1);

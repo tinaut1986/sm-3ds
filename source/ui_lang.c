@@ -46,8 +46,6 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrGameReset] = { "Game reset", "Partida reiniciada", "Partida reiniciada", "Partie réinitialisée",
                       "Jogo reiniciado" },
   // Options tab (a cell's label fits 23 characters).
-  [kStrPause] = { "PAUSE", "PAUSA", "PAUSA", "PAUSE", "PAUSA" },
-  [kStrTurbo] = { "TURBO", "TURBO", "TURBO", "TURBO", "TURBO" },
   [kStrFrameSkip] = { "FRAME SKIP", "SALTO DE FOTOGRAMAS", "SALT DE FOTOGRAMES", "SAUT D'IMAGES", "SALTO DE QUADROS" },
   [kStrAudio] = { "AUDIO", "AUDIO", "ÀUDIO", "SON", "ÁUDIO" },
   [kStrFpsOverlay] = { "FPS OVERLAY", "CONTADOR DE FPS", "COMPTADOR D'FPS", "COMPTEUR FPS", "CONTADOR DE FPS" },

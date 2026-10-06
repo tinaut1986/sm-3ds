@@ -64,7 +64,7 @@ Everything else the game writes lives in the same folder:
 The 3DS buttons map to the SNES buttons of the same name (D-pad, A, B, X, Y,
 L, R, Start, Select). The game's own controller settings still apply. The
 bottom screen is operated by touch: save states on the States tab (tap a button
-twice to confirm); pause, turbo, frame skip, audio, FPS overlay, 804 MHz mode
+twice to confirm); frame skip, audio, FPS overlay, 804 MHz mode
 (New 3DS) and reset on the Options tab.
 
 ### Languages
