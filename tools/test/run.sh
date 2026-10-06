@@ -106,6 +106,9 @@ WIDE=4 WIDE_EDGE=1 run_gpu edge-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
 # The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
 WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
+# The spike-shooting plant of Brinstar A408 sits just outside the normal view: its spikes (DAFE) must go out into the
+# margin (the game deleted them outside its own 256 px window, #22).
+WIDE=60 EPROJ_MARGIN=1 EPROJ_ID=DAFE run_gpu wide-spikes rooms 90 A408 &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
 # The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
@@ -176,6 +179,10 @@ wide_checks wide-rooms
 echo "edge-rooms: every room with the 3D's 4 px edge columns (no WIDE), 10 frames each"
 gpu_checks edge-rooms
 wide_checks edge-rooms
+echo "wide-spikes: the spike-shooting plant's spikes outside the normal view (A408) with WIDE"
+gpu_checks wide-spikes
+expect wide-spikes.outside "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')"
+check wide-spikes "spikes live outside the normal view (frames > 0)" "$([ "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
 echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
 gpu_checks wide-rows
 wide_checks wide-rows

@@ -21,6 +21,8 @@
 # SAMUS_AT=x,y puts Samus there on frame 1 (SCROLLS_OPEN=1: all scroll screens blue;
 # ITEMS=hex: items given; XRAY=1: the X-ray scope selected, hold Y with ROOM_SEQ=2@n). SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (SHOTS_STEP=n: every n-th; MSGBOX=n queues
 # message box n first; GAME_LANG=n in UI language n, ui_lang.h). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
+# EPROJ_MARGIN=1 [EPROJ_ID=hex]: count the frames with an enemy projectile (of that id) outside the game's 256 px window
+# (WIDE keeps them alive in the margins); EPROJ_LIST=n lists every projectile each n-th tested frame.
 # STATE_SURVEY=n: every n-th tested frame and when the game state changes, what the frame holds per compositor level;
 # LEVEL_SPLIT=f1,f2,...: those tested frames as one image per level (level-FFFF-L15.ppm; -o10 = sprites): what each
 # non-gameplay screen is made of (P3.4, source/sm_planes.c SmPlanes_Screen).

@@ -124,6 +124,13 @@ extern bool g_rtl_wide_hud_over_room;
 // 3DS port, WIDE view: rows shown above and below the 224 (PIXEL PERFECT). Widens the
 // sprite pieces' bottom cut (DrawSpritemap) and the enemies' top on-screen check.
 extern uint16 g_rtl_wide_extra_top, g_rtl_wide_extra_bottom;
+// Whether a sprite at screen x (the game's 16-bit sum, as in `((x + 128) & 0xFE00) == 0`) is drawn:
+// -128 <= x < 384, widened by the WIDE margins (a margin may be wider than the 128 px the test allows
+// on the left, 128 on the right). The original test with WIDE off.
+static inline bool RtlSpriteXInRange(uint16 x) {
+  const int16 v = (int16)x;
+  return ((x + 128) & 0xFE00) == 0 || (v >= -128 - (int)g_rtl_wide_margin_left && v < 384 + (int)g_rtl_wide_margin_right);
+}
 // 3DS port, WIDE view: the power bomb's half-width for each table entry (the entry is the
 // distance from the explosion's centre line), as computed before the window is cut to the
 // screen's 0..255, so the margins can show the explosion's real outline.
