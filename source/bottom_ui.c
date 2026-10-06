@@ -67,7 +67,12 @@ void BottomUi_Toast(const char *msg) {
 }
 #define Toast BottomUi_Toast
 
-static bool Pressed(Rect r) { return osGetTime() - g_tap_ms < TAP_FLASH_MS && UiIn(r, g_tap_x, g_tap_y); }
+// A tap that landed on a window or the update prompt (an overlay) lights only that overlay's buttons,
+// not the ones of the tab under it that happen to sit at the same place.
+static bool g_tap_on_overlay, g_drawing_overlay;
+static bool Pressed(Rect r) {
+  return osGetTime() - g_tap_ms < TAP_FLASH_MS && g_tap_on_overlay == g_drawing_overlay && UiIn(r, g_tap_x, g_tap_y);
+}
 
 static uint32_t FpsColor(float fps) { return fps >= 58.0f ? COL_GOOD : fps >= 45.0f ? COL_WARN : COL_BAD; }
 
@@ -1954,6 +1959,7 @@ void BottomUi_TouchDown(int x, int y) {
   g_tap_y = y;
   g_tap_ms = osGetTime();
   g_tap_flash_pending = true;
+  g_tap_on_overlay = Updater_Prompt() != UPD_PROMPT_NONE || g_modal != MODAL_NONE;
   SavedOptions before = CurrentOptions();
   TouchDownImpl(x, y);
   SavedOptions after = CurrentOptions();
@@ -2005,6 +2011,7 @@ static void DrawBottom(const UiPerf *p) {
 #endif
   default: break;
   }
+  g_drawing_overlay = true;
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
@@ -2016,6 +2023,7 @@ static void DrawBottom(const UiPerf *p) {
   default: break;
   }
   DrawUpdatePrompt(s);
+  g_drawing_overlay = false;
   if (g_toast[0]) {
     // On the map the bottom rows hold the warp buttons, so use the info line there.
     const int y = g_tab == TAB_MAP && g_modal == MODAL_NONE ? 201 : SCREEN_H - 12;
