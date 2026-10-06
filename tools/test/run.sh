@@ -126,6 +126,9 @@ WIDE=60 EPROJ_MARGIN=1 EPROJ_ID=DAFE run_gpu wide-spikes rooms 90 A408 &
 # Brinstar 9E52's yellow pipe bug flies left along the platform: it must go on into the left margin, not reset at the
 # normal view's edge (#39). WARP_AT puts the camera and Samus where the bug starts its flight.
 WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug rooms 150 9E52 &
+# Norfair A56B's pipe bug (F193) resets through IsEnemyLeavingScreen, not CheckIfEnemyIsOnScreen: it must go on into the left margin
+# too, not vanish at the normal view's edge (a scene recording from the console, 2026-10-07).
+WARP_AT=105,256,110,411 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F193 run_gpu wide-pipebug-leaving rooms 200 A56B &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
 # The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
@@ -208,6 +211,9 @@ check wide-spikes "spikes live outside the normal view (frames > 0)" "$([ "$(fie
 echo "wide-pipebug: the yellow pipe bug of 9E52 keeps flying into the left margin (#39)"
 gpu_checks wide-pipebug
 check wide-pipebug "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+echo "wide-pipebug-leaving: the pipe bug of A56B keeps flying into the left margin (IsEnemyLeavingScreen)"
+gpu_checks wide-pipebug-leaving
+check wide-pipebug-leaving "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug-leaving.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
 echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
 gpu_checks wide-rows
 wide_checks wide-rows
