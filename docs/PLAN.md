@@ -298,6 +298,11 @@ Lessons from mzm that apply directly:
   (max 0.11; the old full copy was 0.75), VRAM diff 0.43 (p95 1.5), sprites 0.82 (p95 4.2, the spikes are palette changes), lines+bands
   2.3 (p95 3.2), BG 1.6, fallback 0 frames. Shown fps: 52-58 in most rooms, 44-49 in the Norfair rooms AF14, AFFB, B1E5 (draw 9-12 ms).
   So the shadow costs nothing; what is left are the Norfair heat rooms and the sprite decode spikes.
+  Added 2026-10-06: since the framebuffers became 24-bit (#20) the bottom UI is drawn in 32 bits into a buffer per screen and
+  converted by `UiDraw_Present` each time it changes (~77k pixels; estimated 1-2 ms on the 2DS, not measured). Measure it
+  (fps in the Norfair rooms against `v0.2.2`, or a counter around `UiDraw_Present`). Drawing everything natively in 24 bits was
+  weighed and not done: 3-byte writes are slower by CPU, and RGB8 render targets lose the alpha the renderer may use; revisit
+  only if the conversion shows up in the measurement.
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
