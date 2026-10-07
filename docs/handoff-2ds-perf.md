@@ -267,7 +267,7 @@ The 1298 ms frame at frame 72 is not a draw cost (the recording was started righ
 ### 4.7 Third and fourth PERF runs (2026-10-07 22:00, `v0.3.3-dev.10.4+4ba9bc8`: dirty tile blocks, FORCE 3D)
 
 Files: `docs/handoff/logs/sm-perf-02.csv` (2328 frames, FORCE 3D off) and `sm-perf-03.csv` (1692 frames,
-FORCE 3D on; a different room, 55 quads against 79). Scripts like the ones in this section are easy
+FORCE 3D on; **the same room and spot** (the owner switched the option and recorded again), though the quad count differs: 52 mostly against 79, unexplained, the rain varies maybe). Scripts like the ones in this section are easy
 to rewrite: group the shown frames by `tiles` and compare the columns.
 
 **The per-tile copy did not help the spike: it made it a little worse.** 02: 50.3 fps (no change from
@@ -302,12 +302,22 @@ the source flushed once) would take the memcpy off the CPU. Another is a differe
 layout for the BG: the tile chars in an atlas (once per char) and the tilemap as quads or a lookup
 (a bigger change; the renderer draws the tilemap as a texture today).
 
-**FORCE 3D (03): 45.9 fps against 50.3.** The normal frame (no spike) costs draw 10.8 ms against
-8.05 (submit 2.3 against 1.8, build 5.9 against 5.3, the edge columns widen the frame) and work
-**16.2 ms mean, p95 18.2** against 13.5: with the second eye the steady frame is on the budget by
-itself (127 frames skipped for no event, "other"). Even with the spike fixed, an Old 3DS with the slider up
-would hover at 55-60 fps with frequent skips; then the fixed costs matter (`lines+bands` 3.4, submit
-2.3, logic 5.2). Careful with the comparison: 03 is a different room.
+**FORCE 3D (03): 45.9 fps against 50.3**, same room and spot. A normal frame (no tile event) costs:
+
+| | FORCE 3D off (79 quads) | on (52 quads) |
+|---|---|---|
+| draw | 8.0 | **10.7** (+2.7) |
+| gpu build | 5.3 | 5.9 (+0.5) |
+| gpu submit | 1.8 | 2.2 (+0.5) |
+| draw outside build + submit | 0.9 | **2.7** (+1.7, not explained) |
+| work | 13.5 | **16.2** (p95 18.2) |
+
+The second eye costs ~2.7 ms per frame with fewer quads, so it is not the amount drawn; two thirds of
+it falls outside the build and the submit as measured (look in `DrawAndPresent` before `t1`, in
+`main.c` around the build call, and the per-eye setup). With FORCE 3D the steady frame is on the
+budget by itself (127 skipped frames with no event, "other"): even with the spike fixed, an Old 3DS
+with the slider up would hover at 55-60 fps with frequent skips, and then the fixed costs matter
+(`lines+bands` 3.4, submit 2.2, logic 5.2, and that 1.7 ms).
 
 Also: the bottom screen's redraws are down to ~72 in 39 s (gaps 15 and 120: the log shows no
 "bottom UI: redraw" line with a non-clock field, so the 120-frame ones are the minute or ... check
