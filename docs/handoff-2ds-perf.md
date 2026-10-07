@@ -16,7 +16,7 @@ everywhere is not realistic; the realistic aim is ~57-60 in ordinary rooms, 50+ 
 | Thing | State |
 |---|---|
 | `main` | `v0.3.2` (stable, published). |
-| `release/v0.3.3` | Current release line, pushed: P4.3 ticked, the notes cache, tu name in the CIA's publisher, the first version of this handoff. |
+| `release/v0.3.3` | Current release line, pushed: P4.3 ticked, the notes cache, the owner's name in the CIA's publisher, the first version of this handoff. |
 | **`perf/2ds-periodic-spikes`** | **The branch to continue on** (pushed, ~35 commits, not merged: the owner has not confirmed it on the console yet). Everything below under "What this branch holds". The CIA on the console is `v0.3.3-dev.10.26+cb57887`. It also contains `fix/map-level-buffer` (merged in). |
 | `fix/map-level-buffer` | Issue #49: the map overflowed its level-data buffer in Norfair and the Wrecked Ship (the console crashed in `free()` tapping the map). Fixed, test `map-rooms`; **waits for the owner to tap cells of Norfair (`ADAD`) and the Wrecked Ship (`C98E`)**. |
 | `chore/crocomire-garbage-evidence` | Evidence for issue #47 (dump, images). Pushed, never merge it: delete with the issue. |
