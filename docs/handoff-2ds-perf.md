@@ -485,7 +485,7 @@ toasts), 33 other. Steady frames over 16.7: 3. The remaining levers, in order: (
 by hardware copy; (3) the palette bursts: decode only the entries in the visible window (WIDE + PIXEL PERFECT shows ~73 % of the
 tilemap) and skip the burst's intermediate frames (the animation is 2 frames apart: a decode every other game frame already).
 
-### 4.14 Spread the animated tiles over a few frames (2026-10-08, build `v0.3.3-dev.10.19`)
+### 4.14 Spread the animated tiles over a few frames (2026-10-08, build `v0.3.3-dev.10.18+3b67c41`)
 
 Last PERF pair (sm-perf-16/17, 56.3 fps mono, 53.3 in 3D, `v0.3.3-dev.10.17`): the frames over 16.7 ms of work (313 of 1728) are 164 of the 628-tile char
 event, 71 of small tilemap changes while moving (~37 tiles), 49 of palette bursts, 20 of the UI and the battery, 1 steady.
