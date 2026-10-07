@@ -31,7 +31,7 @@ achievements: 19 of the set's now unlock (#37, checked by the owner), through a 
 from the console is in its task (P4.4, P4.8, P3.2).
 
 **Priority** (owner's order; the reasons are in the decisions log):
-P3.3 only as depth bugs turn up (#23, #34) → P2.5 (the measurements) → P4.9 → P1.10, P1.7, P0.4 when useful.
+**P2.5 first, now** (2DS / Old 3DS smoothness, the owner's current work: `docs/handoff-2ds-perf.md` says where it is and what is next) → P3.3 only as depth bugs turn up (#23, #34) → P4.9 → P1.10, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 

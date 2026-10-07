@@ -1,4 +1,4 @@
-# Handoff: where the session of 2026-10-07 left off (2DS / Old 3DS performance)
+# Handoff: the 2DS / Old 3DS performance work (sessions of 2026-10-07 and 08)
 
 Written so a new Claude session on another machine can continue without the chat. Read
 `CLAUDE.md` and `docs/PLAN.md` first (they stay the source of truth); this file only adds what
@@ -7,18 +7,47 @@ PLAN's P2.5 and the decisions log, then delete this file and `docs/handoff/`.
 
 The owner chats in Spanish (castellano); code, comments, docs and commits are English.
 
-## 1. State of the repo (2026-10-07, evening)
+## 1. Where we are (2026-10-08, ~02:00) and where we are going
+
+**Goal (owner):** a stable Super Metroid on a **2DS / Old 3DS**, ideally also on an Old 3DS **with the 3D slider up**. 60 fps shown
+everywhere is not realistic; the realistic aim is ~57-60 in ordinary rooms, 50+ in the heavy ones. The game logic itself runs at 60 (the
+"speed" in the logs is 59-60); what falls is the number of frames **shown** (the automatic frame skip drops one when a frame is long).
 
 | Thing | State |
 |---|---|
 | `main` | `v0.3.2` (stable, published). |
-| `release/v0.3.3` | Current release line, pushed. Holds, after `v0.3.2`: P4.3 ticked in PLAN, and the **notes cache** (`update/notes.txt`, WHAT'S NEW works with no network; checked by the owner on the console). Nothing else yet. |
-| `chore/author-name` | Pushed, **not merged**: the CIA's publisher field reads `snesrev, C. Averill, tinaut1986` (the SMDH publisher holds 32 characters). The owner has not seen it in HOME yet (a CIA with it was uploaded to the console). **Ask before merging.** |
-| `chore/handoff-2ds-perf` | This file and the logs, to be deleted once read. |
-| Releases | `v0.3.1` (first a beta, then promoted in place to stable), `v0.3.2` (stable, "Latest"). Issue #42 (self-updater) closed. |
+| `release/v0.3.3` | Current release line, pushed: P4.3 ticked, the notes cache, tu name in the CIA's publisher, the first version of this handoff. |
+| **`perf/2ds-periodic-spikes`** | **The branch to continue on** (pushed, ~35 commits, not merged: the owner has not confirmed it on the console yet). Everything below under "What this branch holds". The CIA on the console is `v0.3.3-dev.10.26+cb57887`. It also contains `fix/map-level-buffer` (merged in). |
+| `fix/map-level-buffer` | Issue #49: the map overflowed its level-data buffer in Norfair and the Wrecked Ship (the console crashed in `free()` tapping the map). Fixed, test `map-rooms`; **waits for the owner to tap cells of Norfair (`ADAD`) and the Wrecked Ship (`C98E`)**. |
+| `chore/crocomire-garbage-evidence` | Evidence for issue #47 (dump, images). Pushed, never merge it: delete with the issue. |
+| Issues open | **#47** garbage in Crocomire's room after a debug **teleport** (stale VRAM; very likely a debug-tool artefact: `sm_warp.c` does not clear VRAM; the fix is a one-liner to decide); **#48** WIDE: Crocomire's body stays on the right edge while he is off screen (cause read in the code, fix proposed, not done); **#49** the map crash. |
 
-This session shipped P4.13 (release notes in the updater, BETA marker baked into the build,
-OPTIONS regrouped, notes cache); PLAN and CLAUDE.md already describe it, so it is not repeated.
+### What this branch holds (the perf work)
+
+Landing Site, 2DS, mono, shown fps: **46.1 -> ~57**. Per room now (mono / FORCE 3D): `A0A4` 57.1/56.6, `AA82` 58.9/57.0, `AB64` 57.1/**45.6**, `AF14` **49.4/45.9**, `9AD9` 57.9/56.4.
+
+1. The bottom screen is redrawn only when something it shows changes (it was every 15 frames, ~15 ms each); the battery is polled every 20 s (the two PTM calls cost 2-3 ms).
+2. The GPU draws no quad for a BG texture with nothing visible (up to 6 full-width passes with depth and stencil tests, GPU 7.6 -> 6.7 ms an eye).
+3. A BG tile is decoded once a frame and copied to the entries that look the same (`tiles_reused`); the texture upload is per dirty tile block with runs merged at 80 blocks (a flush call is 0.108 ms, a memcpy 0.011 ms/KB).
+4. A palette change decodes only the tiles that draw a colour that changed (`PalAffects`, -80-93 % entries).
+5. **SPREAD TILES** (debug cell, not saved): animated tiles (char data changed) are decoded at most 224 a frame; the 3rd state, **CHARS + COLOURS**, spreads palette changes too (visual risk: a cycling palette shows a few frames late, the owner has not judged it yet).
+6. Instrumentation: the perf CSV has per-stage columns (see `docs/debug-tools.md`); **FORCE 3D** draws the second eye on a 2DS to measure an Old 3DS with the slider up; `tools/perf-csv/analyze.py FILE.csv` summarises a recording; host `TILE_TRACE=1` / `DEFER=n` / `DEFER_PAL=1` in `tools/gpu-ppu-test`.
+
+### What is pending (in the owner's hands)
+
+- Record **`AF14` mono and with FORCE 3D with SPREAD TILES on CHARS + COLOURS** and **look at the lava** (ripple or flicker?).
+- Tap the map of Norfair (`ADAD`) and the Wrecked Ship (`C98E`) cells (#49).
+- Say whether the animated tiles looked fine with SPREAD TILES on (CHARS): not checked by eye yet.
+- A save state with Crocomire active and WIDE on (STATES -> + NEW) would let #48 be reproduced on the host.
+
+### Next steps, in the order I would take them
+
+1. Read the owner's `AF14` recordings (`python3 tools/perf-csv/analyze.py`), decide whether CHARS + COLOURS stays.
+2. `AF14`'s quiet frame is 15.2 ms (**logic 6.9 ms**, against 4.6-5.2 elsewhere): profile that room on the host (gprof/perf) for something hot and cheap to cut.
+3. `AB64` with FORCE 3D (45.6 fps): 263 per-line scroll quads, GPU 8.3 ms an eye (~9 us a quad); fewer quads or cheaper ones (see 4.15).
+4. The upload of the biggest events by hardware copy (needs linearAlloc'ed shadows; read 4.14 first: `GX_RequestDma`'s event can hang).
+5. #48 (Crocomire in WIDE) and the warp clearing VRAM (#47) are small and independent.
+6. When the owner confirms the branch: squash it by content into a few commits, `--no-ff` into `release/v0.3.3`, fold this file into PLAN P2.5 and delete it with `docs/handoff/` (the PLAN task P2.5 has a pointer to it).
 
 ## 2. How the owner works (from the previous sessions' memory notes)
 
