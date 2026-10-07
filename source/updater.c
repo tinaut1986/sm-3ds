@@ -16,6 +16,7 @@ extern void Main_RequestQuit(void);   // main.c
 #define UPDATER_DEFAULT_URL "https://api.github.com/repos/tinaut1986/sm-3ds/releases?per_page=8"
 #define UPDATER_DIR "update"   // in the data folder, which is the working directory
 #define UPDATER_CIA_PATH UPDATER_DIR "/sm-update.cia"
+#define UPDATER_NOTES_PATH UPDATER_DIR "/notes.txt"   /* the last notes, for when there is no network */
 #define UPDATER_JSON_MAX (192 * 1024)
 #define UPDATER_CHUNK (64 * 1024)
 #define UPDATER_MAX_REDIRECTS 5
@@ -362,6 +363,39 @@ static const char* ResolveUrl(void) {
     return url;
 }
 
+/* notes.txt: the remote tag on its own line, then the notes. Written after every successful
+ * check and read at boot, so WHAT'S NEW has something to show with no network. */
+static void SaveNotesCache(void) {
+    FILE* f = fopen(UPDATER_NOTES_PATH, "wb");
+
+    if (!f) return;
+    EnsureLock();
+    LightLock_Lock(&sTextLock);
+    fprintf(f, "%s\n%s", sRemoteTag, sNotes);
+    LightLock_Unlock(&sTextLock);
+    fclose(f);
+}
+
+static void LoadNotesCache(void) {
+    static char buf[UPDATER_NOTES_MAX + sizeof(sRemoteTag)];
+    FILE* f = fopen(UPDATER_NOTES_PATH, "rb");
+    size_t n;
+    char* nl;
+
+    if (!f) return;
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    nl = strchr(buf, '\n');
+    if (!nl || nl - buf >= (long)sizeof(sRemoteTag)) return;
+    *nl = '\0';
+    EnsureLock();
+    LightLock_Lock(&sTextLock);
+    snprintf(sRemoteTag, sizeof(sRemoteTag), "%s", buf);
+    snprintf(sNotes, sizeof(sNotes), "%s", nl + 1);
+    LightLock_Unlock(&sTextLock);
+}
+
 static bool DoCheck(void) {
     JsonSink js;
     HttpSink sink = { NULL, JsonData, &js };
@@ -409,6 +443,7 @@ static bool DoCheck(void) {
     LightLock_Lock(&sTextLock);
     snprintf(sRemoteTag, sizeof(sRemoteTag), "%s", rel.tag);
     LightLock_Unlock(&sTextLock);
+    SaveNotesCache();
 
     if (!Updater_IsNewerBuild(APP_VERSION, APP_IS_BETA, rel.tag, rel.prerelease)) {
         sState = UPD_UP_TO_DATE;
@@ -502,6 +537,7 @@ void Updater_Init(bool auto_check, bool beta) {
     EnsureLock();
     sBeta = beta;
     mkdir(UPDATER_DIR, 0777);
+    LoadNotesCache();
     if (auto_check) StartJob(JOB_AUTO_CHECK);
 }
 
