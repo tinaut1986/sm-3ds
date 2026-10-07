@@ -828,7 +828,9 @@ int main(int argc, char** argv) {
       GameText_Forget();
     }
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
-    u64 t_logic = 0, t_draw = 0;
+    u64 t_logic = 0, t_draw = 0, t_ui = 0, t_pres = 0;
+    DebugPerfExtra px;   // what the perf recorder writes for this frame
+    memset(&px, 0, sizeof(px));
     bool presented = false, gpu_presented = false;
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
@@ -928,7 +930,14 @@ int main(int argc, char** argv) {
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
           SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
-          perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
+          px.build_ms = TicksToMs(svcGetSystemTick() - t_build);
+          perf.gpu_build_ms += (px.build_ms - perf.gpu_build_ms) * 0.1f;
+          {
+            const GpuPpuStats *gs = GpuPpu_LastStats();
+            px.lines_ms = TicksToMs(gs->t_lines), px.diff_ms = TicksToMs(gs->t_diff);
+            px.sprites_ms = TicksToMs(gs->t_sprites), px.bg_ms = TicksToMs(gs->t_bg);
+            px.tiles = gs->tiles_decoded, px.quads = g_gpu_frame.quad_count, px.bands = g_gpu_frame.band_count;
+          }
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
           static uint32_t toast_px[512 * 64];
@@ -937,6 +946,7 @@ int main(int argc, char** argv) {
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
+          px.wait_ms = wait_ms, px.submit_ms = submit_ms;
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
           perf.gpu_submit_ms += (submit_ms - perf.gpu_submit_ms) * 0.1f;
           gpu_presented = true;
@@ -987,12 +997,16 @@ int main(int argc, char** argv) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
       if (record) RecordTop(UiDraw_Screen(GFX_TOP).px, frameCtr, t_logic, t_draw);
+      u64 t1 = svcGetSystemTick();
       BottomUi_Frame(&perf);
+      t_ui = svcGetSystemTick() - t1;
+      t1 = svcGetSystemTick();
       UiDraw_Present(GFX_TOP, gfxIs3D());
       UiDraw_Present(GFX_BOTTOM, false);
       gfxFlushBuffers();
       gfxSwapBuffers();
       UiDraw_Swapped();
+      t_pres = svcGetSystemTick() - t1;
       shown_window++;
     } else {
       if (presented) {
@@ -1000,13 +1014,18 @@ int main(int argc, char** argv) {
         shown_window++;
       }
       if (record) RecordTop(GpuPpu3ds_ReadTop(), frameCtr, t_logic, t_draw);
-      if (BottomUi_Frame(&perf)) {
+      u64 t1 = svcGetSystemTick();
+      const bool ui_changed = BottomUi_Frame(&perf);
+      t_ui = svcGetSystemTick() - t1;
+      if (ui_changed) {
         // Nothing new on the top screen from us (skipped frame, or the
         // GPU presents it), but the UI changed: swap the bottom screen only.
+        t1 = svcGetSystemTick();
         UiDraw_Present(GFX_BOTTOM, false);
         gfxFlushBuffers();
         gfxScreenSwapBuffers(GFX_BOTTOM, false);
         UiDraw_Swapped();
+        t_pres = svcGetSystemTick() - t1;
         swapped = true;
       }
     }
@@ -1015,8 +1034,9 @@ int main(int argc, char** argv) {
     u64 now = svcGetSystemTick();
     float work_ms = TicksToMs(now - frame_start);
     perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
+    px.ui_ms = TicksToMs(t_ui), px.present_ms = TicksToMs(t_pres), px.present_wait_ms = UiDraw_TakeWaitMs();
     if (!g_ui.paused)
-      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms);
+      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms, &px);
     float window_ms = TicksToMs(now - fps_window_start);
     if (window_ms >= 1000.0f) {
       perf.fps = shown_window * 1000.0f / window_ms;

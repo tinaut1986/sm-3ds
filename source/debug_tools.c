@@ -434,6 +434,7 @@ typedef struct {
   float logic, draw, audio, work, a_lock, a_spc, a_dsp, a_resample;
   uint16_t state, area, room;
   uint8_t shown;
+  DebugPerfExtra x;
 } PerfSample;
 
 static PerfSample *g_perf;
@@ -448,11 +449,15 @@ static void PerfStop(void) {
   double sum = 0, max = 0;
   int shown = 0;
   if (f) {
-    fprintf(f, "# Super Metroid 3DS %s\nframe,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room,audio_lock_ms,audio_spc_ms,audio_dsp_ms,audio_resample_ms\n", g_version);
+    fprintf(f, "# Super Metroid 3DS %s\nframe,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room,audio_lock_ms,audio_spc_ms,audio_dsp_ms,audio_resample_ms,"
+                "gpu_build_ms,gpu_wait_ms,gpu_submit_ms,lines_ms,diff_ms,sprites_ms,bg_ms,tiles,quads,bands,ui_ms,present_ms,present_wait_ms\n", g_version);
     for (int i = 0; i < g_perf_count; i++) {
       const PerfSample *s = &g_perf[i];
-      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u,%.3f,%.3f,%.3f,%.3f\n", i, s->logic, s->draw, s->audio, s->work,
-              s->shown, s->state, s->area, s->room, s->a_lock, s->a_spc, s->a_dsp, s->a_resample);
+      const DebugPerfExtra *x = &s->x;
+      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%.3f,%.3f,%.3f\n",
+              i, s->logic, s->draw, s->audio, s->work, s->shown, s->state, s->area, s->room, s->a_lock, s->a_spc, s->a_dsp,
+              s->a_resample, x->build_ms, x->wait_ms, x->submit_ms, x->lines_ms, x->diff_ms, x->sprites_ms, x->bg_ms, x->tiles,
+              x->quads, x->bands, x->ui_ms, x->present_ms, x->present_wait_ms);
       sum += s->work;
       if (s->work > max) max = s->work;
       shown += s->shown;
@@ -479,7 +484,8 @@ void Debug_PerfToggle(void) {
   Debug_SetMessage(g_perf ? "Perf recording..." : "Perf: out of memory");
 }
 
-void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]) {
+void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4],
+                     const DebugPerfExtra *x) {
   g_frame++;
   if (!g_perf) return;
   PerfSample *s = &g_perf[g_perf_count++];
@@ -492,6 +498,7 @@ void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_m
   s->a_dsp = audio[2];
   s->a_resample = audio[3];
   s->shown = shown;
+  s->x = *x;
   s->state = game_state;
   s->area = area_index;
   s->room = room_index;

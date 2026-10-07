@@ -52,8 +52,19 @@ int Debug_FrameCaptureEnd(const uint8_t *bgra);
 // (or when the buffer fills, ~60 s).
 void Debug_PerfToggle(void);
 bool Debug_PerfRecording(void);
+// What a frame spent besides logic and draw, and where the draw went (all 0 on a frame that
+// drew nothing). The GPU stages are the renderer's own timers for that frame.
+typedef struct {
+  float build_ms, wait_ms, submit_ms;                  // GPU path: build the frame, wait for the GPU, push quads
+  float lines_ms, diff_ms, sprites_ms, bg_ms;          // inside the build: line analysis + bands, VRAM diff, sprites, BG
+  int tiles, quads, bands;                             // tiles decoded, quads and bands of the frame
+  float ui_ms;                                         // BottomUi_Frame (redraws the tab when it is dirty)
+  float present_ms, present_wait_ms;                   // UiDraw_Present of both screens + swap, and the vblank wait inside it
+} DebugPerfExtra;
+
 // audio[] = lock wait, SPC driver loop, DSP cycles, resample (ms, last block).
-void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]);
+void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4],
+                     const DebugPerfExtra *x);
 
 // Last status line for the UI ("Dump 03 saved", "Perf: 1234 frames", ...).
 const char *Debug_LastMessage(void);

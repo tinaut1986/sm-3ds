@@ -60,6 +60,9 @@ void UiDraw_Present(gfxScreen_t screen, bool both_eyes);
 void UiDraw_Swapped(void);
 void UiDraw_VBlankSeen(void);
 void UiDraw_WaitSwapShown(void);
+// Milliseconds UiDraw_WaitSwapShown spent blocked on a vblank since the last call (for the
+// perf recorder: part of what a present costs is waiting, not working).
+float UiDraw_TakeWaitMs(void);
 
 // Everything drawn after UiClipY stays within rows y0..y1-1, until UiNoClip.
 void UiClipY(int y0, int y1);

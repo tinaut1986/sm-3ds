@@ -2299,6 +2299,35 @@ static void DrawBottom(const UiPerf *p) {
   DrawUnlockNotice(s);
 }
 
+// Does the tab or window on screen change by itself (game values, markers, live numbers, a
+// timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
+static bool UiIsLive(void) {
+  switch (g_modal) {
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: break;
+  default: return true;   // the debug windows and a state's detail (its two-tap confirm times out)
+  }
+  if (RetroAch_Toast()) return true;
+  switch (g_tab) {
+  case TAB_STATUS: case TAB_MAP: return true;
+#if DEBUG_TOOLS
+  case TAB_DEBUG: return true;
+#endif
+  case TAB_STATES: return g_arm_state >= 0;
+  default: return false;
+  }
+}
+
+// The clock, battery and Wi-Fi bars are drawn on every tab; true when what they show changed.
+static bool ChromeChanged(void) {
+  static long minute = -1;
+  static int wifi = -1, battery = -1, charging = -1;
+  const long m = (long)(time(NULL) / 60);
+  const int w = osGetWifiStrength();
+  if (m == minute && w == wifi && g_battery == battery && g_charging == charging) return false;
+  minute = m, wifi = w, battery = g_battery, charging = g_charging;
+  return true;
+}
+
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
   if (g_toast[0] && now > g_toast_until) {
@@ -2319,8 +2348,18 @@ bool BottomUi_Frame(const UiPerf *p) {
     g_tap_flash_pending = false;
     g_dirty = 2;
   }
-  if (p->frames - g_last_redraw >= REFRESH_FRAMES) {
+  // The bottom screen costs ~15 ms to redraw and present on an Old 3DS, so it is redrawn only
+  // when something it shows has changed: on a tab or window whose content moves by itself every
+  // REFRESH_FRAMES, elsewhere when the clock, battery or Wi-Fi bars change.
+  if (p->frames - g_last_redraw >= REFRESH_FRAMES && UiIsLive()) {
     g_last_redraw = p->frames;
+    g_dirty = 2;
+  }
+  if (ChromeChanged()) g_dirty = 2;
+  const bool notice = RetroAch_Toast() != NULL;   // the unlock notice times out on its own
+  static bool notice_seen;
+  if (notice != notice_seen) {
+    notice_seen = notice;
     g_dirty = 2;
   }
   // The battery moves far slower than anything else here.
@@ -2330,8 +2369,10 @@ bool BottomUi_Frame(const UiPerf *p) {
     if (g_battery > 5) g_battery = 5;
   }
   if (g_dirty > 0) {
+    // A change needs two frames (the screen is double buffered): the first draws it, the second
+    // only presents the same picture to the other buffer.
+    if (g_dirty == 2) DrawBottom(p);
     g_dirty--;
-    DrawBottom(p);
     return true;
   }
   return false;
