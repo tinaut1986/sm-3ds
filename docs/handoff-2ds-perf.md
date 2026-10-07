@@ -158,7 +158,9 @@ Site as far as the owner said) and `sm-log-09.txt` (the same session's SD log). 
 a skipped frame; **`work_ms` is the whole loop iteration**, so `work - logic - draw` is what
 happens outside both: `BottomUi_Frame`, `UiDraw_Present(GFX_BOTTOM)` and the swap
 (`source/main.c` ~l.960-1020). `area` and `room` are always 0 in this file (not filled by
-`Debug_PerfFrame`? check, small).
+`Debug_PerfFrame`? check, small). **Owner's answer:** it is not a recorder bug: the recording
+started right after restoring a save state, and the game's area/room variables are 0 until it
+runs on; the room was the Landing Site.
 
 Result: 1987 of 2587 frames shown = **46.1 fps**, 600 skipped (runs of 1 or 2 frames), logic 5.1 ms
 steady (p99 5.9), audio 10.6 ms (separate thread, not in `work`).
@@ -177,9 +179,10 @@ skipped frames follow one of these:
 - **B is the bottom screen's periodic full redraw.** `BottomUi_Frame` redraws the whole tab every
   15 frames "so live numbers and the clock keep moving", then `UiDraw_Present` converts ~77k pixels
   to the 24-bit framebuffer. That is the cost PLAN P2.5 estimated at 1-2 ms and never measured:
-  it is ~13-17 ms **every 15 frames**. Which tab was open is not known (the recorder is started on
-  the DEBUG tab, whose redraw may be heavier than OPTIONS or STATUS): ask the owner to repeat the
-  recording with another tab open, to know the real-world cost. Fix ideas: redraw only the dirty
+  it is ~13-17 ms **every 15 frames**. The tab was **OPTIONS**: the recorder
+  is started on the DEBUG tab, but the owner switched to OPTIONS right after, a fairly static
+  tab, so a ~17 ms redraw is what even a quiet tab costs, not a Debug-tab artefact.
+  Still worth one recording on STATUS or MAP, which draw more. Fix ideas: redraw only the dirty
   region (the clock, the live numbers) or convert only the changed rows; do it far less often
   (the clock moves once a minute; only the Debug tab has numbers that move); never on the same
   frame as event A.
