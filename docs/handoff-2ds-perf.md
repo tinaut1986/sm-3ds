@@ -208,6 +208,62 @@ Next steps, in this order:
    (decode only the visible tiles of the changed palette/char), plus the cheaper `DecodeTile`.
 4. Only then look at 4.2 points 2-5 (`lines+bands`, submit, logic): the steady frame already fits.
 
+### 4.6 Second PERF run, after the bottom-screen change (2026-10-07 21:31, `v0.3.3-dev.10.1+afe829a`)
+
+File: `docs/handoff/logs/sm-perf-01.csv` (2417 frames = 40 s, OPTIONS tab; the owner walked through
+rooms 9C5E, A322 and A59F, not only the Landing Site, so logic is 6.0 ms here). The CSV now has the
+per-stage columns (see `docs/debug-tools.md`).
+
+**46.1 -> 50.1 fps shown** (398 frames skipped against 600). Event B, the bottom screen, is mostly
+gone: `BottomUi_Frame` drew on 76 frames instead of ~170; when it does it costs ui 6.3 ms +
+present 4.9 ms, and `present_wait_ms` (blocked in `gspWaitForVBlank` inside `UiDraw_Present`) reaches
+**8.9 ms on average, up to 16 ms**, in the 57 presents that waited. Two things left there:
+- 13 redraws come 120 frames apart, i.e. right after the battery poll in `BottomUi_Frame`: something
+  in the clock/Wi-Fi/battery chrome changes at every poll. `ChromeChanged` now logs which field
+  in the debug log (`bottom UI: redraw, wifi .. battery .. charging ..`), to see it in the next run.
+- 31 redraws 15 frames apart: the tab was live part of the time (STATUS/MAP/DEBUG, e.g. when stopping
+  the recorder on DEBUG).
+
+**Event A is now the whole problem** (314 of the 398 skipped frames follow a draw spike). The new
+columns, mean of the 287 spike frames against 1732 normal ones:
+
+| | normal | spike |
+|---|---|---|
+| draw | 8.1 | 18.3 |
+| gpu build | 5.3 | 8.9 |
+| gpu **submit** | 1.8 | **8.5** (+6.7) |
+| lines | 3.1 | 4.1 |
+| bg | 1.1 | 3.6 |
+| tiles decoded | 0.2 | **832** (628 in 223 of them; 1536 and 2164 on room entries) |
+| quads / bands | 79 / 1 | 79 / 1 (the same) |
+
+So a spike is a frame that **re-decodes ~628 tilemap entries** (every 10 frames in these rooms:
+the tile animation of the room, or a palette cycle; `diff_ms` is 0.06 so the VRAM diff is cheap).
+The decode itself is +3.5 ms of build (bg +2.5, lines +1). The bigger part is **+6.7 ms in submit**,
+and the cause is in `source/gpu_ppu_3ds.c`: `FlushTextures` -> `CopyDirty` copies to the GPU's
+texture the whole **span of 8-row blocks between the first and the last dirty row**
+(`GpuBackend_TexWritten(tex, y0, y1)`, called from `SyncSurface` with the first and last tile row
+touched), then flushes the data cache for it. 628 scattered tiles touch every tile row, so each
+event copies and flushes both priority textures entirely (512x256x2 bytes x 2 = 512 KB) when the
+tiles that changed are ~628 x 128 bytes x 2 = 160 KB, and `DecodeBgTile` also clears the same
+block in the other texture even when it was already empty.
+
+Cut A like this (the next step, not done yet):
+1. **Mark dirty per tile block, not per row span**: a bitmap per texture of its 64-texel blocks
+   (128 bytes each, tiles are contiguous in the Morton layout: `block = (ty * (w >> 3) + tx) << 6`),
+   and `CopyDirty` copies and flushes runs of dirty blocks (merging runs a few blocks apart to save
+   cache-flush calls). The range version stays for the mode 7 plane and the rest.
+2. **Do not clear the other priority's block when it is already empty**: `s->map[]` keeps the entry
+   each tile was decoded with, so the previous priority bit says which texture held it; clear the
+   other only when the tile moved (or the surface is fresh, or extra planes are involved).
+3. Then decode **only the visible tiles** (4.2 point 1) if the build part (+3.5 ms) still matters.
+Expected: a spike frame back to ~10-11 ms, under the budget with logic.
+The host harness cannot check this path (the copy is 3DS-backend only): the check is on the console,
+by the picture (missing or stale tiles in rooms with animated tiles, room entries, fades) and by a
+PERF run. Also run `make test` since `SyncSurface` changes.
+
+The 1298 ms frame at frame 72 is not a draw cost (the recording was started right after a load).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

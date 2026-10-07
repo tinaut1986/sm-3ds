@@ -2324,6 +2324,8 @@ static bool ChromeChanged(void) {
   const long m = (long)(time(NULL) / 60);
   const int w = osGetWifiStrength();
   if (m == minute && w == wifi && g_battery == battery && g_charging == charging) return false;
+  if (minute >= 0 && m == minute)   // not just the clock: say which, in the debug log (it showed every 2 s once)
+    Debug_Log("bottom UI: redraw, wifi %d -> %d, battery %d -> %d, charging %d -> %d", wifi, w, battery, g_battery, charging, g_charging);
   minute = m, wifi = w, battery = g_battery, charging = g_charging;
   return true;
 }
