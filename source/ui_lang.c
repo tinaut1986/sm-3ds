@@ -141,6 +141,11 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrHud] = { "HUD", "HUD", "HUD", "HUD", "HUD" },
   [kStrHudHidden] = { "HIDDEN WITH ITS TAB", "OCULTO CON SU PESTAÑA", "AMAGAT AMB LA PESTANYA", "MASQUÉ AVEC SON ONGLET", "OCULTO COM A ABA" },
   [kStrHudShown] = { "ALWAYS SHOWN", "SIEMPRE VISIBLE", "SEMPRE VISIBLE", "TOUJOURS VISIBLE", "SEMPRE VISÍVEL" },
+  [kStrWhatsNew] = { "WHAT'S NEW", "NOVEDADES", "NOVETATS", "NOUVEAUTÉS", "NOVIDADES" },
+  [kStrNotesEmpty] = { "NOTHING YET. CHECK NOW FIRST.", "AÚN SIN DATOS. BUSCA ACTUALIZACIÓN.",
+                       "ENCARA SENSE DADES. CERCA ACTUALITZACIÓ.", "RIEN POUR L'INSTANT. VÉRIFIEZ D'ABORD.",
+                       "SEM DADOS. VERIFIQUE PRIMEIRO." },
+  [kStrUpdFrom] = { "%s > %s", "%s > %s", "%s > %s", "%s > %s", "%s > %s" },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };

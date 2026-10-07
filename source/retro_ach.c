@@ -709,7 +709,7 @@ void RetroAch_Init(void) {
   rc_client_enable_logging(g_client, RC_CLIENT_LOG_LEVEL_WARN, ClientLog);
   if (!g_enabled) g_status = kRaOff;
   else if (g_user[0] && g_token[0]) {
-    LogLine("--- Super Metroid 3DS %s ---", APP_VERSION);
+    LogLine("--- Super Metroid 3DS %s ---", APP_VERSION_LABEL);
     BeginLogin(NULL);
   } else {
     g_status = kRaNoAccount;

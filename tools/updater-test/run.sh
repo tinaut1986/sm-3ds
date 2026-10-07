@@ -5,6 +5,6 @@ set -e
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=${WORK:-/tmp/sm-updater-test}
 mkdir -p "$WORK"
-gcc -O1 -g -Wall -Wextra -I"$ROOT/source" "$ROOT/source/updater_parse.c" "$ROOT/tools/updater-test/updater_test.c" \
+gcc -O1 -g -Wall -Wextra -Werror -I"$ROOT/source" "$ROOT/source/updater_parse.c" "$ROOT/tools/updater-test/updater_test.c" \
     -o "$WORK/updater_test"
 "$WORK/updater_test"

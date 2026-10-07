@@ -80,9 +80,11 @@ jobs:
           make clean
           # Betas carry the debug tools (Debug tab, teleport, cheats) for
           # playtesting; stable releases (reachable from main) do not.
-          if [ "${{ steps.vars.outputs.channel }}" = "Release" ]; then DEBUG=0; else DEBUG=1; fi
-          echo "channel ${{ steps.vars.outputs.channel }}: DEBUG_TOOLS=$DEBUG"
-          make -j$(nproc) FULL_NATIVE=1 DEBUG_TOOLS=$DEBUG cia
+          # The channel is also baked into the binary (CHANNEL=beta: "BETA" next to the
+          # version, and the updater moves a beta to the stable build of its own version).
+          if [ "${{ steps.vars.outputs.channel }}" = "Release" ]; then DEBUG=0; CH=release; else DEBUG=1; CH=beta; fi
+          echo "channel ${{ steps.vars.outputs.channel }}: DEBUG_TOOLS=$DEBUG CHANNEL=$CH"
+          make -j$(nproc) FULL_NATIVE=1 DEBUG_TOOLS=$DEBUG CHANNEL=$CH cia
 
       - name: Generate changelog and QR code
         run: |
@@ -95,6 +97,10 @@ jobs:
           PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
           RANGE="${PREV:+${PREV}..}HEAD"
 
+          if [ ! -f "docs/release-notes/${TAG}.md" ]; then
+            echo "::warning::docs/release-notes/${TAG}.md is missing: the updater will show no notes for ${TAG}"
+          fi
+
           {
             if [ "$PRERELEASE" = "true" ]; then
               echo "> **Beta build.** This comes off a \`release/*\` branch that has not"
@@ -103,6 +109,18 @@ jobs:
             fi
             echo "![QR code for the ${TAG} CIA](${BASE}/QR-${TAG}.png)"
             echo
+            # The updater on the console shows this block before the player installs
+            # (source/updater_parse.c, Updater_CollectNotes). Keep the markers identical.
+            NOTES="docs/release-notes/${TAG}.md"
+            if [ -f "$NOTES" ]; then
+              echo "<!-- sm-notes -->"
+              echo "## What's new"
+              echo
+              cat "$NOTES"
+              echo
+              echo "<!-- /sm-notes -->"
+              echo
+            fi
             echo "## Downloads"
             echo
             echo "- [sm-3ds-${TAG}.cia](${BASE}/sm-3ds-${TAG}.cia)"
