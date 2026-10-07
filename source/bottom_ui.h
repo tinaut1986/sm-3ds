@@ -49,6 +49,8 @@ typedef struct {
   bool gpu_render;       // draw frames with the GPU renderer (gpu_ppu.c) when it can; on by default
   bool new3ds_speedup;   // 804 MHz + L2 cache on New 3DS
   bool pixel_perfect;    // top screen 256x224 at 1:1; otherwise scaled to 274x240
+  int defer_tiles;       // 0 off; 1 animated BG tiles (char data changed only) are decoded at most 224 a frame, the rest a few frames later; 2 palette changes too (GPU renderer)
+  bool force_3d;         // debug: draw the second eye too on a console without the 3D screen, to measure what an Old 3DS pays
   int plane_tint;        // debug tint (GPU renderer): 0 off, 1 by plane, 2 by drawing order, 3 by stereo depth
   bool auto_update;      // look for a newer build at boot (config.ini); the check only asks
   bool hud_auto_hide;    // hide, on the top screen, the HUD half the open bottom tab shows (STATUS: energy and weapons, MAP: minimap)

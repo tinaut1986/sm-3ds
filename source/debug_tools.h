@@ -52,8 +52,25 @@ int Debug_FrameCaptureEnd(const uint8_t *bgra);
 // (or when the buffer fills, ~60 s).
 void Debug_PerfToggle(void);
 bool Debug_PerfRecording(void);
+// What a frame spent besides logic and draw, and where the draw went (all 0 on a frame that
+// drew nothing). The GPU stages are the renderer's own timers for that frame.
+typedef struct {
+  float build_ms, wait_ms, submit_ms;                  // GPU path: build the frame, wait for the GPU, push quads
+  float lines_ms, diff_ms, sprites_ms, bg_ms;          // inside the build: line analysis + bands, VRAM diff, sprites, BG
+  int tiles, quads, bands;                             // tiles decoded, quads and bands of the frame
+  int tiles_deferred, tiles_pending;   // animated tiles whose decode was put off this frame, and how many still wait after it
+  int tiles_reused, why_fresh, why_map, why_pal, why_char, why_plane;   // of the tiles decoded: copied from an identical one; and why they were decoded (new surface, tilemap, palette, char data, plane fix)
+  float tex_copy_ms, tex_flush_ms;                     // uploading the changed texels: memcpy, and the cache flush(es)
+  int tex_runs, tex_kb;
+  float gpu_draw_ms, gpu_proc_ms, cmdbuf;              // the GPU's own time for the last frame it finished, and the command buffer use (0..1)
+  float draw_present_ms;                               // the whole GpuPpu3ds_DrawAndPresent call (texture upload, both eyes, end of frame)                                // flush calls (runs of blocks) and KB copied
+  float ui_ms;                                         // BottomUi_Frame (redraws the tab when it is dirty)
+  float present_ms, present_wait_ms;                   // UiDraw_Present of both screens + swap, and the vblank wait inside it
+} DebugPerfExtra;
+
 // audio[] = lock wait, SPC driver loop, DSP cycles, resample (ms, last block).
-void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4]);
+void Debug_PerfFrame(float logic_ms, float draw_ms, float audio_ms, float work_ms, bool shown, const float audio[4],
+                     const DebugPerfExtra *x);
 
 // Last status line for the UI ("Dump 03 saved", "Perf: 1234 frames", ...).
 const char *Debug_LastMessage(void);

@@ -75,6 +75,8 @@ typedef struct {
   uint16_t *px;      // the shadow
   int w;
   int b0, b1;        // 8-row blocks written since the last copy: [b0, b1)
+  uint32_t *blocks;  // 8x8 blocks written one by one since the last copy (GpuBackend_TexBlockWritten), a bit each
+  int bw0, bw1;      // the words of `blocks` that have bits set: [bw0, bw1)
   bool queued;
 } TexImpl;
 
@@ -82,12 +84,71 @@ enum { kMaxDirtyTex = 1024 };
 static TexImpl *g_dirty[kMaxDirtyTex];
 static int g_dirty_n;
 
+// Blocks this close together (in blocks of 128 bytes) are copied and flushed in one go. Measured on a
+// 2DS (perf CSV, 628 scattered tiles): a GSPGPU_FlushDataCache call costs ~0.108 ms whatever its size
+// (+ 0.0016 ms/KB) and the memcpy ~0.011 ms/KB, i.e. ~1.4 us per 128-byte block: a clean gap is
+// cheaper to copy than to flush around while it is shorter than ~80 blocks.
+enum { kRunGap = 80 };
+
+// What the last FlushTextures spent (for the perf recorder): copying to the textures, flushing the
+// data cache, the flush calls made and the bytes copied.
+static u64 g_tex_copy_ticks, g_tex_flush_ticks;
+static int g_tex_runs, g_tex_bytes;
+
+static void CopyRun(uint16_t *dst, const uint16_t *src, size_t bytes) {
+  const u64 t0 = svcGetSystemTick();
+  memcpy(dst, src, bytes);
+  const u64 t1 = svcGetSystemTick();
+  GSPGPU_FlushDataCache(dst, (u32)bytes);
+  g_tex_copy_ticks += t1 - t0;
+  g_tex_flush_ticks += svcGetSystemTick() - t1;
+  g_tex_runs++;
+  g_tex_bytes += (int)bytes;
+}
+
+// What the GPU itself spent on the last frame it finished (citro3d's counters): drawing, processing the
+// command list, and how full the command buffer got (0..1).
+void GpuPpu3ds_LastGpuTimes(float *draw_ms, float *proc_ms, float *cmdbuf) {
+  *draw_ms = C3D_GetDrawingTime();
+  *proc_ms = C3D_GetProcessingTime();
+  *cmdbuf = C3D_GetCmdBufUsage();
+}
+
+void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb) {
+  *copy_ms = (float)((double)g_tex_copy_ticks * 1000.0 / SYSCLOCK_ARM11);
+  *flush_ms = (float)((double)g_tex_flush_ticks * 1000.0 / SYSCLOCK_ARM11);
+  *runs = g_tex_runs;
+  *kb = g_tex_bytes / 1024;
+}
+
+static void CopyBlocks(TexImpl *im) {
+  const int words = im->bw1;
+  int run0 = -1, last = -1;
+  uint16_t *dst = (uint16_t *)im->tex.data;
+  for (int wi = im->bw0; wi < words; wi++) {
+    uint32_t bits = im->blocks[wi];
+    im->blocks[wi] = 0;
+    while (bits) {
+      const int b = wi * 32 + __builtin_ctz(bits);
+      bits &= bits - 1;
+      if (run0 >= 0 && b - last > kRunGap) {
+        CopyRun(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
+        run0 = -1;
+      }
+      if (run0 < 0) run0 = b;
+      last = b;
+    }
+  }
+  if (run0 >= 0) CopyRun(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
+  im->bw0 = im->bw1 = 0;
+}
+
 static void CopyDirty(TexImpl *im) {
   if (im->b1 > im->b0) {
     const size_t off = (size_t)im->b0 * 8 * im->w, n = (size_t)(im->b1 - im->b0) * 8 * im->w;
-    memcpy((uint16_t *)im->tex.data + off, im->px + off, n * 2);
-    GSPGPU_FlushDataCache((uint16_t *)im->tex.data + off, (u32)(n * 2));
+    CopyRun((uint16_t *)im->tex.data + off, im->px + off, n * 2);
   }
+  if (im->bw1 > im->bw0) CopyBlocks(im);
   im->b0 = im->b1 = 0;
   im->queued = false;
 }
@@ -95,13 +156,17 @@ static void CopyDirty(TexImpl *im) {
 bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
   TexImpl *im = (TexImpl *)calloc(1, sizeof(TexImpl));
   uint16_t *shadow = (uint16_t *)calloc((size_t)w * h, 2);
-  if (!im || !shadow) {
+  uint32_t *blocks = (uint32_t *)calloc((size_t)(w >> 3) * (h >> 3) / 32 + 1, 4);
+  if (!im || !shadow || !blocks) {
     free(im);
     free(shadow);
+    free(blocks);
     return false;
   }
+  im->blocks = blocks;
   // Linear memory (not VRAM): the CPU copies the rows into it.
   if (!C3D_TexInit(&im->tex, w, h, GPU_RGBA5551)) {
+    free(im->blocks);
     free(im);
     free(shadow);
     return false;
@@ -124,6 +189,7 @@ void GpuBackend_TexFree(GpuTex *t) {
     for (int i = 0; i < g_dirty_n; i++)
       if (g_dirty[i] == im) g_dirty[i] = g_dirty[--g_dirty_n];
     C3D_TexDelete(&im->tex);
+    free(im->blocks);
     free(im);
   }
   free(t->px);
@@ -134,9 +200,31 @@ static bool g_any_frame;
 static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU" (a copy forced out of turn)
 // Copies every changed row to the textures the GPU samples: only when the GPU is not drawing (after C3D_FrameBegin).
 static void FlushTextures(void) {
+  g_tex_copy_ticks = g_tex_flush_ticks = 0;
+  g_tex_runs = g_tex_bytes = 0;
   for (int i = 0; i < g_dirty_n; i++) CopyDirty(g_dirty[i]);
   g_dirty_n = 0;
 }
+void GpuBackend_TexBlockWritten(GpuTex *t, int block) {
+  TexImpl *im = (TexImpl *)t->impl;
+  if (!im || block < 0 || block >= (t->w >> 3) * (t->h >> 3)) return;
+  const int wi = block >> 5;
+  im->blocks[wi] |= 1u << (block & 31);
+  if (im->bw1 <= im->bw0) im->bw0 = wi, im->bw1 = wi + 1;
+  else {
+    if (wi < im->bw0) im->bw0 = wi;
+    if (wi + 1 > im->bw1) im->bw1 = wi + 1;
+  }
+  if (im->queued) return;
+  if (g_dirty_n >= kMaxDirtyTex) {   // see GpuBackend_TexWritten
+    WaitGpu();
+    CopyDirty(im);
+    return;
+  }
+  im->queued = true;
+  g_dirty[g_dirty_n++] = im;
+}
+
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   if (y0 < 0) y0 = 0;
   if (y1 > t->h) y1 = t->h;
@@ -145,8 +233,11 @@ void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {
   TexImpl *im = (TexImpl *)t->impl;
   const int b0 = y0 >> 3, b1 = (y1 + 7) >> 3;
   if (im->queued) {
-    if (b0 < im->b0) im->b0 = b0;
-    if (b1 > im->b1) im->b1 = b1;
+    if (im->b1 <= im->b0) im->b0 = b0, im->b1 = b1;   // queued by single blocks so far: no row range yet
+    else {
+      if (b0 < im->b0) im->b0 = b0;
+      if (b1 > im->b1) im->b1 = b1;
+    }
     return;
   }
   im->b0 = b0, im->b1 = b1;
@@ -207,6 +298,9 @@ static void EnvModulate(uint32_t rgba) {
 // Debug plane tint: the quad's own texel replaced by a flat, opaque colour in a second stage
 // (an interpolation with alpha 1: a dark picture over a dark plane must not look the same as
 // one on a far plane); the alpha stays the texel's so the alpha test and the silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
+static bool g_force_two_eyes;
+void GpuPpu3ds_SetForceTwoEyes(bool on) { g_force_two_eyes = on; }
+static C3D_RenderTarget *g_rt_top_dummy;   // the forced second eye's target: drawn into, never output
 static int g_plane_tint;   // kPlaneTint*
 void GpuPpu3ds_SetPlaneTint(int mode) { g_plane_tint = mode; }
 
@@ -727,13 +821,18 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   g_stereo_frame.screen = screen;
   // Two eyes only with the 3D screen on (gfxSet3D, main.c) and the slider up; otherwise
   // one, unshifted (2DS: always).
-  const int eyes = slider > 0 && gfxIs3D() ? 2 : 1;
+  const bool forced = g_force_two_eyes && !(slider > 0 && gfxIs3D());
+  if (forced) {
+    slider = 0.5f;
+    if (!g_rt_top_dummy) g_rt_top_dummy = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
+  }
+  const int eyes = forced && g_rt_top_dummy ? 2 : slider > 0 && gfxIs3D() ? 2 : 1;
   for (int e = 0; e < eyes; e++) {
     g_slider = eyes == 2 ? slider : 0;
     g_eye_sign = e ? -1 : 1;
     for (int p = 0; p < kStereoPlaneCount; p++)
       g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
-    DrawEye(f, pixel_perfect, e ? g_rt_top_right : g_rt_top);
+    DrawEye(f, pixel_perfect, e ? (forced ? g_rt_top_dummy : g_rt_top_right) : g_rt_top);
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;

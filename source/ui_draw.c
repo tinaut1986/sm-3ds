@@ -19,11 +19,23 @@ void UiDraw_Swapped(void) { g_swap_tick = svcGetSystemTick(); }
 
 void UiDraw_VBlankSeen(void) { g_swap_tick = 0; }
 
+static u64 g_wait_ticks;   // spent blocked in UiDraw_WaitSwapShown since the last UiDraw_TakeWaitMs
+
 void UiDraw_WaitSwapShown(void) {
   if (!g_swap_tick) return;
   // Some vblank has certainly happened if a whole refresh (59.8 Hz) has passed.
-  if (svcGetSystemTick() - g_swap_tick < SYSCLOCK_ARM11 / 59) gspWaitForVBlank();
+  if (svcGetSystemTick() - g_swap_tick < SYSCLOCK_ARM11 / 59) {
+    const u64 t0 = svcGetSystemTick();
+    gspWaitForVBlank();
+    g_wait_ticks += svcGetSystemTick() - t0;
+  }
   g_swap_tick = 0;
+}
+
+float UiDraw_TakeWaitMs(void) {
+  const float ms = (float)((double)g_wait_ticks * 1000.0 / SYSCLOCK_ARM11);
+  g_wait_ticks = 0;
+  return ms;
 }
 
 // The screens' framebuffers are 24-bit (BGR8): HOME draws the background of a suspended
