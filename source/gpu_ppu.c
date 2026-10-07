@@ -454,10 +454,22 @@ typedef struct {
   // decoded into ((plane) * 2 + priority, as TileChoice), and how many tiles each texture has.
   uint8_t ne[64 * 64];
   uint16_t occ[(kGpuXPlanes + 1) * 2];
+  uint8_t pend[64 * 64];   // a tile whose char data changed and whose decode was deferred (GpuPpu_SetDeferTiles)
+  int pend_count;
+  int cursor;              // the tilemap row the next frame starts the deferred tiles from
   uint16_t map[64 * 64];   // tilemap entries the textures were decoded from
 } Surface;
 
 static Surface g_surf[kSurfaces];
+static int g_defer_cap, g_defer_left;   // deferred-tile budget per frame, and what is left of this frame's
+
+void GpuPpu_SetDeferTiles(int per_frame) { g_defer_cap = per_frame > 0 ? per_frame : 0; }
+
+int GpuPpu_PendingTiles(void) {
+  int n = 0;
+  for (int i = 0; i < kSurfaces; i++) n += g_surf[i].used ? g_surf[i].pend_count : 0;
+  return n;
+}
 
 // Tiles decoded this frame, by what they look like (chars, palette, flips): an animated char used by dozens of
 // tilemap entries is decoded once and copied (128 bytes) to the others. Pointers into the textures are only good
@@ -640,30 +652,49 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
     // Nothing it reads changed: its tilemap, any of its 1024 chars, its palettes.
     bool pal = false;
     for (int i = 0; i < 8; i++) pal |= s->bpp == 4 ? g_pal4_dirty[i] : g_pal2_dirty[i];
-    if (!pal && !RangeDirty(s->tilemap, tw * th) && !RangeDirty(s->tiles, 1024 * (s->bpp == 4 ? 16 : 8))) {
+    if (!pal && !s->pend_count && !RangeDirty(s->tilemap, tw * th) && !RangeDirty(s->tiles, 1024 * (s->bpp == 4 ? 16 : 8))) {
       s->last_frame = g_frame_no;
       return;
     }
   }
-  if (s->fresh) memset(s->ne, 0, sizeof(s->ne)), memset(s->occ, 0, sizeof(s->occ));   // every tile is decoded again
-  for (int ty = 0; ty < th; ty++) {
+  if (s->fresh) {   // every tile is decoded again
+    memset(s->ne, 0, sizeof(s->ne)), memset(s->occ, 0, sizeof(s->occ));
+    memset(s->pend, 0, sizeof(s->pend)), s->pend_count = 0, s->cursor = 0;
+  }
+  int first_deferred = -1;
+  for (int k = 0; k < th; k++) {
+    const int ty = (s->cursor + k) % th;   // the deferred tiles go on from where the last frame stopped
     for (int tx = 0; tx < tw; tx++) {
+      const int ti = ty * 64 + tx;
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
-      uint16_t *m = &s->map[ty * 64 + tx];
-      const uint8_t pl = fixes ? grid[ty * 64 + tx] : 0;
+      uint16_t *m = &s->map[ti];
+      const uint8_t pl = fixes ? grid[ti] : 0;
       const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e);
-      if (!s->fresh && e == *m && pl == s->slot_plane[ty * 64 + tx] && !cd && !pd) continue;
+      const bool moved = s->fresh || e != *m || pl != s->slot_plane[ti];
+      if (!moved && !cd && !pd && !s->pend[ti]) continue;
+      // Only the char data changed (an animated tile): it may wait for a later frame.
+      if (!moved && !pd && g_defer_cap > 0) {
+        if (g_defer_left <= 0) {
+          if (!s->pend[ti]) s->pend[ti] = 1, s->pend_count++;
+          g_stats.tiles_deferred++;
+          if (first_deferred < 0) first_deferred = ty;
+          continue;
+        }
+        g_defer_left--;
+      }
+      if (s->pend[ti]) s->pend[ti] = 0, s->pend_count--;
       if (s->fresh) g_stats.tiles_fresh++;
       else if (e != *m) g_stats.tiles_map++;
       else if (pd) g_stats.tiles_pal++;
-      else if (cd) g_stats.tiles_char++;
-      else g_stats.tiles_plane++;
-      const int prev = s->fresh ? -1 : TileChoice(*m, s->slot_plane[ty * 64 + tx]);
+      else if (pl != s->slot_plane[ti]) g_stats.tiles_plane++;
+      else g_stats.tiles_char++;
+      const int prev = s->fresh ? -1 : TileChoice(*m, s->slot_plane[ti]);
       *m = e;
-      s->slot_plane[ty * 64 + tx] = pl;
+      s->slot_plane[ti] = pl;
       DecodeBgTile(s, ppu, tx, ty, e, pl, prev);
     }
   }
+  s->cursor = s->pend_count && first_deferred >= 0 ? first_deferred : 0;
   // (the blocks written were marked one by one in DecodeBgTile)
   s->fresh = false;
   s->last_frame = g_frame_no;
@@ -1441,6 +1472,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   const PpuLineCapture *orig = cap;
   memset(&g_stats, 0, sizeof(g_stats));
   g_memo_gen++;
+  g_defer_left = g_defer_cap;
   g_quad_plane = 0;
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
   out->hud_first = out->hud_count = g_hud_quad_count = 0;

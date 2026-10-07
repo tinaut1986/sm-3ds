@@ -485,6 +485,25 @@ toasts), 33 other. Steady frames over 16.7: 3. The remaining levers, in order: (
 by hardware copy; (3) the palette bursts: decode only the entries in the visible window (WIDE + PIXEL PERFECT shows ~73 % of the
 tilemap) and skip the burst's intermediate frames (the animation is 2 frames apart: a decode every other game frame already).
 
+### 4.14 Spread the animated tiles over a few frames (2026-10-08, build `v0.3.3-dev.10.19`)
+
+Last PERF pair (sm-perf-16/17, 56.3 fps mono, 53.3 in 3D, `v0.3.3-dev.10.17`): the frames over 16.7 ms of work (313 of 1728) are 164 of the 628-tile char
+event, 71 of small tilemap changes while moving (~37 tiles), 49 of palette bursts, 20 of the UI and the battery, 1 steady.
+
+Done: `GpuPpu_SetDeferTiles(n)` (`gpu_ppu.c`, `SyncSurface`): a tile whose **char data** changed and nothing else (not the tilemap
+entry, the palette row nor the plane) is decoded at most `n` = 224 a frame over every surface, from the tilemap row where the last
+frame stopped (rows are contiguous in the texture, so a frame's upload is a short span), the rest marked `pend` and decoded in the
+next frames; new tiles, tilemap, palette and plane changes are never put off. Off by default in the library (the host tests compare
+with the CPU renderer), **on in the console build** with a debug cell (SPREAD TILES) to compare. The host test `DEFER=n` compares every
+frame with the CPU renderer once no tile waits: 15360 frames of every room at n = 40, 0 mismatches. The 628 event now takes ~3 frames,
+~210 tiles each: the upload per frame is ~1/3 of the texture's span, ~1.5 ms instead of 5.5 once.
+
+Not done, and why: the **hardware copy** (`GX_RequestDma` / `GX_TextureCopy`) for the upload. Both need the source (the shadow) in
+linear memory (physically contiguous: today a `calloc`), and `GX_RequestDma` completes through a GSP event that coalesces (several
+requests, one wake), so waiting for N DMAs can hang; `C3D_SyncTextureCopy` is safe but handles one contiguous run per call. Not
+verifiable from the host, a hang costs a console restart. If the spread is not enough, the way is linearAlloc'ed shadows (with the
+calloc fallback) and one `C3D_SyncTextureCopy` per texture span.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

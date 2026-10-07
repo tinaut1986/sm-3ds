@@ -33,6 +33,7 @@ UiOptions g_ui = {
   .audio_on = true,
   .pacing = kPaceAuto,
   .auto_update = true,
+  .defer_tiles = true,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -1561,11 +1562,11 @@ static void ReportTouch(int x, int y) {
 }
 
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_SPREAD_TILES,
   TOOL_COUNT
 } Tool;
 
-static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 44 + (i / 2) * 29, 140, 26 }; }
+static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 42 + (i / 2) * 25, 140, 23 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
 // Cells with something that runs (log, scene recorder), as in mzm: the right side is a
 // start/stop button, the rest of the cell changes its option.
@@ -1577,8 +1578,8 @@ static Rect SideRect(int i) {
 static void DrawToolCell(Surface s, int i, const char *label, const char *state, uint32_t state_col) {
   const Rect r = ToolRect(i);
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
-  UiDrawText(s, r.x + 6, r.y + 4, 1, COL_TEXT, label);
-  UiDrawText(s, r.x + 6, r.y + 15, 1, state_col, state);
+  UiDrawText(s, r.x + 6, r.y + 3, 1, COL_TEXT, label);
+  UiDrawText(s, r.x + 6, r.y + 13, 1, state_col, state);
 }
 
 // Green play triangle while stopped (tap to start), red stop square while running.
@@ -1627,23 +1628,25 @@ static void DrawToolsModal(Surface s) {
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
   DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
                !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
+  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.defer_tiles ? "ON: 224 A FRAME" : "OFF",
+               !g_ui.gpu_render ? COL_FAINT : g_ui.defer_tiles ? COL_GOOD : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
-    UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
+    UiDrawText(s, 16, 195, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
       const uint32_t c = StereoDepth_RampColor(i / 159.0f, g_ui.plane_tint == 3 ? kRampDepth : kRampOrder);
-      UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiFillRect(s, 52 + i, 196, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
     }
-    UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");
+    UiDrawText(s, 216, 195, 1, COL_DIM, "FRONT");
   } else if (g_ui.plane_tint == 1 && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
     int x = 16;
     for (int p = 0; p < kStereoPlaneCount - 1; p++) {
       const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
-      UiFillRect(s, x, 189, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
-      UiDrawText(s, x + 8, 188, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
+      UiFillRect(s, x, 196, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiDrawText(s, x + 8, 195, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
       x += 8 + (int)strlen(StereoDepth_PlaneName((StereoPlane)p)) * 6 + 6;
     }
   }
-  UiDrawTextCentered(s, SCREEN_W / 2, 200, COL_WARN, Debug_LastMessage());
+  UiDrawTextCentered(s, SCREEN_W / 2, 204, COL_WARN, Debug_LastMessage());
   UiDrawBoxLabel(s, CloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(CloseRect()), "CLOSE");
 }
 
@@ -1698,6 +1701,10 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_FORCE_3D:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.force_3d = !g_ui.force_3d;
+      break;
+    case TOOL_SPREAD_TILES:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.defer_tiles = !g_ui.defer_tiles;
       break;
     default: break;
     }

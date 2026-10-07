@@ -657,6 +657,7 @@ static void TestFrame(const char *label, bool check_capture) {
   // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
   GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
   GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? TestSlotPlanes : NULL);
+  if (getenv("DEFER")) GpuPpu_SetDeferTiles(atoi(getenv("DEFER")));   // DEFER=n: animated tiles at most n a frame
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -871,6 +872,16 @@ static void TestFrame(const char *label, bool check_capture) {
         }
       fclose(f);
     }
+  }
+  // With DEFER the picture is only the CPU renderer's once no tile is waiting: count the frames compared.
+  static int defer_compared, defer_waiting;
+  if (getenv("DEFER")) {
+    if (GpuPpu_PendingTiles()) {
+      defer_waiting++;
+      return;
+    }
+    defer_compared++;
+    if (defer_compared % 200 == 0) printf("DEFER: %d frames compared, %d skipped while tiles waited\n", defer_compared, defer_waiting);
   }
   if ((n = Diff(g_b, g_c, &x0, &y0, &x1, &y1))) {
     g_gpu_bad++;
