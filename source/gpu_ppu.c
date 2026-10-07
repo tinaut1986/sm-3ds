@@ -320,6 +320,8 @@ static uint16_t g_cgram_shadow[0x100];
 static bool g_shadow_valid;             // false: treat everything as changed
 static uint8_t g_group_dirty[0x1000];   // per 8 VRAM words
 static bool g_pal4_dirty[8], g_pal2_dirty[8];
+// Which colours of each palette row changed this frame (bit i = colour i), 4bpp rows of 16 and 2bpp rows of 4.
+static uint16_t g_pal4_changed[8], g_pal2_changed[8];
 static GpuPpuStats g_stats;
 uint64_t (*g_gpu_ppu_clock)(void);
 static inline uint64_t Clock(void) { return g_gpu_ppu_clock ? g_gpu_ppu_clock() : 0; }
@@ -330,12 +332,17 @@ static void DiffMemories(const Ppu *ppu) {
   g_ppu_vram_dirty = g_group_dirty;   // tracking starts with the first frame built
   if (!g_shadow_valid) {
     memset(g_group_dirty, 1, sizeof(g_group_dirty));
-    for (int i = 0; i < 8; i++) g_pal4_dirty[i] = g_pal2_dirty[i] = true;
+    for (int i = 0; i < 8; i++) g_pal4_dirty[i] = g_pal2_dirty[i] = true, g_pal4_changed[i] = 0xffff, g_pal2_changed[i] = 0xf;
     memset(g_colour_dirty, 0xff, sizeof(g_colour_dirty));
   } else {
     for (int p = 0; p < 8; p++) {
       g_pal4_dirty[p] = memcmp(&ppu->cgram[p * 16], &g_cgram_shadow[p * 16], 32) != 0;
       g_pal2_dirty[p] = memcmp(&ppu->cgram[p * 4], &g_cgram_shadow[p * 4], 8) != 0;
+      g_pal4_changed[p] = g_pal2_changed[p] = 0;
+      for (int i = 0; i < 16 && g_pal4_dirty[p]; i++)
+        if (ppu->cgram[p * 16 + i] != g_cgram_shadow[p * 16 + i]) g_pal4_changed[p] |= (uint16_t)(1u << i);
+      for (int i = 0; i < 4 && g_pal2_dirty[p]; i++)
+        if (ppu->cgram[p * 4 + i] != g_cgram_shadow[p * 4 + i]) g_pal2_changed[p] |= (uint16_t)(1u << i);
     }
     memset(g_colour_dirty, 0, sizeof(g_colour_dirty));
     for (int i = 0; i < 256; i++)
@@ -454,6 +461,8 @@ typedef struct {
   // decoded into ((plane) * 2 + priority, as TileChoice), and how many tiles each texture has.
   uint8_t ne[64 * 64];
   uint16_t occ[(kGpuXPlanes + 1) * 2];
+  uint16_t cuse[1024];       // the colours (bit per index) each char uses, valid when cuse_frame is this frame's
+  uint32_t cuse_frame[1024];
   uint8_t pend[64 * 64];   // a tile whose char data changed and whose decode was deferred (GpuPpu_SetDeferTiles)
   int pend_count;
   int cursor;              // the tilemap row the next frame starts the deferred tiles from
@@ -576,6 +585,33 @@ static inline int TileChoice(uint16_t e, int fix) {
   return plane * 2 + prio;
 }
 
+// The colours (bit per palette index, bit 0 = transparent excluded by the caller) char `c` of the surface uses.
+static uint16_t CharColours(const Surface *s, int c, const Ppu *ppu) {
+  const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
+  uint16_t mask = 0;
+  for (int r = 0; r < 8; r++) {
+    const uint16_t w0 = ppu->vram[(base + r) & 0x7fff];
+    uint32_t pix = g_spread[0][w0 & 0xff] | g_spread[0][w0 >> 8] << 1;
+    if (s->bpp == 4) {
+      const uint16_t w1 = ppu->vram[(base + r + 8) & 0x7fff];
+      pix |= g_spread[0][w1 & 0xff] << 2 | g_spread[0][w1 >> 8] << 3;
+    }
+    for (int x = 0; x < 8; x++, pix >>= 4) mask |= (uint16_t)(1u << (pix & 15));
+  }
+  return mask;
+}
+
+// Does this frame's palette change touch a colour the tile (entry `e`) draws with? A palette row that
+// changed two colours leaves most tiles of that row exactly as they are: their texels hold the same
+// colours, so they are not decoded again (the heat rooms' cycling lava, a fade of a few colours).
+static bool PalAffects(Surface *s, const Ppu *ppu, uint16_t e) {
+  const int pal = (e >> 10) & 7, c = e & 0x3ff;
+  const uint16_t changed = (uint16_t)((s->bpp == 4 ? g_pal4_changed[pal] : g_pal2_changed[pal]) & ~1u);   // index 0 is never drawn
+  if (!changed) return false;
+  if (s->cuse_frame[c] != g_frame_no) s->cuse[c] = CharColours(s, c, ppu), s->cuse_frame[c] = g_frame_no;
+  return (s->cuse[c] & changed) != 0;
+}
+
 // One 8x8 tile into its block of the priority texture; the same block of the other
 // textures is cleared, unless the tile was in this very texture before (`prev` = its choice
 // then, -1 when unknown): every tile lives in one texture and is clear in the others.
@@ -660,6 +696,7 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
   if (s->fresh) {   // every tile is decoded again
     memset(s->ne, 0, sizeof(s->ne)), memset(s->occ, 0, sizeof(s->occ));
     memset(s->pend, 0, sizeof(s->pend)), s->pend_count = 0, s->cursor = 0;
+    memset(s->cuse_frame, 0xff, sizeof(s->cuse_frame));
   }
   int first_deferred = -1;
   for (int k = 0; k < th; k++) {
@@ -669,7 +706,7 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
       uint16_t *m = &s->map[ti];
       const uint8_t pl = fixes ? grid[ti] : 0;
-      const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e);
+      const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e) && PalAffects(s, ppu, e);
       const bool moved = s->fresh || e != *m || pl != s->slot_plane[ti];
       if (!moved && !cd && !pd && !s->pend[ti]) continue;
       // Only the char data changed (an animated tile): it may wait for a later frame.

@@ -534,6 +534,18 @@ Before this round the heat rooms were at 33-45 fps; now 43.7-49.2. What is left 
 The char-driven animations (A0A4: `char 80`, AF14: `char 225`) are fine now: deferred 308 a frame on average in AF14, pending at most 832, no
 overrun attributable to them.
 
+### 4.16 Palette changes decode only the tiles that use a changed colour (2026-10-08, build `v0.3.3-dev.10.20`)
+
+The palette cycles of 4.15 (AF14, 9AD9) redecoded **every entry that uses the palette row**, though a cycle changes a few of its 16
+colours. `PalAffects` (`gpu_ppu.c`) now skips an entry whose char uses none of the colours that changed (`g_pal4_changed` /
+`g_pal2_changed`: a bit per colour of each row, from the CGRAM diff; `CharColours`: the colours a char draws, computed once per distinct
+char and frame, no cache across frames so it cannot go stale; index 0 never counts, it is transparent). The texels of a skipped tile hold
+the same colours, so nothing changes on screen. Same idea as mode 7's per-tile colour masks.
+
+Host, 400 frames of the room, tiles decoded because of the palette: **9AD9 69888 -> 4992 (-93 %), AF14 132672 -> 23664 (-82 %)**,
+GPU picture identical to the CPU renderer (`make test` passes, `DEFER=40` over every room too: 15360 frames, 0 mismatches). The
+console numbers to expect: the palette events of 4.15 (draw 22 ms in AF14, 15.7 in 9AD9) should shrink by about those factors.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
