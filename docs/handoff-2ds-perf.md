@@ -323,6 +323,40 @@ Also: the bottom screen's redraws are down to ~72 in 39 s (gaps 15 and 120: the 
 "bottom UI: redraw" line with a non-clock field, so the 120-frame ones are the minute or ... check
 once the log has run longer).
 
+### 4.8 Fifth and sixth PERF runs (2026-10-07 22:06, `v0.3.3-dev.10.5+82c63ed`): the texture upload, measured
+
+Files: `docs/handoff/logs/sm-perf-04.csv` (26 s, FORCE 3D off, 51.7 fps) and `sm-perf-05.csv` (19 s, FORCE 3D on,
+45.6 fps), same room and spot, quads 79 in both this time (the 52 of the earlier run is unexplained, and not a
+difference of the mode).
+
+**The upload has a clean cost model** (fit on the 1358 frames of 04 that uploaded something):
+- one `GSPGPU_FlushDataCache` call costs **0.108 ms whatever its size**, plus 0.0016 ms/KB (the size hardly matters);
+- the `memcpy` into the texture costs **0.0109 ms/KB** (~91 MB/s), ~1.4 us per 128-byte block;
+- a normal frame uploads 32 KB in 1 run (the sprite atlas): 0.34 + 0.24 = **0.58 ms every frame**;
+- the **628-tile event: 67 runs, 262 KB: copy 2.9 + flush 7.7 = 10.6 ms** of its 11.9 ms submit. The 1536-tile
+  frames: 3.3 runs, 224 KB: 0.8 + 2.4 = 3.2 ms. So the cost is the **number of flush calls**, as suspected; the
+  per-tile marking made one call per scattered run (67), the old code two calls but 512 KB of copy.
+
+So the right run size follows the model: a clean gap of g blocks costs 1.4 us per block to copy through and a
+call costs 108 us, so runs closer than ~80 blocks should merge. `kRunGap` is now 80 (was 8); the prediction is
+~4 runs and ~480 KB (copy ~5.2 + flush ~1.1 = ~6.3 ms) for the event instead of 10.6: about -4.5 ms on the
+spike frame, which does not by itself bring it under the budget (logic 5.3 + draw ~15.6). The build
+`v0.3.3-dev.10.6` records it (`tex_*` columns) and the whole `DrawAndPresent` call as `dp_ms`.
+
+What would take the copy itself (91 MB/s on the CPU) off the frame, the next lever:
+- `GX_RequestDma(src, dst, length)` (libctru `gx.h`): the GSP's DMA copies the runs, the CPU only queues them; the
+  shadow's dirty range is flushed with one call per texture (0.0016 ms/KB: ~0.8 ms for 512 KB), the DMA waited
+  with `gspWaitForDMA` or ordered before the render command list. Untested: ordering against the GPU's own
+  commands, and the destination cache. Estimated submit for the event ~3-4 ms instead of 11.9.
+- Or fewer re-decoded tiles: 628 entries re-decode every 10 frames, probably because a **palette row** is animated
+  (`g_pal4_dirty`): the decoded texels bake the palette in, so every tile using that row is rewritten. The visible
+  share (~73 % with WIDE) is the only cut available short of a GPU-side palette, which the PICA200 cannot do.
+
+**FORCE 3D (05), same room**: a normal frame is draw 10.9 against 8.1 (build +0.6, submit +0.5, **rest +1.8**:
+0.96 -> 2.75 ms outside the build and the submit), work **16.4 ms mean** (p95 18.3): over the budget by itself (104
+frames skipped with no event). The new `dp_ms` column splits the rest: how much is inside `DrawAndPresent` and how
+much before it (overlay, toast, setup).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

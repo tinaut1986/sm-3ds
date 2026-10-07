@@ -84,9 +84,11 @@ enum { kMaxDirtyTex = 1024 };
 static TexImpl *g_dirty[kMaxDirtyTex];
 static int g_dirty_n;
 
-// Blocks this close together (in blocks of 128 bytes) are copied and flushed in one go: a
-// cache flush per run costs more than copying the few clean blocks between two runs.
-enum { kRunGap = 8 };
+// Blocks this close together (in blocks of 128 bytes) are copied and flushed in one go. Measured on a
+// 2DS (perf CSV, 628 scattered tiles): a GSPGPU_FlushDataCache call costs ~0.108 ms whatever its size
+// (+ 0.0016 ms/KB) and the memcpy ~0.011 ms/KB, i.e. ~1.4 us per 128-byte block: a clean gap is
+// cheaper to copy than to flush around while it is shorter than ~80 blocks.
+enum { kRunGap = 80 };
 
 // What the last FlushTextures spent (for the perf recorder): copying to the textures, flushing the
 // data cache, the flush calls made and the bytes copied.

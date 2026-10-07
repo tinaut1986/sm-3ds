@@ -944,7 +944,9 @@ int main(int argc, char** argv) {
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
           GpuPpu3ds_SetForceTwoEyes(g_ui.force_3d);
+          const u64 t_dp = svcGetSystemTick();
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
+          px.draw_present_ms = TicksToMs(svcGetSystemTick() - t_dp);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           px.wait_ms = wait_ms, px.submit_ms = submit_ms;
