@@ -540,6 +540,8 @@ static void CheckEdgeSprites(const char *label) {
   }
 }
 
+static int g_p3_frames, g_p3_quads, g_p3_bad;   // STEREO_P3: priority 3 sprites and the plane they got
+
 static void TestFrame(const char *label, bool check_capture) {
   if (check_capture) RtlSaveLoad(kSaveLoad_Save, 8);
   if (check_capture) {
@@ -798,6 +800,21 @@ static void TestFrame(const char *label, bool check_capture) {
         printf(" %s%d", g_frame.quads[q].flags & kGpuQuadObj ? "o" : "L", g_frame.quads[q].level);
       printf("\n");
     }
+  // STEREO_P3=plane (a StereoPlane number): in the room's frames every sprite quad of OAM priority 3 (level 14)
+  // must be on that plane (Spore Spawn's stalk: the room's rule sends it to OBJ, #23).
+  if (getenv("STEREO_P3")) {
+    const StereoFrame sf = { SmWide_Gameplay(), SmPlanes_Screen() };
+    int n = 0;
+    for (int q = 0; q < g_frame.quad_count; q++) {
+      const GpuQuad *qd = &g_frame.quads[q];
+      if (!(qd->flags & kGpuQuadObj) || qd->level != 14) continue;
+      const bool hud = q >= g_frame.hud_first && q < g_frame.hud_first + g_frame.hud_count;
+      n++;
+      g_p3_bad += (int)QuadStereoPlane(&sf, qd, hud) != atoi(getenv("STEREO_P3"));
+    }
+    g_p3_quads += n;
+    g_p3_frames += n > 0;
+  }
   // STEREO_PLANES=a-b: tested frames a..b, one image per stereo plane with only its quads
   // (planes-NNNN-P.ppm, P = StereoPlane: 0 HUD .. 5 FAR), to see which layer is where.
   int sp_a, sp_b;
@@ -883,6 +900,7 @@ static void Report(void) {
   if (g_music_rooms)
     printf("MUSIC rooms %d, music queue stuck in %d, wrong music bank in %d\n", g_music_rooms, g_music_stuck,
            g_music_wrong);
+  if (getenv("STEREO_P3")) printf("STEREO_P3 frames with priority 3 sprites: %d, quads %d, not on the plane %d\n", g_p3_frames, g_p3_quads, g_p3_bad);
   if (getenv("ENEMY_MARGIN")) printf("ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: %d\n", g_enemy_margin_frames);
   if (getenv("EPROJ_MARGIN")) printf("EPROJ_MARGIN frames with a projectile outside the 256 px window: %d (at most %d at once), %d with one more than 128 px left of the view\n", g_eproj_margin_frames, g_eproj_margin_max, g_eproj_far_frames);
   printf("RESULT frames %d, capture mismatches %d, GPU mismatches %d, refused %d\n", g_frames, g_capture_bad, g_gpu_bad,

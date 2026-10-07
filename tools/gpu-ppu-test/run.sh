@@ -31,6 +31,7 @@
 # LEVEL_SPLIT=f1,f2,...: those tested frames as one image per level (level-FFFF-L15.ppm; -o10 = sprites): what each
 # non-gameplay screen is made of (P3.4, source/sm_planes.c SmPlanes_Screen).
 # STEREO_PLANES=a-b: tested frames a..b split by stereo plane (planes-NNNN-P.ppm, magenta = none).
+# STEREO_P3=n: every sprite quad of OAM priority 3 (level 14) in the tested frames must be on StereoPlane n (prints STEREO_P3 ... not on the plane N).
 # STEREO_QUADS=1 (with STEREO_PLANES): also prints every quad of those frames with its level and plane.
 # ONLY_LEVEL=n keeps only the quads of compositor level n in them; QUAD_LEVELS=n prints tested frame n's quads.
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode;
