@@ -455,7 +455,7 @@ eyes, `gpu_wait_ms` 0.05). The 628-tile event cost less to build (bg 3.1 -> 1.7 
 did not change: **copy 4.14 + flush 1.33 ms for 389 KB in 5 runs**, 5.5 of its ~6.4 ms of submit. The big events (1536/2164 tiles, every
 240 frames, 28 and 27 of them) still cost `bg_ms` 6.7 for ~1650 tiles (4 us each): those are not repeats of a few tiles. The host does not
 show them in 700 frames of the same room (`TILE_TRACE`), so what changes there is unknown: the CSV now has `tiles_reused` and `why_*`
-columns (this build is `v0.3.3-dev.10.16`) to tell.
+columns (this build is `v0.3.3-dev.10.15+9b5ef29`) to tell.
 
 What remains in mono: bottom-screen redraws every 120 frames (29 of the 63 skipped frames; none comes from the clock, wifi or battery,
 as `ChromeChanged` would have logged it: the build now logs the reason of every redraw outside the live tabs, `bottom UI: redraw, ...`),
