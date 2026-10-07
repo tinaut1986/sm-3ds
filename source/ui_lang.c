@@ -145,6 +145,14 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrNotesEmpty] = { "NOTHING YET. CHECK NOW FIRST.", "AÚN SIN DATOS. BUSCA ACTUALIZACIÓN.",
                        "ENCARA SENSE DADES. CERCA ACTUALITZACIÓ.", "RIEN POUR L'INSTANT. VÉRIFIEZ D'ABORD.",
                        "SEM DADOS. VERIFIQUE PRIMEIRO." },
+  // Short forms for the OPTIONS half button (about 11 characters).
+  [kStrUpdsLabel] = { "UPDATES", "ACTUALIZ.", "ACTUALITZ.", "MAJ", "ATUALIZ." },
+  [kStrUpdsCheck] = { "CHECK", "BUSCAR", "CERCAR", "VÉRIFIER", "VERIFICAR" },
+  [kStrUpdsChecking] = { "CHECKING", "BUSCANDO", "CERCANT", "VÉRIF.", "VERIFIC." },
+  [kStrUpdsNew] = { "NEW", "NUEVA", "NOVA", "NOUVELLE", "NOVA" },
+  [kStrUpdsInstalling] = { "INSTALLING", "INSTALANDO", "INSTAL·LANT", "INSTALL.", "INSTALANDO" },
+  [kStrUpdsRestart] = { "RESTART", "REINICIA", "REINICIA", "REDÉMARRER", "REINICIE" },
+  [kStrUpdsError] = { "ERROR", "ERROR", "ERROR", "ERREUR", "ERRO" },
   [kStrUpdFrom] = { "%s > %s", "%s > %s", "%s > %s", "%s > %s", "%s > %s" },
 };
 
