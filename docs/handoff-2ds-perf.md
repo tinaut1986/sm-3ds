@@ -70,7 +70,7 @@ average even in the Landing Site.
 
 Raw logs, from the debug build, are in `docs/handoff/logs/`: `sm-log-03.txt`
 (v0.3.1-dev.2, 44 Landing Site samples), `sm-log-07.txt` and `sm-log-08.txt`
-(v0.3.3-dev.2, several rooms). The time column in the log looks like frames at 60/s (300
+(v0.3.3-dev.2, several rooms), `sm-perf-00.csv` and `sm-log-09.txt` (the PERF RECORDER run, 4.5). The time column in the log looks like frames at 60/s (300
 between samples = the 5 s period). The `stats:` line is the 5 s average; the `gpu:` and
 `gpu build` lines are the **last frame** of the period (noisy, one frame).
 
@@ -103,7 +103,7 @@ One 4 s stall at the end of `sm-log-08` (work 255 ms, speed 11) was the owner **
 (known: `BottomUi_Busy` / the SD write blocks the game; PLAN P4.11 lists saving in the
 background as left for later). Not a bug in the numbers.
 
-### 4.2 Where to cut, in the order I proposed (the owner has not chosen yet)
+### 4.2 Where to cut, as first proposed (see 4.5: the order changed once the PERF came in)
 
 Code pointers are in `source/gpu_ppu.c` unless noted.
 
@@ -133,6 +133,9 @@ Code pointers are in `source/gpu_ppu.c` unless noted.
 
 ### 4.3 What I asked the owner for, and what I was about to do
 
+(The PERF RECORDER run was made later the same evening: its result is section 4.5, and it
+changes the order of 4.2.)
+
 - A **PERF RECORDER** run (Debug tab -> DEBUG TOOLS -> PERF RECORDER, writes
   `debug/sm-perf-NN.csv`, `PRF` shows in the top bar) of ~30 s walking the Landing Site, with no
   new build. It gives the per-frame distribution: how many frames pass 16.7 ms and whether they
@@ -144,9 +147,63 @@ Code pointers are in `source/gpu_ppu.c` unless noted.
   PERF recorder, `docs/debug-tools.md`, the host harness `tools/gpu-ppu-test` (every room, GPU vs
   CPU renderer identical; `make test SM_ROM=...` ~90 s before merging anything that touches the
   renderer).
-- I was waiting for the owner to pick: start with **1 (tile decode)**, or first send the PERF.
-  My recommendation: start with 1, since the logs already make it clear, and get the PERF in
-  parallel.
+- ~~I was waiting for the owner to pick: start with 1 (tile decode), or first send the PERF.~~
+  Superseded by 4.5: start with the two periodic events found there.
+
+### 4.5 PERF RECORDER result (2026-10-07 16:31, 2DS, `v0.3.3-dev.2.1+cf0cc31`)
+
+Files: `docs/handoff/logs/sm-perf-00.csv` (2587 frames = 43 s, gameplay `game_state 08`, Landing
+Site as far as the owner said) and `sm-log-09.txt` (the same session's SD log). Columns:
+`frame,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room,audio_*`. `draw_ms` is 0 on
+a skipped frame; **`work_ms` is the whole loop iteration**, so `work - logic - draw` is what
+happens outside both: `BottomUi_Frame`, `UiDraw_Present(GFX_BOTTOM)` and the swap
+(`source/main.c` ~l.960-1020). `area` and `room` are always 0 in this file (not filled by
+`Debug_PerfFrame`? check, small).
+
+Result: 1987 of 2587 frames shown = **46.1 fps**, 600 skipped (runs of 1 or 2 frames), logic 5.1 ms
+steady (p99 5.9), audio 10.6 ms (separate thread, not in `work`).
+
+**The shortfall is entirely two periodic events.** The 1594 shown frames that have neither event
+take **13.4 ms on average, p95 14.2, max 15.0**: all under the 16.7 ms budget. 598 of the 600
+skipped frames follow one of these:
+
+| Event | Frames | Period | Cost | Skipped frames it caused |
+|---|---|---|---|---|
+| **A. draw spike** | 303 | every **10** frames (gap 10 x231) | draw 18.7 ms against 8.1 normal (+10) | 419 |
+| **B. outside logic+draw** | 368 (spans 2 frames: gap 1 x189, gap 14 x166) | every **15** frames, = `REFRESH_FRAMES` (`bottom_ui.c` l.28, l.2322) | +17.5 ms on average (the frames reach 19-37 ms) | 179 |
+
+88 frames have both (the two periods meet every 30 frames: work 35-37 ms there).
+
+- **B is the bottom screen's periodic full redraw.** `BottomUi_Frame` redraws the whole tab every
+  15 frames "so live numbers and the clock keep moving", then `UiDraw_Present` converts ~77k pixels
+  to the 24-bit framebuffer. That is the cost PLAN P2.5 estimated at 1-2 ms and never measured:
+  it is ~13-17 ms **every 15 frames**. Which tab was open is not known (the recorder is started on
+  the DEBUG tab, whose redraw may be heavier than OPTIONS or STATUS): ask the owner to repeat the
+  recording with another tab open, to know the real-world cost. Fix ideas: redraw only the dirty
+  region (the clock, the live numbers) or convert only the changed rows; do it far less often
+  (the clock moves once a minute; only the Debug tab has numbers that move); never on the same
+  frame as event A.
+- **A is a Landing Site thing that happens every 10 frames.** The logs of the same room show
+  frames with ~630-680 tiles decoded (`bg` 2-4 ms, `lines+bands` 4.4 against 3.1), so most likely
+  an animated tile set or a palette cycle (a changed char or palette row makes `SyncSurface`
+  re-decode every tilemap entry that uses it, then `GpuBackend_TexWritten` flushes the rows).
+  630 tiles x 6 us = 4 ms does not explain +10 ms: the rest is not yet attributed (texture
+  upload/flush? vram diff? sprites?). Needed: stage timings **per frame** in the CSV.
+  Also check what in the game changes every 10 frames there (VRAM writes of the room's tile
+  animation).
+- Estimate (not measured): fixing only B gives ~51 fps, only A ~54 fps, both ~60 fps, since
+  everything else fits in 13.4 ms.
+- The 264 ms frame at 2393 (and 67 ms at 2398) is the end of the recording being written to the SD.
+
+Next steps, in this order:
+1. Add columns to the PERF CSV (and the log): `t_lines, t_diff, t_sprites, t_bg, tiles_decoded,
+   quads` from `g_stats` (`gpu_ppu.c`, printed from `main.c` ~l.643), submit ms, and the time of
+   `BottomUi_Frame + UiDraw_Present + swap` as its own column. One more recording then explains A.
+2. Cut B first (clear, mechanical, no renderer risk): it also helps every other room and the New
+   3DS. Check the bottom UI on the host with `tools/ui-preview` (it renders the tabs to PNG).
+3. Cut A with what the extra columns show: the tile decode work of 4.2 point 1 is probably it
+   (decode only the visible tiles of the changed palette/char), plus the cheaper `DecodeTile`.
+4. Only then look at 4.2 points 2-5 (`lines+bands`, submit, logic): the steady frame already fits.
 
 ### 4.4 Constraints to respect when changing the renderer
 
