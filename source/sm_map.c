@@ -237,7 +237,13 @@ static bool ScreenIsReal(const SmRoom *r, int sx, int sy) {
     int k = 0;
     while (k < 80 && Word(h + k) != 0xE5E6) k++;
     const int blocks = r->w * r->h * 256;
-    uint8_t *d = k < 80 ? malloc((size_t)r->w * r->h * 1280 + 0x1000) : NULL;
+    // The level data comes out of the decompressor with no size limit: a room's layer 1, its BTS and
+    // its layer 2 (a custom background) go to WRAM bank $7F, 64 KB, so that is the buffer. A size
+    // worked out from the room's width and height (5 bytes a block) was too small for Norfair's ADAD
+    // and the Wrecked Ship's C98E (their data is 1.5 times that) and corrupted the heap: the console
+    // crashed in free() when the map was tapped in those areas. tools/map-test checks every room.
+    static uint8_t level_buf[kSmMapLevelBytes];
+    uint8_t *d = k < 80 ? level_buf : NULL;
     if (d) {
       const uint32_t src = h[k + 2] | h[k + 3] << 8 | h[k + 4] << 16;
       DecompressToMem(src, d);
@@ -252,7 +258,6 @@ static bool ScreenIsReal(const SmRoom *r, int sx, int sy) {
           }
         if (!solid) g_real[idx][s >> 3] |= 1 << (s & 7);
       }
-      free(d);
       g_real_state[idx] = 1;
     }
   }

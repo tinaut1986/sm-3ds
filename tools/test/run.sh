@@ -66,6 +66,9 @@ if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
   exit $FAILED
 fi
 ROM=$(realpath "$ROM")
+echo "map-rooms: every room's level data fits the map's decompression buffer, every cell can be asked for its room"
+WORK=$OUT/map-test "$ROOT/tools/map-test/run.sh" "$ROM" > "$OUT/map-test.log" 2>&1
+check map-rooms "map_test: OK" "$(grep -q '^map_test: OK$' "$OUT/map-test.log"; echo $?)"
 
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."
