@@ -303,6 +303,8 @@ Lessons from mzm that apply directly:
   (fps in the Norfair rooms against `v0.2.2`, or a counter around `UiDraw_Present`). Drawing everything natively in 24 bits was
   weighed and not done: 3-byte writes are slower by CPU, and RGB8 render targets lose the alpha the renderer may use; revisit
   only if the conversion shows up in the measurement.
+  2026-10-07: new 2DS logs and the list of where to cut (tile decode of the whole tilemap, `lines+bands`, submit, logic) are in
+  `docs/handoff-2ds-perf.md` (temporary: fold into this task and delete it when the work starts).
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
