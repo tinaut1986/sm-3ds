@@ -916,14 +916,18 @@ static bool SameSpans(const WinSpans *a, const WinSpans *b) {
 // AddQuad for `layer` on screen `scr`: where a window hides that layer on part of the
 // lines, the quad is cut into the visible rectangles (rows with the same spans grouped),
 // each keeping the texels it showed, flips included.
+// The captured line a row of the picture takes its window settings from: the extra rows above and
+// below the 224 (negative rows, rows past the last) are the first and the last line's.
+static inline int WinLine(int row) { return (row < 0 ? 0 : row >= kGpuRows ? kGpuRows - 1 : row) + 1; }
+
 static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags, int scr,
                        int layer) {
   // Bands share LineInfo, so the band's first row tells whether the layer is partial.
-  if (g_no_window_cut || !(g_info[y + 1].partial[scr] & (1 << layer))) return AddQuad(t, x, y, w, h, sx, sy, level, flags);
+  if (g_no_window_cut || !(g_info[WinLine(y)].partial[scr] & (1 << layer))) return AddQuad(t, x, y, w, h, sx, sy, level, flags);
   for (int r0 = y; r0 < y + h;) {
-    const WinSpans *sp = &g_spans[r0 + 1][scr][layer];
+    const WinSpans *sp = &g_spans[WinLine(r0)][scr][layer];
     int r1 = r0 + 1;
-    while (r1 < y + h && SameSpans(sp, &g_spans[r1 + 1][scr][layer])) r1++;
+    while (r1 < y + h && SameSpans(sp, &g_spans[WinLine(r1)][scr][layer])) r1++;
     for (int i = 0; i < sp->n; i++) {
       const int x0 = sp->x[i][0] > x ? sp->x[i][0] : x;
       const int x1 = sp->x[i][1] < x + w ? sp->x[i][1] : x + w;

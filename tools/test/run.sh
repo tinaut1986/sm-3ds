@@ -70,15 +70,19 @@ ROM=$(realpath "$ROM")
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."
 head -c 8192 /dev/zero > "$OUT/empty.srm"
-mkdir -p "$OUT/gpu-build" "$OUT/audio-build"
+mkdir -p "$OUT/gpu-build" "$OUT/audio-build" "$OUT/asan-build"
 # Built once, then copied to each test's folder. A binary left by an earlier run must never
 # stand in for a failed build (it once ran every test on code days old: no 32-bit libc
 # headers, so gcc -m32 failed and the old program went on to "fail" checks it predates).
-rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench"
+rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench" "$OUT/asan-build/gpu_ppu_test"
 build_ok=1
 WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1 || build_ok=0
 WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1 || build_ok=0
-if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
+# The same GPU test under AddressSanitizer: out-of-range reads (a negative row into the line tables) pass
+# on one platform's memory layout and not on another's, so the plain build never saw them.
+HOST_CFLAGS="-m32 -malign-double -fsanitize=address -fno-omit-frame-pointer" WORK=$OUT/asan-build \
+  "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/asan-build.log" 2>&1 || build_ok=0
+if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ] || [ ! -x "$OUT/asan-build/gpu_ppu_test" ]; then
   echo "  FAIL  build (see $OUT/gpu-build.log, $OUT/audio-build.log)"
   echo "        32-bit host builds need the 32-bit libc headers: sudo apt install gcc-multilib"
   exit 1
@@ -90,7 +94,7 @@ run_gpu() {   # run_gpu NAME ARGS... (env passed through)
   # A fresh folder: a run leaves sm.srm behind, and the next boot would differ.
   rm -rf "${OUT:?}/$name"
   mkdir -p "$OUT/$name/saves"
-  cp "$OUT/gpu-build/gpu_ppu_test" "$OUT/$name/"
+  cp "$OUT/${GPU_BUILD:-gpu-build}/gpu_ppu_test" "$OUT/$name/"
   NO_BUILD=1 WORK=$OUT/$name "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" "$@" > "$OUT/$name.log" 2>&1
   echo $? > "$OUT/$name.exit"
 }
@@ -131,6 +135,9 @@ WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug 
 WARP_AT=105,256,110,411 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F193 run_gpu wide-pipebug-leaving rooms 200 A56B &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
+# The same rooms with AddressSanitizer: sprites in the extra rows above the picture read the line tables
+# at a negative row (Spore Spawn's crown and head vanished on the console, 2026-10-07, #25).
+GPU_BUILD=asan-build WIDE=72 WIDE_Y=8 run_gpu wide-asan rooms 10 &
 # The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
 # showed the BG2 pages' garbage in the margin.
 WIDE=72 WIDE_Y=8 XRAY=1 SAMUS_AT=170,171 ROOM_SEQ=0@0,1@40,0@100 run_gpu wide-xray-off rooms 160 9FBA &
@@ -218,6 +225,9 @@ echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 fr
 gpu_checks wide-rows
 wide_checks wide-rows
 expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "wide-asan: the wide-rows rooms built with AddressSanitizer (no out-of-range read in the frame builder)"
+check wide-asan "no sanitizer report" "$(! grep -q 'AddressSanitizer' "$OUT/wide-asan.log"; echo $?)"
+check wide-asan "ran to the end" "$(grep -q '^RESULT frames' "$OUT/wide-asan.log"; echo $?)"
 echo "wide-xray: the X-ray scope's cone with WIDE (it stays in the view, no BG2 garbage in the margins)"
 gpu_checks wide-xray
 wide_checks wide-xray
