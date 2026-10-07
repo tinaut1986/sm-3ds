@@ -1561,7 +1561,7 @@ static void ReportTouch(int x, int y) {
 }
 
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D,
   TOOL_COUNT
 } Tool;
 
@@ -1625,6 +1625,8 @@ static void DrawToolsModal(Surface s) {
   static const char *const kTintName[] = { "OFF", "PLANES", "DRAW ORDER", "STEREO DEPTH" };
   DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : kTintName[g_ui.plane_tint & 3],
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
+  DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
+               !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
     UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
@@ -1692,6 +1694,10 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_PLANE_TINT:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.plane_tint = (g_ui.plane_tint + 1) % 4;
+      break;
+    case TOOL_FORCE_3D:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.force_3d = !g_ui.force_3d;
       break;
     default: break;
     }

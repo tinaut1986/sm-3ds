@@ -144,6 +144,10 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h);
 void GpuBackend_TexFree(GpuTex *t);
 // The CPU changed texels in rows [y0, y1); flush them to where the GPU reads them.
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
+// One 8x8 block of texels (64 texels = 128 bytes in the Morton layout, `block` counted in
+// blocks from the start of the texture) was rewritten. Cheaper than TexWritten when few,
+// scattered blocks changed: only those are copied to the texture the GPU samples.
+void GpuBackend_TexBlockWritten(GpuTex *t, int block);
 // About to write texels for the next frame: the GPU may still be drawing the previous one
 // from the same textures (they are written in place), so the backend waits for it here.
 // Called at most once per GpuPpu_BuildFrame, and only when that frame writes texels.

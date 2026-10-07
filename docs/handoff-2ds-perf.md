@@ -248,7 +248,7 @@ event copies and flushes both priority textures entirely (512x256x2 bytes x 2 = 
 tiles that changed are ~628 x 128 bytes x 2 = 160 KB, and `DecodeBgTile` also clears the same
 block in the other texture even when it was already empty.
 
-Cut A like this (the next step, not done yet):
+Cut A like this (**done in the next commit, 2026-10-07 evening**: 1 and 2 below plus a 32-bit `DecodeTile`; `make test` passes; to check on the console; 3 stays open, it would save under 1 ms with WIDE + PIXEL PERFECT because ~73 % of the tilemap is visible):
 1. **Mark dirty per tile block, not per row span**: a bitmap per texture of its 64-texel blocks
    (128 bytes each, tiles are contiguous in the Morton layout: `block = (ty * (w >> 3) + tx) << 6`),
    and `CopyDirty` copies and flushes runs of dirty blocks (merging runs a few blocks apart to save

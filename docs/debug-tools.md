@@ -32,7 +32,11 @@ DEBUG TOOLS window: SCREEN DUMP, FRAME DUMP, LOG TO SD (below), LOG MARK, SCENE 
 (GPU by default, CPU for the session; see docs/gpu-ppu-design.md), PLANE TINT (below) and GPU CHECK (draws the next frame with both
 renderers: a dump set whose `-top.rgb` is the CPU's and `-gpu.rgb` the GPU's, and a
 toast with how many pixels differ). Dumps and frame captures are always drawn by the
-CPU renderer, even with RENDERER on GPU.
+CPU renderer, even with RENDERER on GPU. FORCE 3D (not saved) makes a console without the 3D
+screen (2DS) also draw the second eye, into a target that is never shown, with the slider at
+half and the 3D's edge columns: the CPU cost an Old 3DS pays with the slider up, to measure it
+with the PERF RECORDER on a 2DS. What is shown is the left eye, shifted like the real 3D's.
+On a console with the 3D screen the slider decides and the cell does nothing.
 
 A loaded state or a reset turns MAX off without restoring (the state brings its own
 values) and forgets the forced maps.

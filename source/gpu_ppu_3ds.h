@@ -46,6 +46,11 @@ void GpuPpu3ds_WaitIdle(void);
 enum { kPlaneTintOff, kPlaneTintPlanes, kPlaneTintOrder, kPlaneTintDepth, kPlaneTintModes };
 void GpuPpu3ds_SetPlaneTint(int mode);
 
+// Debug: draw the second eye too when the console has no 3D screen (2DS), into a target that is
+// not shown, with the slider at half: the CPU cost an Old 3DS pays with the slider up, to measure
+// on a 2DS. The left eye is what is shown, shifted like the real 3D's.
+void GpuPpu3ds_SetForceTwoEyes(bool on);
+
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);

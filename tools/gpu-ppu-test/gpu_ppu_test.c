@@ -54,6 +54,7 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
 }
 void GpuBackend_TexFree(GpuTex *t) { free(t->px); t->px = NULL; }
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {}
+void GpuBackend_TexBlockWritten(GpuTex *t, int block) {}
 void GpuBackend_BeforeTexWrite(void) {}
 
 enum { kPitch = 256 * 4 };

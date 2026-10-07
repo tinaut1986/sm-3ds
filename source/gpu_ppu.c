@@ -398,9 +398,14 @@ static inline void TexWriteBegin(void) {
   GpuBackend_BeforeTexWrite();
 }
 
+// Two neighbouring 16-bit texels written at once (they are adjacent in the Morton layout: x
+// 0/1, 2/3, ... of a row; may_alias because the texture is read back as 16-bit texels).
+typedef uint32_t __attribute__((may_alias)) TexPair;
+
 static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const uint16_t *lut, bool hflip, bool vflip) {
   TexWriteBegin();
   const uint32_t *spread = g_spread[hflip];
+  TexPair *pairs = (TexPair *)dst;   // dst is a 128-byte block: 4-byte aligned
   for (int r = 0; r < 8; r++) {
     const int sr = vflip ? 7 - r : r;
     const uint16_t w0 = ppu->vram[(base + sr) & 0x7fff];
@@ -410,7 +415,8 @@ static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const u
       pix |= spread[w1 & 0xff] << 2 | spread[w1 >> 8] << 3;
     }
     const uint8_t *m = g_row_morton[r];
-    for (int x = 0; x < 8; x++, pix >>= 4) dst[m[x]] = lut[pix & 15];
+    for (int x = 0; x < 8; x += 2, pix >>= 8)
+      pairs[m[x] >> 1] = (uint32_t)lut[pix & 15] | (uint32_t)lut[(pix >> 4) & 15] << 16;
   }
 }
 
@@ -524,27 +530,48 @@ static bool PalDirty(const Surface *s, uint16_t entry) {
   return s->bpp == 4 ? g_pal4_dirty[pal] : g_pal2_dirty[pal];
 }
 
+// Which of a surface's textures a tile with entry `e` and fix `fix` goes to: the stereo plane
+// (0 = the layer's own) and the priority.
+static inline int TileChoice(uint16_t e, int fix) {
+  const int plane = fix & 15;   // StereoPlane + 1
+  const int prio = (fix >> 4) ? (fix >> 4) - 1 : (e & 0x2000) ? 1 : 0;   // a fix may set the priority the tile is drawn with
+  return plane * 2 + prio;
+}
+
 // One 8x8 tile into its block of the priority texture; the same block of the other
-// texture is cleared.
-static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int fix) {
+// textures is cleared, unless the tile was in this very texture before (`prev` = its choice
+// then, -1 when unknown): every tile lives in one texture and is clear in the others.
+// The blocks written are marked one by one, so only those are copied to the GPU.
+static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e, int fix, int prev) {
   TexWriteBegin();   // the clears below write texels too
   const int w = SurfaceW(s);
-  const int block = ((ty * (w >> 3)) + tx) << 6;
+  const int tile = (ty * (w >> 3)) + tx;
+  const int block = tile << 6;
   const int plane = fix & 15;   // StereoPlane + 1, 0 = the layer's own
-  const int prio = (fix >> 4) ? (fix >> 4) - 1 : (e & 0x2000) ? 1 : 0;   // a fix may set the priority the tile is drawn with
+  const int prio = (fix >> 4) ? (fix >> 4) - 1 : (e & 0x2000) ? 1 : 0;
   GpuTex *to = plane ? ExtraTex(s, plane, prio) : NULL;
+  const bool own = to != NULL;   // the plane's texture; if it could not be made the tile falls back to the layer's own
   if (!to) to = &s->tex[prio];
   uint16_t *dst = to->px + block;
-  // The tile is in this texture only: every other one the surface has is clear there.
-  for (int i = 0; i < 2; i++)
-    if (&s->tex[i] != to) memset(s->tex[i].px + block, 0, 64 * sizeof(uint16_t));
-  if (s->xcount)
-    for (int p = 0; p < kGpuXPlanes; p++)
-      for (int i = 0; i < 2; i++)
-        if (s->xtex[p][i].px && &s->xtex[p][i] != to) memset(s->xtex[p][i].px + block, 0, 64 * sizeof(uint16_t));
+  if (!(own || plane == 0) || prev != TileChoice(e, fix)) {
+    // The tile is in this texture only: every other one the surface has is clear there.
+    for (int i = 0; i < 2; i++)
+      if (&s->tex[i] != to) {
+        memset(s->tex[i].px + block, 0, 64 * sizeof(uint16_t));
+        GpuBackend_TexBlockWritten(&s->tex[i], tile);
+      }
+    if (s->xcount)
+      for (int p = 0; p < kGpuXPlanes; p++)
+        for (int i = 0; i < 2; i++)
+          if (s->xtex[p][i].px && &s->xtex[p][i] != to) {
+            memset(s->xtex[p][i].px + block, 0, 64 * sizeof(uint16_t));
+            GpuBackend_TexBlockWritten(&s->xtex[p][i], tile);
+          }
+  }
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
   DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000);
+  GpuBackend_TexBlockWritten(to, tile);
   g_stats.tiles_decoded++;
 }
 
@@ -575,27 +602,19 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       return;
     }
   }
-  int y0 = th, y1 = -1;
   for (int ty = 0; ty < th; ty++) {
     for (int tx = 0; tx < tw; tx++) {
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
       uint16_t *m = &s->map[ty * 64 + tx];
       const uint8_t pl = fixes ? grid[ty * 64 + tx] : 0;
       if (!s->fresh && e == *m && pl == s->slot_plane[ty * 64 + tx] && !CharDirty(s, e) && !PalDirty(s, e)) continue;
+      const int prev = s->fresh ? -1 : TileChoice(*m, s->slot_plane[ty * 64 + tx]);
       *m = e;
       s->slot_plane[ty * 64 + tx] = pl;
-      DecodeBgTile(s, ppu, tx, ty, e, pl);
-      if (ty < y0) y0 = ty;
-      y1 = ty;
+      DecodeBgTile(s, ppu, tx, ty, e, pl, prev);
     }
   }
-  if (y1 >= 0) {
-    GpuBackend_TexWritten(&s->tex[0], y0 * 8, (y1 + 1) * 8);
-    GpuBackend_TexWritten(&s->tex[1], y0 * 8, (y1 + 1) * 8);
-    for (int p = 0; p < kGpuXPlanes && s->xcount; p++)
-      for (int i = 0; i < 2; i++)
-        if (s->xtex[p][i].px) GpuBackend_TexWritten(&s->xtex[p][i], y0 * 8, (y1 + 1) * 8);
-  }
+  // (the blocks written were marked one by one in DecodeBgTile)
   s->fresh = false;
   s->last_frame = g_frame_no;
 }

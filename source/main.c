@@ -223,7 +223,7 @@ static int WideMargin(void) {
 // moved by its plane's offset uncovers that many columns of its edge. Not needed with
 // WIDE, whose margins are far wider.
 static int StereoEdge(void) {
-  return g_ui.gpu_render && GameplayView() && osGet3DSliderState() > 0 ? kStereoMaxPx : 0;
+  return g_ui.gpu_render && GameplayView() && (osGet3DSliderState() > 0 || g_ui.force_3d) ? kStereoMaxPx : 0;
 }
 
 
@@ -943,6 +943,7 @@ int main(int argc, char** argv) {
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
+          GpuPpu3ds_SetForceTwoEyes(g_ui.force_3d);
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
