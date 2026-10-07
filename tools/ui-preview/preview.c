@@ -245,6 +245,9 @@ int main(int argc, char **argv) {
   Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // sound on
   Tap(162 + 77 + 5, 98 + 5);         // CHANNEL: back
   Tap(8 + 77 + 5, 98 + 5);           // VIEW: back
+  Tap(162 + 5, 166 + 5);             // WHAT'S NEW before any check
+  Shot("what's new, nothing yet");
+  Tap(160, 220);                     // CLOSE
   Tap(8 + 5, 132 + 5);               // UPDATES: check
   if (g_preview_upd_state != UPD_CHECKING) { fprintf(stderr, "UPDATES did not start a check\n"); return 1; }
   Shot("options, checking for updates");
@@ -253,6 +256,12 @@ int main(int argc, char **argv) {
   g_preview_upd_state = UPD_AVAILABLE;
   g_preview_upd_prompt = UPD_PROMPT_ASK_INSTALL;
   Shot("update prompt: install?");
+  Tap(160, 176);                     // WHAT'S NEW, from the prompt
+  Shot("what's new, from the prompt");
+  BottomUi_TouchDown(160, 120), BottomUi_TouchMove(160, 60), BottomUi_TouchUp();   // drag: scroll
+  Shot("what's new, scrolled");
+  Tap(160, 220);                     // CLOSE: the prompt comes back
+  Shot("update prompt: install? again");
   g_preview_upd_prompt = UPD_PROMPT_PROGRESS;
   g_preview_upd_state = UPD_DOWNLOADING;
   g_preview_upd_progress = 40;

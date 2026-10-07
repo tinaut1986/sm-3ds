@@ -160,8 +160,19 @@ include resources/AppInfo
 
 # Generated at parse time and rewritten only when its content changes, so a new
 # commit rebuilds main.c (and the SMDH) but nothing else.
+#   CHANNEL=beta   the build is a published pre-release: APP_IS_BETA is 1 and APP_VERSION_LABEL
+#                  reads "vX.Y.Z BETA". Set by CI; local and dev builds leave it empty.
+#                  APP_VERSION stays the plain number (user-agent, file names, comparisons).
+CHANNEL ?=
+ifeq ($(CHANNEL),beta)
+  APP_IS_BETA := 1
+  APP_VERSION_LABEL := $(VERSION) BETA
+else
+  APP_IS_BETA := 0
+  APP_VERSION_LABEL := $(VERSION)
+endif
 VERSION_H := $(BUILD)/version.h
-VERSION_H_TEXT := \#pragma once\n\#define APP_TITLE "$(APP_TITLE)"\n\#define APP_AUTHOR "$(APP_AUTHOR)"\n\#define APP_VERSION "$(VERSION)"\n
+VERSION_H_TEXT := \#pragma once\n\#define APP_TITLE "$(APP_TITLE)"\n\#define APP_AUTHOR "$(APP_AUTHOR)"\n\#define APP_VERSION "$(VERSION)"\n\#define APP_IS_BETA $(APP_IS_BETA)\n\#define APP_VERSION_LABEL "$(APP_VERSION_LABEL)"\n
 $(shell mkdir -p $(BUILD) && printf '$(VERSION_H_TEXT)' > $(VERSION_H).tmp && \
 	(cmp -s $(VERSION_H).tmp $(VERSION_H) && rm -f $(VERSION_H).tmp || mv -f $(VERSION_H).tmp $(VERSION_H)))
 

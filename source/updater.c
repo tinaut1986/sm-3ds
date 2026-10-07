@@ -23,6 +23,7 @@ extern void Main_RequestQuit(void);   // main.c
 #define UPDATER_SOC_SIZE 0x100000 /* also bounds the TCP window */
 #define UPDATER_FILE_BUF (256 * 1024)
 #define UPDATER_MSG_MAX 64
+#define UPDATER_NOTES_MAX 6144
 
 typedef enum {
     JOB_CHECK,             /* manual: the result stays in the state; a newer build asks */
@@ -38,6 +39,7 @@ static volatile UpdPrompt sPrompt = UPD_PROMPT_NONE;
 static bool sBeta = false;
 static char sRemoteTag[32] = "";
 static char sMessage[96] = "";
+static char sNotes[UPDATER_NOTES_MAX] = "";   /* under sTextLock */
 static UpdaterRelease sRelease;
 static LightLock sTextLock;
 static bool sLockReady = false;
@@ -343,8 +345,21 @@ static bool InstallFromFile(FS_MediaType media, bool overwrite) {
 /* Worker                                                                    */
 /* ------------------------------------------------------------------------- */
 
+/* `update_url.txt` in the data folder (one line) points the check at another server, e.g.
+ * tools/update-mock-server.py, so a release can be tried without publishing it. It is a file
+ * of its own: config.ini is rewritten whole by the UI and would lose the line. */
 static const char* ResolveUrl(void) {
-    return UPDATER_DEFAULT_URL;
+    static char url[256];
+    FILE* f = fopen("update_url.txt", "r");
+    size_t n = 0;
+
+    if (f) {
+        if (fgets(url, sizeof(url), f)) n = strcspn(url, "\r\n");
+        fclose(f);
+    }
+    if (n < 8) return UPDATER_DEFAULT_URL;
+    url[n] = '\0';
+    return url;
 }
 
 static bool DoCheck(void) {
@@ -371,6 +386,23 @@ static bool DoCheck(void) {
         Fail("NO RELEASE FOUND", 0);
         return false;
     }
+
+    /* The notes come out of the same JSON, before it goes. Up to date: list the latest
+     * published releases instead, so the viewer always has something to show. */
+    {
+        char* notes = (char*)malloc(UPDATER_NOTES_MAX);
+
+        if (notes) {
+            if (Updater_CollectNotes(js.buf, sBeta, APP_VERSION, APP_IS_BETA, notes, UPDATER_NOTES_MAX) == 0) {
+                Updater_CollectNotes(js.buf, sBeta, "v0.0.0", false, notes, UPDATER_NOTES_MAX);
+            }
+            EnsureLock();
+            LightLock_Lock(&sTextLock);
+            memcpy(sNotes, notes, UPDATER_NOTES_MAX);
+            LightLock_Unlock(&sTextLock);
+            free(notes);
+        }
+    }
     free(js.buf);
 
     EnsureLock();
@@ -378,7 +410,7 @@ static bool DoCheck(void) {
     snprintf(sRemoteTag, sizeof(sRemoteTag), "%s", rel.tag);
     LightLock_Unlock(&sTextLock);
 
-    if (!Updater_IsNewer(APP_VERSION, rel.tag)) {
+    if (!Updater_IsNewerBuild(APP_VERSION, APP_IS_BETA, rel.tag, rel.prerelease)) {
         sState = UPD_UP_TO_DATE;
         return false;
     }
@@ -520,6 +552,20 @@ void Updater_AnswerPrompt(bool yes) {
 int Updater_Progress(void) { return sProgress; }
 const char *Updater_RemoteTag(void) { return sRemoteTag; }
 const char *Updater_Message(void) { return sMessage; }
+
+size_t Updater_CopyNotes(char *out, size_t cap) {
+    size_t n;
+
+    if (cap == 0) return 0;
+    EnsureLock();
+    LightLock_Lock(&sTextLock);
+    n = strlen(sNotes);
+    if (n > cap - 1) n = cap - 1;
+    memcpy(out, sNotes, n);
+    out[n] = '\0';
+    LightLock_Unlock(&sTextLock);
+    return n;
+}
 
 uint32_t Updater_Version(void) {
     return ((uint32_t)sState << 24) | ((uint32_t)sPrompt << 16) | (uint32_t)sProgress;

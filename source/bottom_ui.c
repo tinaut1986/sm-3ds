@@ -45,7 +45,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -1040,14 +1040,14 @@ void BottomUi_GameReset(void) {
 //   FPS | CPU         LANGUAGE
 //   IMAGE | VIEW      UPDATE | CHANNEL
 //   UPDATES           RESET GAME
-//   HUD
+//   HUD               WHAT'S NEW
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_COUNT
 } OptCell;
 
-enum { kOptResetSlot = 7, kOptHudSlot = 8, kOptSpeakerW = 34 };
+enum { kOptResetSlot = 7, kOptHudSlot = 8, kOptNotesSlot = 9, kOptSpeakerW = 34 };
 
 static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
 static Rect OptHalf(int slot, int half) {
@@ -1067,6 +1067,7 @@ static Rect OptRect(OptCell c) {
   case OPT_AUTO_UPDATE: return OptHalf(5, 0);
   case OPT_CHANNEL: return OptHalf(5, 1);
   case OPT_HUD: return OptSlot(kOptHudSlot);
+  case OPT_NOTES: return OptSlot(kOptNotesSlot);
   default: return OptSlot(6);
   }
 }
@@ -1147,6 +1148,7 @@ static void DrawOptions(Surface s) {
   }
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
                  Tr(kStrResetGame));
 
@@ -1159,6 +1161,8 @@ static void DrawOptions(Surface s) {
   UiDrawTextCentered(s, SCREEN_W / 2, 229, RGB(150, 110, 60), "DEBUG TOOLS BUILD");
 #endif
 }
+
+static void OpenNotes(void);
 
 static void OptionsTouch(int x, int y) {
   if (UiIn(ResetRect(), x, y)) {
@@ -1192,6 +1196,7 @@ static void OptionsTouch(int x, int y) {
       Updater_SetBeta(g_ui.update_beta);
       break;
     case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
+    case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
     }
@@ -1223,22 +1228,171 @@ static void ResetModalTouch(int x, int y) {
   }
 }
 
+
+// ---- What's new ----------------------------------------------------------------------
+// The release notes the updater read on its last check (Updater_CopyNotes), in a window over
+// any tab: opened from OPTIONS, or from the "new version" prompt, which hides while it is up
+// and comes back on CLOSE. The text is wrapped once, when the window opens.
+enum {
+  kNotesCols = 44, kNotesMaxLines = 128, kNotesLineBytes = 96, kNotesY0 = 50, kNotesY1 = 206, kNotesPitch = 10,
+  kNotesBarX = 302, kNotesBarW = 4, kNotesBarHitX = 294,
+};
+static Rect NotesCloseRect(void) { return (Rect){ 116, 210, 88, 20 }; }
+static char g_notes_text[6144];
+static char g_notes_lines[kNotesMaxLines][kNotesLineBytes];
+static bool g_notes_head[kNotesMaxLines];   // a "== vX ==" line
+static int g_notes_count, g_notes_scroll;   // lines, pixels
+static struct { bool active, bar; int last_y; } g_notes_touch;
+
+// Appends one wrapped line; false when the table is full.
+static bool NotesAddLine(const char *text, int bytes, bool head) {
+  if (g_notes_count >= kNotesMaxLines) return false;
+  if (bytes > kNotesLineBytes - 1) bytes = kNotesLineBytes - 1;
+  memcpy(g_notes_lines[g_notes_count], text, bytes);
+  g_notes_lines[g_notes_count][bytes] = 0;
+  g_notes_head[g_notes_count++] = head;
+  return true;
+}
+
+static void WrapNotes(void) {
+  g_notes_count = 0;
+  g_notes_scroll = 0;
+  const char *p = g_notes_text;
+  while (*p) {
+    const char *e = strchr(p, '\n');
+    if (!e) e = p + strlen(p);
+    const bool head = !strncmp(p, "== ", 3);
+    const char *t = p;
+    bool first = true;
+    while (t < e) {
+      const int indent = head || first || strncmp(p, "- ", 2) ? 0 : 2;   // a bullet's continuation hangs under its text
+      const int room = kNotesCols - indent;
+      int n = 0, cut = 0;
+      const char *q = t, *cut_at = t;
+      while (q < e && n < room) {   // by characters: a UTF-8 sequence is one
+        q++;
+        while (q < e && (*q & 0xC0) == 0x80) q++;
+        n++;
+        if (q >= e || *q == ' ') cut = n, cut_at = q;
+      }
+      if (q >= e) cut_at = e;
+      else if (!cut) cut_at = q;
+      char line[kNotesLineBytes];
+      int len = snprintf(line, sizeof(line), "%*s%.*s", indent, "", (int)(cut_at - t), t);
+      if (len >= (int)sizeof(line)) len = sizeof(line) - 1;
+      if (!NotesAddLine(line, len, head)) return;
+      t = cut_at;
+      while (t < e && *t == ' ') t++;
+      first = false;
+    }
+    p = *e ? e + 1 : e;
+  }
+}
+
+static void OpenNotes(void) {
+  Updater_CopyNotes(g_notes_text, sizeof(g_notes_text));
+  WrapNotes();
+  g_notes_touch.active = false;
+  g_modal = MODAL_NOTES;
+}
+
+static int NotesMaxScroll(void) {
+  const int content = g_notes_count * kNotesPitch, view = kNotesY1 - kNotesY0;
+  return content > view ? content - view : 0;
+}
+
+static void NotesClamp(void) {
+  const int max = NotesMaxScroll();
+  if (g_notes_scroll > max) g_notes_scroll = max;
+  if (g_notes_scroll < 0) g_notes_scroll = 0;
+}
+
+static void NotesScrollToBar(int y) {
+  const int track = kNotesY1 - kNotesY0;
+  g_notes_scroll = (y - kNotesY0) * (NotesMaxScroll() + track) / track - track / 2;
+  NotesClamp();
+}
+
+static void DrawNotes(Surface s) {
+  UiFillRect(s, 6, 26, 308, 210, COL_TITLE);
+  UiFillRect(s, 8, 28, 304, 206, RGB(8, 11, 20));
+  UiDrawText(s, 14, 34, 1, COL_TITLE, Tr(kStrWhatsNew));
+  const char *tag = Updater_RemoteTag();
+  UiDrawText(s, 306 - 6 * (int)strlen(tag), 34, 1, COL_DIM, tag);
+  UiFillRect(s, 14, 44, 292, 1, COL_FAINT);
+  if (!g_notes_count) {
+    UiDrawTextCentered(s, SCREEN_W / 2, 120, COL_DIM, Tr(kStrNotesEmpty));
+  } else {
+    NotesClamp();
+    UiClipY(kNotesY0, kNotesY1);
+    for (int i = 0; i < g_notes_count; i++) {
+      const int y = kNotesY0 + 2 - g_notes_scroll + i * kNotesPitch;
+      if (y + kNotesPitch <= kNotesY0) continue;
+      if (y >= kNotesY1) break;
+      UiDrawText(s, 14, y, 1, g_notes_head[i] ? COL_TITLE : RGB(220, 235, 255), g_notes_lines[i]);
+    }
+    UiNoClip();
+    const int max = NotesMaxScroll();
+    if (max > 0) {
+      const int track = kNotesY1 - kNotesY0;
+      int thumb = track * track / (track + max);
+      if (thumb < 16) thumb = 16;
+      UiFillRect(s, kNotesBarX, kNotesY0, kNotesBarW, track, RGB(60, 24, 36));
+      UiFillRect(s, kNotesBarX, kNotesY0 + g_notes_scroll * (track - thumb) / max, kNotesBarW, thumb, RGB(80, 160, 240));
+    }
+  }
+  UiDrawBoxLabel(s, NotesCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NotesCloseRect()), Tr(kStrClose));
+}
+
+static void NotesTouch(int x, int y) {
+  if (UiIn(NotesCloseRect(), x, y)) {
+    g_modal = MODAL_NONE;
+  } else if (y >= kNotesY0 && y < kNotesY1) {
+    g_notes_touch.active = true;
+    g_notes_touch.bar = x >= kNotesBarHitX && NotesMaxScroll() > 0;
+    g_notes_touch.last_y = y;
+    if (g_notes_touch.bar) NotesScrollToBar(y);
+  }
+}
+
+static bool NotesTouchMove(int y) {
+  if (!g_notes_touch.active) return false;
+  const int before = g_notes_scroll;
+  if (g_notes_touch.bar) NotesScrollToBar(y);
+  else g_notes_scroll += g_notes_touch.last_y - y, NotesClamp();
+  g_notes_touch.last_y = y;
+  return g_notes_scroll != before;
+}
+
 // ---- Update prompt ------------------------------------------------------------
 // The updater (updater.c) asks over any tab: a newer build is there (install?), it is installing
 // (a bar), it is installed (restart?), or the install failed. Nothing else answers a touch while
 // one is up.
 
+static bool NotesAvailable(void) {
+  char c[2];
+  return Updater_CopyNotes(c, sizeof(c)) > 0;
+}
+
+// The "new version" prompt grows a WHAT'S NEW button under YES / NO when the check brought notes.
+static Rect PromptNotesRect(void) { return (Rect){ 88, 166, 144, 20 }; }
+
 static void DrawUpdatePrompt(Surface s) {
   const UpdPrompt prompt = Updater_Prompt();
-  if (prompt == UPD_PROMPT_NONE) return;
-  UiFillRect(s, 40, 76, 240, 96, COL_MODAL_EDGE);
-  UiFillRect(s, 41, 77, 238, 94, COL_MODAL);
+  if (prompt == UPD_PROMPT_NONE || g_modal == MODAL_NOTES) return;   // the notes window has the screen
+  const bool notes = prompt == UPD_PROMPT_ASK_INSTALL && NotesAvailable();
+  const int h = notes ? 120 : 96;
+  UiFillRect(s, 40, 76, 240, h, COL_MODAL_EDGE);
+  UiFillRect(s, 41, 77, 238, h - 2, COL_MODAL);
   char line[64];
   switch (prompt) {
   case UPD_PROMPT_ASK_INSTALL:
     snprintf(line, sizeof(line), Tr(kStrUpdAsk), Updater_RemoteTag());
-    UiDrawTextCentered(s, SCREEN_W / 2, 92, COL_TITLE, line);
-    UiDrawTextCentered(s, SCREEN_W / 2, 110, COL_DIM, Tr(kStrUpdAsk2));
+    UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, line);
+    UiDrawTextCentered(s, SCREEN_W / 2, 104, COL_DIM, Tr(kStrUpdAsk2));
+    snprintf(line, sizeof(line), Tr(kStrUpdFrom), g_rom_info.version, Updater_RemoteTag());
+    UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_FAINT, line);
+    if (notes) UiDrawBoxLabel(s, PromptNotesRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(PromptNotesRect()), Tr(kStrWhatsNew));
     UiDrawBoxLabel(s, YesRect(), COL_BOX, COL_BOX_EDGE, COL_GOOD, Pressed(YesRect()), Tr(kStrYes));
     UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrNo));
     break;
@@ -1273,6 +1427,7 @@ static void UpdatePromptTouch(int x, int y) {
   case UPD_PROMPT_ASK_RESTART:
     if (UiIn(YesRect(), x, y)) Updater_AnswerPrompt(true);
     else if (UiIn(NoRect(), x, y)) Updater_AnswerPrompt(false);
+    else if (Updater_Prompt() == UPD_PROMPT_ASK_INSTALL && UiIn(PromptNotesRect(), x, y) && NotesAvailable()) OpenNotes();
     break;
   case UPD_PROMPT_ERROR:
     if (UiIn((Rect){ 112, 136, 96, 24 }, x, y)) Updater_AnswerPrompt(true);
@@ -2008,6 +2163,10 @@ static void SelectTab(Tab t) {
 static void TouchDownImpl(int x, int y) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+  if (g_modal == MODAL_NOTES && Updater_Prompt() != UPD_PROMPT_NONE) {   // opened from the prompt: it steps aside
+    NotesTouch(x, y);
+    return;
+  }
   if (Updater_Prompt() != UPD_PROMPT_NONE) {   // the update prompt is over everything
     UpdatePromptTouch(x, y);
     return;
@@ -2029,6 +2188,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
   case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
   case MODAL_STATE: StateDetailTouch(x, y); return;
+  case MODAL_NOTES: NotesTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -2064,6 +2224,7 @@ void BottomUi_TouchMove(int x, int y) {
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_STATES && g_modal == MODAL_NONE && StatesTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
+  if (g_modal == MODAL_NOTES && NotesTouchMove(y)) g_dirty = 2;
 }
 
 void BottomUi_TouchUp(void) {
@@ -2072,6 +2233,7 @@ void BottomUi_TouchUp(void) {
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();
   g_map_touch.active = false;
   g_ra_touch.active = false;
+  g_notes_touch.active = false;
   g_dirty = 2;
 }
 
@@ -2114,6 +2276,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_RESET: DrawResetModal(s); break;
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
   case MODAL_STATE: DrawStateDetail(s); break;
+  case MODAL_NOTES: DrawNotes(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;

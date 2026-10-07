@@ -576,7 +576,7 @@ enum {
 static void ShowRomError(const RomInfo *info) {
   gfxInitDefault();
   consoleInit(GFX_TOP, NULL);
-  printf("Super Metroid 3DS %s\n\n", APP_VERSION);
+  printf("Super Metroid 3DS %s\n\n", APP_VERSION_LABEL);
   printf("%s\n\n", RomLoader_StatusText(info->status));
   printf("Put your ROM in:\n  %s\n\n", ROM_DATA_DIR);
   printf("Needed: Super Metroid (Japan, USA)\n  .smc or .sfc, sha1:\n  %s\n", kRomExpectedSha1);
@@ -693,7 +693,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
+  UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION_LABEL };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
   // Pre-release builds (the ones with the debug tools) follow the betas, the others the releases.
@@ -726,7 +726,7 @@ int main(int argc, char** argv) {
   g_audio_ok = AudioStart(core1_limit != 0);
 
   mkdir("saves", 0755);
-  Debug_Init(APP_VERSION);
+  Debug_Init(APP_VERSION_LABEL);
   Debug_SetObjDump(DumpObjText);
 #if DEBUG_TOOLS
   // Debug builds log from boot, so a playtest always leaves a log behind.
