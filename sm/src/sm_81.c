@@ -281,10 +281,12 @@ void DrawSpritemapWithBaseTile(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, u
 // 3DS port, WIDE view: the drawers below hide a piece whose y is above line 0 (the original wraps
 // it to the bottom of the OAM's 8 bits). With extra rows above the picture (PIXEL PERFECT) the
 // pieces down to -g_rtl_wide_extra_top are on screen, at y mod 256, as the object's own position
-// (y_r18, 16-bit and signed in the callers that use these) says.
+// (y_r18, 16-bit and signed in the callers that use these) says. A piece starting up to 15 rows
+// higher still has its lower rows in view (pieces are 8 or 16 high), so it is kept as well: a
+// boss coming in from the top shows a row at a time instead of a piece at a time.
 static inline bool WidePieceInTopRows(uint16 base_y, uint8 offset) {
   const int y = (int16)base_y + (int8)offset;
-  return y < 0 && y >= -(int)g_rtl_wide_extra_top;
+  return y < 0 && y >= -(int)g_rtl_wide_extra_top - 15;
 }
 
 void DrawSpritemapWithBaseTile2(uint8 db, uint16 j, uint16 r20_x, uint16 r18_y, uint16 r3, uint16 r0) {  // 0x818B22
