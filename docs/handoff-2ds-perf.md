@@ -417,7 +417,7 @@ depth24/stencil8), each layer's quads for **both priority textures even when the
 pixel of a quad is paid, transparent or not: up to 6 full-width passes with depth and stencil tests for three
 layers), the colour-math passes, then the stretch of the main target onto the top target, then the overlays.
 
-**First cut, done (build `v0.3.3-dev.11`, to measure):** a surface now counts the tiles with something visible per
+**First cut, done (build `v0.3.3-dev.10.12+ed3b723`, to measure):** a surface now counts the tiles with something visible per
 texture (`Surface.occ`, `ne`, kept by `DecodeBgTile`, whose `DecodeTile` returns the OR of the texels) and `EmitBg`
 emits no quad for a texture with none. `make test` passes (the GPU picture stays identical to the CPU's in every
 room). Expected: fewer quads (the `quads` column) and a lower `gpu_draw_ms`; how much depends on how many
