@@ -504,6 +504,36 @@ requests, one wake), so waiting for N DMAs can hang; `C3D_SyncTextureCopy` is sa
 verifiable from the host, a hang costs a console restart. If the spread is not enough, the way is linearAlloc'ed shadows (with the
 calloc fallback) and one `C3D_SyncTextureCopy` per texture span.
 
+### 4.15 Five rooms, with and without FORCE 3D (2026-10-08 00:07-00:15, `v0.3.3-dev.10.18+3b67c41`, SPREAD TILES on)
+
+Files `docs/handoff/logs/sm-perf-<room>-<mono|3d>.csv` (10 to 20 s each). The rooms come from the log's `room` field; the CSV's `area`/`room`
+columns agree. Named by the room pointer.
+
+| room | what | fps mono | fps 3D | steady GPU ms (mono / 3D) | quads | what costs |
+|---|---|---|---|---|---|---|
+| `A0A4` (Brinstar) | | 57.1 | 56.6 | 6.8 / 13.0 | 13 | the PERF taps, tilemap changes while scrolling (80 tiles) |
+| `AA82` (Norfair) | | 58.9 | 57.0 | 6.5 / 12.5 | 18 | nearly nothing (22 skipped frames in 20 s) |
+| `AB64` (Norfair) | per-line scroll | 57.1 | **45.6** | 8.5 / **16.6** | 263 | 3D: steady frames overrun (289 of 480): the GPU, 8.3 ms an eye |
+| `AF14` (Norfair heat room) | | **49.2** | **43.7** | 7.1 / 14.1 | 146 | palette cycles: 3156 tiles every 4-8 frames, draw 22 ms |
+| `9AD9` (Brinstar) | | 53.1 | 51.7 | 7.1 / 13.9 | 17 | palette cycle every 10 frames: 1288 tiles, draw 15.7 |
+
+Before this round the heat rooms were at 33-45 fps; now 43.7-49.2. What is left is of two kinds:
+
+1. **Palette-driven tile redecodes** (AF14: `pal 3048` per event, 75 events of 3156 tiles, 38 distinct tiles, draw 22.0 ms: bg 10.5, upload 6.3;
+   9AD9: `pal 1288`, 72 events, draw 15.7). SPREAD TILES leaves them alone (a palette change that shows late is a visible wipe), and
+   they are the largest costs left. The decode of the ~40 distinct tiles is nothing: it is ~3 us a tilemap entry (copying a 128-byte block into
+   a texture shadow bigger than the cache) and then the upload of those blocks. Options, by cost: (a) defer them too with a bigger budget
+   (AF14 would take ~4 frames for a 4-8 frame cycle: a visible ripple?), as a third state of the SPREAD TILES cell, to be judged by eye;
+   (b) decode only the entries inside the visible window (~73 % with WIDE + PIXEL PERFECT); (c) a faster per-entry path for "palette changed,
+   nothing else": group the entries by (char, flips) once per surface and keep the list, so the copy loop does no hashing.
+2. **3D with many quads** (`AB64`: 263 quads, GPU 8.3 ms an eye against 6.7 for the Landing Site's 72 quads: ~9 us a quad here, mzm measured 3.2):
+   per-line scroll quads of one pixel in height. Fewer, larger quads (merge consecutive lines with the same scroll: already done) cannot
+   help when every line differs; a heat shimmer is a few pixels of offset, so quantising the per-line scroll to share quads between near lines
+   would trade accuracy for quads.
+
+The char-driven animations (A0A4: `char 80`, AF14: `char 225`) are fine now: deferred 308 a frame on average in AF14, pending at most 832, no
+overrun attributable to them.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
