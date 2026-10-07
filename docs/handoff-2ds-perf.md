@@ -383,7 +383,7 @@ own (485 of the 978 steady frames, mean 18.0 ms of work): `gpu_wait_ms` (the CPU
 the GPU to finish the previous frame) is **1.47 ms** per frame against 0.01 without the second eye, and
 `DrawAndPresent` costs 3.73 ms against 1.83: the **GPU is the bottleneck with two eyes**, ~16 ms a frame for the
 two renders, so the CPU waits. Fixing the CPU spikes will not give 60 there. The `gpu_draw_ms`, `gpu_proc_ms`
-and `cmdbuf` columns (build `v0.3.3-dev.10.9`) give the GPU's own time. What the GPU does per eye: the BG bands
+and `cmdbuf` columns (build `v0.3.3-dev.10.10+d6757f1`) give the GPU's own time. What the GPU does per eye: the BG bands
 onto the 512x256 main target (and the sub target when colour math uses the subscreen), then the main target
 onto the 400x240 top target with the stereo plane offsets; ideas to test once the numbers say where its time
 goes: fewer passes (compose once when no plane is shifted), a smaller main target, or skipping the sub target.
