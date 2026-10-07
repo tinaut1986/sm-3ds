@@ -546,6 +546,19 @@ Host, 400 frames of the room, tiles decoded because of the palette: **9AD9 69888
 GPU picture identical to the CPU renderer (`make test` passes, `DEFER=40` over every room too: 15360 frames, 0 mismatches). The
 console numbers to expect: the palette events of 4.15 (draw 22 ms in AF14, 15.7 in 9AD9) should shrink by about those factors.
 
+### 4.17 The palette filter on the console (2026-10-08 01:15, `v0.3.3-dev.10.21+93cee88`) and the crash of the map
+
+`9AD9` again, `docs/handoff/logs/sm-perf-9AD9-palettemask-{mono,3d}.csv`: **57.9 fps mono (53.1 before) and 56.4 with FORCE 3D (51.7)**. The
+tile frames of the palette cycle decode ~80-90 tiles instead of 1288 (`why_pal`), and the frames over 16.7 ms drop from 71-74 to
+1-3 steady ones. What is left over budget are the PERF taps themselves and small tilemap changes.
+
+The owner then tapped the map of Norfair (DEBUG tab, warp) and the console crashed: Luma `crash_dump_00000001.dmp`, a data abort in
+`_free_r` with a corrupted free-list pointer (`0x00FF00FF`): a heap overflow. Found in `ScreenIsReal` (`sm_map.c`): the buffer for a room's
+decompressed level data was sized from the room's width and height and two rooms (Norfair's `ADAD`, the Wrecked Ship's `C98E`) need
+1.5 times that; `DecompressToMem` has no limit. Fixed with a 64 KB static buffer (the largest room needs 62722), test `tools/map-test`
+(`map-rooms` in `make test`), issue #49, branch `fix/map-level-buffer` (merged into this branch so the console build has it).
+The SD log of that session was **empty** (`sm-log-03.txt`, 0 bytes): the log is buffered in RAM (16 KB) and a crash loses it; LOG MARK flushes it.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
