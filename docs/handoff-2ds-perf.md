@@ -534,7 +534,7 @@ Before this round the heat rooms were at 33-45 fps; now 43.7-49.2. What is left 
 The char-driven animations (A0A4: `char 80`, AF14: `char 225`) are fine now: deferred 308 a frame on average in AF14, pending at most 832, no
 overrun attributable to them.
 
-### 4.16 Palette changes decode only the tiles that use a changed colour (2026-10-08, build `v0.3.3-dev.10.20`)
+### 4.16 Palette changes decode only the tiles that use a changed colour (2026-10-08, build `v0.3.3-dev.10.21+93cee88`)
 
 The palette cycles of 4.15 (AF14, 9AD9) redecoded **every entry that uses the palette row**, though a cycle changes a few of its 16
 colours. `PalAffects` (`gpu_ppu.c`) now skips an entry whose char uses none of the colours that changed (`g_pal4_changed` /
