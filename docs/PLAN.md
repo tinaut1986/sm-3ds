@@ -17,7 +17,8 @@ boxes below. History: `git log` and the decisions log.
 
 **Release line:** `release/v0.3.1` (nothing yet). Last stable: `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. (2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** `feat/updater-notes` (2026-10-07, P4.13: release notes in the updater and the BETA marker; built with
+`CHANNEL=beta`, **waits for the owner's check on the console**, see the task). (2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -601,6 +602,22 @@ Lessons from mzm that apply directly:
   and CLEAR TIME), the pause screen's RESERVE TANK and MODE AUTO/MANUAL (not seen yet), the beams'
   names (drawn, not seen with beams collected).
   *Done when:* each is translated or noted as not worth it, checked on the console.
+
+- [ ] **P4.13** Release notes in the updater and the BETA marker (hand-off from `../mzm/docs/port-updater-notes-to-sm-3ds.md`,
+  owner's request 2026-10-07; mzm's commits `e16d2305`, `79037321`, `e18bbd62`, `20ef0ec2`). Implemented 2026-10-07 on
+  `feat/updater-notes`, **not checked on the console**:
+  - `docs/release-notes/vX.Y.Z.md` per tag (format in its README); `build-release.yml` puts it in the release body between
+    `<!-- sm-notes -->` markers and only warns when it is missing.
+  - `updater_parse.c`: `Updater_CollectNotes` and `Updater_IsNewerBuild` (host tests in `tools/updater-test`); the worker keeps the
+    text (`Updater_CopyNotes`, 6 KB under the text lock), and when the build is up to date it lists the latest published releases instead.
+  - OPTIONS gains WHAT'S NEW (slot under RESET GAME): a window over any tab with the text wrapped to 44 columns, drag or bar scrolling.
+    The "new version" prompt gets the same button under YES / NO when notes exist (the prompt steps aside while the window is up) and a
+    "current > new" line.
+  - The channel is baked into `build/version.h` (`APP_IS_BETA`, `APP_VERSION_LABEL` = "vX.Y.Z BETA"), written like `build_config.h`, so
+    switching `CHANNEL` needs no `make clean`. The label is shown in OPTIONS' footer, STATES, the prompt and the logs.
+  - `update_url.txt` in the data folder (one line) points the check at `tools/update-mock-server.py`.
+  *Done when:* on the console, a published beta shows its notes in the prompt and WHAT'S NEW, a beta build says BETA next to the version
+  and is offered the stable build of its own version once it exists, and a stable build shows no BETA.
 
 ## Phase 5: completion
 
@@ -1250,3 +1267,22 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 - 2026-10-06: `v0.3.0` tagged on `main` as the stable release (the owner asked for the next version up; a minor bump, so it was confirmed, and
   "3.0.0" was read as v0.3.0). The release branch was renamed `release/v0.3.1`. The self-updater's first real test is the next release after
   this one (#42 stays open until a build installs a newer one).
+- 2026-10-06: OPTIONS regrouped (owner's request). A slot of the grid is one button or two half buttons (IMAGE | VIEW, UPDATE | CHANNEL, FPS | CPU);
+  AUDIO keeps a full button with a loudspeaker shortcut at its side (the button itself is meant to open a window with a volume for each kind of
+  sound one day; for now a tap on either switches the sound). Frame skip became FRAMES with three values: AUTO (drop the drawing of a late frame,
+  the old "frame skip on"), LOCK 30 (one frame in two is drawn, the logic stays at 60 Hz: a steady 30 on a console that cannot hold 60; after mzm's
+  "lock 30") and NO SKIP (the old "off"). `config.ini` keeps `pacing` (the old `frameskip` is still read), `fps_overlay` is 0-4 (off and the four
+  corners; the old 1 is the top-left corner) and `update_beta` (default on in pre-release builds). Not checked on the console yet.
+- 2026-10-06: OPTIONS -> HUD (owner's request, as mzm's AUTO-HIDE HUD): with it on, the STATUS tab hides the HUD's status half on the top screen
+  (energy, reserve, ammunition and the selected weapon: tile columns 0-25 of its four rows) and the MAP tab its minimap (columns 26-31);
+  the cells are blanked in VRAM just before the PPU draws (`SmWide_HideHud`, `sm_wide.c`; the game rewrites rows 1-3 every frame, row 0
+  holds the minimap's top border and is put back). The game's RAM is untouched (the `hud-hide-*` tests keep the WRAM hash). Since the weapon
+  chosen with SELECT is then not on the top screen, the STATUS tab marks it (`hud_item_index`: missiles, super missiles, power bombs on their
+  panels, grapple and X-ray on their cells). Off by default. Not checked on the console yet.
+- 2026-10-07: release notes in the updater (P4.13), ported from mzm with these differences. The marker is `sm-notes`. The channel goes
+  through `build/version.h` (generated, rewritten only when its text changes) and not through a `-D` flag in CFLAGS as in mzm: objects that
+  include it rebuild by themselves, so no `make clean` when `CHANNEL` changes. A `-dev` build is never a beta (`CHANNEL` is empty
+  outside CI), so `Updater_IsNewerBuild` leaves it to the plain comparison. The mock server is pointed at with `update_url.txt`, a file of
+  its own, because `config.ini` is rewritten whole by the UI and would drop an extra line. The viewer is a window (`MODAL_NOTES`) over any
+  tab instead of living on one tab, so the prompt's button needs no tab switch; while it is up the prompt hides and its touches go to the
+  viewer. The notes of a tag are written when the tag is made (one summary of the whole range, not one per commit), see CLAUDE.md.

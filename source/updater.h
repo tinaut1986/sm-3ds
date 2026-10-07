@@ -6,6 +6,7 @@
 // in tools/updater-test.
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef enum {
@@ -32,6 +33,9 @@ typedef enum {
 // (a failure, as with no Wi-Fi, says nothing). `beta`: also offer pre-releases.
 void Updater_Init(bool auto_check, bool beta);
 
+// Which updates to offer from now on: only releases, or the betas too.
+void Updater_SetBeta(bool beta);
+
 // A manual check; a newer build raises the install prompt, the result is in the state.
 void Updater_CheckNow(void);
 
@@ -42,4 +46,10 @@ int Updater_Progress(void);            // 0..100 while DOWNLOADING
 const char *Updater_RemoteTag(void);   // "" until a check succeeded
 const char *Updater_Message(void);     // a short error text
 bool Updater_KeptCia(void);            // a failed install left update/sm-update.cia for FBI
+// The "what's new" text of the last successful check: the releases newer than this build, or
+// (when up to date) the latest published ones; "== vX.Y.Z ==" lines and "- " lines, each ending
+// in '\n'. Copies at most cap-1 bytes into `out` and returns the length (0 until a check
+// succeeded). The text is never read in place: the worker thread rewrites it.
+size_t Updater_CopyNotes(char *out, size_t cap);
+
 uint32_t Updater_Version(void);        // changes with every state, so the UI redraws

@@ -176,6 +176,26 @@ static float Stereo3dSlider(void) {
 // top screen is currently being presented by citro3d rather than by DrawPpuFrame.
 static PpuLineCapture g_line_capture;
 static GpuFrame g_gpu_frame;
+
+// sm-dump-NN-obj.txt: per OAM entry the raw bytes and the position tags the GPU renderer uses
+// (x/y tag; -32768 unknown, 16384 parked on purpose; h = HUD), then every sprite quad of the last
+// GPU frame, to see which entries became quads.
+static void DumpObjText(FILE *f) {
+  const Ppu *p = g_snes->ppu;
+  fprintf(f, "# gpu_frame x0 %d show_x0 %d quads %d (this dump's frame may be one later)\n# oam: idx rawx rawy tile attr hi | tagx tagy hud\n",
+          g_gpu_frame.x0, g_gpu_frame.show_x0, g_gpu_frame.quad_count);
+  for (int i = 0; i < 128; i++) {
+    const uint16_t o0 = p->oam[i * 2], o1 = p->oam[i * 2 + 1];
+    const int hi = (p->highOam[i >> 2] >> ((i & 3) * 2)) & 3;
+    fprintf(f, "%3d %3d %3d %02X %04X %d | %d %d %d\n", i, o0 & 0xff, o0 >> 8, o1 & 0xff, o1 >> 8, hi, g_rtl_oam_shown_x[i],
+            g_rtl_oam_shown_y[i], g_rtl_oam_shown_hud[i]);
+  }
+  fprintf(f, "# sprite quads: x y w h level plane\n");
+  for (int q = 0; q < g_gpu_frame.quad_count; q++) {
+    const GpuQuad *qd = &g_gpu_frame.quads[q];
+    if (qd->flags & kGpuQuadObj) fprintf(f, "%d %d %d %d %d %d\n", qd->x, qd->y, qd->w, qd->h, qd->level, qd->plane);
+  }
+}
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
@@ -556,7 +576,7 @@ enum {
 static void ShowRomError(const RomInfo *info) {
   gfxInitDefault();
   consoleInit(GFX_TOP, NULL);
-  printf("Super Metroid 3DS %s\n\n", APP_VERSION);
+  printf("Super Metroid 3DS %s\n\n", APP_VERSION_LABEL);
   printf("%s\n\n", RomLoader_StatusText(info->status));
   printf("Put your ROM in:\n  %s\n\n", ROM_DATA_DIR);
   printf("Needed: Super Metroid (Japan, USA)\n  .smc or .sfc, sha1:\n  %s\n", kRomExpectedSha1);
@@ -609,8 +629,8 @@ static void LogPeriodic(const UiPerf *p) {
               g_ui.pixel_perfect ? "pixel perfect" : "scaled", g_ui.wide ? "on" : "off", g_ui.paused ? ", PAUSED" : "");
   }
   if (++seconds % 5) return;
-  Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | frameskip %s | room %04X",
-            p->game_fps, p->fps, p->frame_ms, p->logic_ms, p->draw_ms, g_ui.frameskip ? "on" : "off",
+  Debug_Log("stats: speed %.1f shown %.1f | work %.1f logic %.1f draw %.1f ms | pacing %s | room %04X",
+            p->game_fps, p->fps, p->frame_ms, p->logic_ms, p->draw_ms, g_ui.pacing == kPaceAuto ? "auto" : g_ui.pacing == kPaceLock30 ? "lock 30" : "no skip",
             (unsigned)room_ptr);
   if (g_ui.gpu_render)
   {
@@ -673,11 +693,11 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION };
+  UiRomInfo ui_rom = { rom.name, rom.sha1, rom.had_header, APP_VERSION_LABEL };
   BottomUi_Init(&ui_rom);
   RetroAch_Init();
   // Pre-release builds (the ones with the debug tools) follow the betas, the others the releases.
-  Updater_Init(g_ui.auto_update, DEBUG_TOOLS != 0);
+  Updater_Init(g_ui.auto_update, g_ui.update_beta);
   GameText_Init();
 
   // Setup audio
@@ -706,7 +726,8 @@ int main(int argc, char** argv) {
   g_audio_ok = AudioStart(core1_limit != 0);
 
   mkdir("saves", 0755);
-  Debug_Init(APP_VERSION);
+  Debug_Init(APP_VERSION_LABEL);
+  Debug_SetObjDump(DumpObjText);
 #if DEBUG_TOOLS
   // Debug builds log from boot, so a playtest always leaves a log behind.
   Debug_LogSetEnabled(true);
@@ -812,7 +833,8 @@ int main(int argc, char** argv) {
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
-      bool draw = !turbo_skip && !(g_ui.frameskip && skip_render);
+      // FRAMES: AUTO and LOCK 30 skip the drawing of a late frame, LOCK 30 also draws one frame in two.
+      bool draw = !turbo_skip && !(g_ui.pacing != kPaceNoSkip && skip_render) && !(g_ui.pacing == kPaceLock30 && (frameCtr & 1));
       // Dumps and frame captures need this frame's CPU-rendered pixels, so the frame is
       // drawn, and drawn by the CPU (the GPU check draws it both ways).
       bool capture = false, dump = g_ui.req_dump, gpu_check = g_ui.req_gpu_check && g_ui.gpu_render;
@@ -847,6 +869,10 @@ int main(int argc, char** argv) {
       u64 t0 = svcGetSystemTick();
       int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
       Cheats_BeforeFrame();
+      {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
+        const int hidden = BottomUi_HudHidden();
+        SmWide_HideHud(hidden & 1, hidden & 2);
+      }
       is_replay = RtlRunFrame(inputs);
       RetroAch_DoFrame();
       g_ppu_line_capture = NULL;
@@ -904,7 +930,7 @@ int main(int argc, char** argv) {
           SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
           perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
           static uint32_t overlay_px[64 * 64];
-          GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL);
+          GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);

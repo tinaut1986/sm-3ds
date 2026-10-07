@@ -70,15 +70,19 @@ ROM=$(realpath "$ROM")
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."
 head -c 8192 /dev/zero > "$OUT/empty.srm"
-mkdir -p "$OUT/gpu-build" "$OUT/audio-build"
+mkdir -p "$OUT/gpu-build" "$OUT/audio-build" "$OUT/asan-build"
 # Built once, then copied to each test's folder. A binary left by an earlier run must never
 # stand in for a failed build (it once ran every test on code days old: no 32-bit libc
 # headers, so gcc -m32 failed and the old program went on to "fail" checks it predates).
-rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench"
+rm -f "$OUT/gpu-build/gpu_ppu_test" "$OUT/audio-build/audio_bench" "$OUT/asan-build/gpu_ppu_test"
 build_ok=1
 WORK=$OUT/gpu-build "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/gpu-build.log" 2>&1 || build_ok=0
 WORK=$OUT/audio-build "$ROOT/tools/audio-bench/run.sh" "$ROM" build > "$OUT/audio-build.log" 2>&1 || build_ok=0
-if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ]; then
+# The same GPU test under AddressSanitizer: out-of-range reads (a negative row into the line tables) pass
+# on one platform's memory layout and not on another's, so the plain build never saw them.
+HOST_CFLAGS="-m32 -malign-double -fsanitize=address -fno-omit-frame-pointer" WORK=$OUT/asan-build \
+  "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" build > "$OUT/asan-build.log" 2>&1 || build_ok=0
+if [ $build_ok = 0 ] || [ ! -x "$OUT/gpu-build/gpu_ppu_test" ] || [ ! -x "$OUT/audio-build/audio_bench" ] || [ ! -x "$OUT/asan-build/gpu_ppu_test" ]; then
   echo "  FAIL  build (see $OUT/gpu-build.log, $OUT/audio-build.log)"
   echo "        32-bit host builds need the 32-bit libc headers: sudo apt install gcc-multilib"
   exit 1
@@ -90,7 +94,7 @@ run_gpu() {   # run_gpu NAME ARGS... (env passed through)
   # A fresh folder: a run leaves sm.srm behind, and the next boot would differ.
   rm -rf "${OUT:?}/$name"
   mkdir -p "$OUT/$name/saves"
-  cp "$OUT/gpu-build/gpu_ppu_test" "$OUT/$name/"
+  cp "$OUT/${GPU_BUILD:-gpu-build}/gpu_ppu_test" "$OUT/$name/"
   NO_BUILD=1 WORK=$OUT/$name "$ROOT/tools/gpu-ppu-test/run.sh" "$ROM" "$@" > "$OUT/$name.log" 2>&1
   echo $? > "$OUT/$name.exit"
 }
@@ -115,6 +119,9 @@ WIDE=60 run_gpu wide-rooms rooms 10 &
 # The 3D's edge columns without WIDE (4 px margins, the HUD in its band): the 256 px view must come out the same.
 WIDE=4 WIDE_EDGE=1 run_gpu edge-rooms rooms 10 &
 WIDE=60 PBOMB=1 run_gpu wide-pbomb rooms 200 91F8 &
+# OPTIONS -> HUD: the status half or the minimap of the HUD not drawn (SmWide_HideHud), Landing Site.
+HIDE_HUD=1 run_gpu hud-hide-status rooms 30 91F8 &
+HIDE_HUD=2 run_gpu hud-hide-map rooms 30 91F8 &
 # The X-ray scope in Landing Site with WIDE, aimed right, up and down into the margin.
 WIDE=60 XRAY=1 ROOM_SEQ=0@0,80@5,0@8,1@20,11@60,21@140 run_gpu wide-xray rooms 220 91F8 &
 # The spike-shooting plant of Brinstar A408 sits just outside the normal view: its spikes (DAFE) must go out into the
@@ -123,8 +130,17 @@ WIDE=60 EPROJ_MARGIN=1 EPROJ_ID=DAFE run_gpu wide-spikes rooms 90 A408 &
 # Brinstar 9E52's yellow pipe bug flies left along the platform: it must go on into the left margin, not reset at the
 # normal view's edge (#39). WARP_AT puts the camera and Samus where the bug starts its flight.
 WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug rooms 150 9E52 &
+# Norfair A56B's pipe bug (F193) resets through IsEnemyLeavingScreen, not CheckIfEnemyIsOnScreen: it must go on into the left margin
+# too, not vanish at the normal view's edge (a scene recording from the console, 2026-10-07).
+WARP_AT=105,256,110,411 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F193 run_gpu wide-pipebug-leaving rooms 200 A56B &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
+# Spore Spawn's room: the stalk's balls (OAM priority 3) are drawn under Samus and the head, so they must be
+# on OBJ (plane 3), not on PLAY (#23).
+STEREO_P3=3 run_gpu stereo-stalk rooms 60 9DC7 &
+# The same rooms with AddressSanitizer: sprites in the extra rows above the picture read the line tables
+# at a negative row (Spore Spawn's crown and head vanished on the console, 2026-10-07, #25).
+GPU_BUILD=asan-build WIDE=72 WIDE_Y=8 run_gpu wide-asan rooms 10 &
 # The X-ray scope on and off in a Brinstar room (9FBA) with WIDE: the frames in which it goes off
 # showed the BG2 pages' garbage in the margin.
 WIDE=72 WIDE_Y=8 XRAY=1 SAMUS_AT=170,171 ROOM_SEQ=0@0,1@40,0@100 run_gpu wide-xray-off rooms 160 9FBA &
@@ -193,6 +209,11 @@ wide_checks wide-rooms
 echo "edge-rooms: every room with the 3D's 4 px edge columns (no WIDE), 10 frames each"
 gpu_checks edge-rooms
 wide_checks edge-rooms
+echo "hud-hide-status, hud-hide-map: one half of the HUD not drawn (OPTIONS -> HUD), Landing Site"
+for t in hud-hide-status hud-hide-map; do
+  gpu_checks $t
+  check $t "the hidden half is black (lit pixels 0) and the other one is drawn" "$(grep -q 'HIDE_HUD frames 30, lit pixels in the hidden halves 0, in the shown ones [1-9]' "$OUT/$t.log"; echo $?)"
+done
 echo "wide-spikes: the spike-shooting plant's spikes outside the normal view (A408) with WIDE"
 gpu_checks wide-spikes
 expect wide-spikes.outside "$(field "$OUT/wide-spikes.log" 'EPROJ_MARGIN frames with a projectile outside the 256 px window: [0-9]*' | awk '{print $NF}')"
@@ -200,10 +221,20 @@ check wide-spikes "spikes live outside the normal view (frames > 0)" "$([ "$(fie
 echo "wide-pipebug: the yellow pipe bug of 9E52 keeps flying into the left margin (#39)"
 gpu_checks wide-pipebug
 check wide-pipebug "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+echo "wide-pipebug-leaving: the pipe bug of A56B keeps flying into the left margin (IsEnemyLeavingScreen)"
+gpu_checks wide-pipebug-leaving
+check wide-pipebug-leaving "the bug goes beyond 40 px left of the normal view (frames > 0)" "$([ "$(field "$OUT/wide-pipebug-leaving.log" 'ENEMY_MARGIN frames with the enemy beyond 40 px left of the view: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
 echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 frames each"
 gpu_checks wide-rows
 wide_checks wide-rows
 expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "stereo-stalk: Spore Spawn's room, the stalk's priority 3 sprites on the same plane as Samus and the head"
+gpu_checks stereo-stalk
+check stereo-stalk "the room had priority 3 sprites (frames > 0)" "$([ "$(field "$OUT/stereo-stalk.log" 'STEREO_P3 frames with priority 3 sprites: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+check stereo-stalk "none of them off the OBJ plane" "$([ "$(field "$OUT/stereo-stalk.log" 'STEREO_P3 frames with priority 3 sprites: [0-9]*, quads [0-9]*, not on the plane [0-9]*' | awk '{print $NF}')" = 0 ]; echo $?)"
+echo "wide-asan: the wide-rows rooms built with AddressSanitizer (no out-of-range read in the frame builder)"
+check wide-asan "no sanitizer report" "$(! grep -q 'AddressSanitizer' "$OUT/wide-asan.log"; echo $?)"
+check wide-asan "ran to the end" "$(grep -q '^RESULT frames' "$OUT/wide-asan.log"; echo $?)"
 echo "wide-xray: the X-ray scope's cone with WIDE (it stays in the view, no BG2 garbage in the margins)"
 gpu_checks wide-xray
 wide_checks wide-xray

@@ -21,6 +21,8 @@
  *   0xDF45 sprites of priority 2 -> FRONT (#34): in the Ceres elevator shaft (Mode 7) Samus is drawn in front of the room
  *     but sat behind it.
  *   0x9D19 BG3 prio 0 -> FRONT (#35): the ash (BG3, behind BG2 on paper, seen over it through colour math).
+ *   0x9DC7 sprites of priority 3 -> OBJ (#23): Spore Spawn's stalk is drawn under Samus and the head (OAM order beats the
+ *     priority bits among sprites), but priority 3 put it on PLAY, nearer than both.
  */
 
 SM_PLANE_FIX(0x9AD9, 1, 0, 0, 0x8044, 0xF, kStereoPlay)  /* -> PLAY */
@@ -3837,3 +3839,4 @@ SM_LAYER_PLANE(0xDF45, 4, 2, kStereoFront)  /* -> FRONT */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)  /* -> PLAY */
 SM_LAYER_PLANE(0xE0B5, 2, 1, kStereoPlay)  /* -> PLAY */
 SM_LAYER_PLANE(0xE0B5, 5, 0, kStereoBack)  /* -> BACK */
+SM_LAYER_PLANE(0x9DC7, 4, 3, kStereoObj)  /* -> OBJ */

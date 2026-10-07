@@ -3394,8 +3394,9 @@ uint8 IsEnemyLeavingScreen(uint16 k) {  // 0xA0C18E
   EnemyData *E = gEnemyData(k);
   x_pos = E->x_pos;
   if (x_pos >= 0) {
-    v3 = E->x_width + x_pos - layer1_x_pos;
-    if (v3 >= 0 && (int16)(v3 - 256 - E->x_width) < 0)
+    // 3DS port (WIDE): the margins count as screen, or the pipe bugs and the like reset at the normal view's edge.
+    v3 = E->x_width + x_pos - layer1_x_pos + g_rtl_wide_margin_left;
+    if (v3 >= 0 && (int16)(v3 - 256 - g_rtl_wide_margin_left - g_rtl_wide_margin_right - E->x_width) < 0)
       return 0;
   }
   return 1;

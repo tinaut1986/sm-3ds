@@ -12,6 +12,8 @@
 # bands, WIDE_INFO=1 the room's scroll colours, WIDE_DUMP_ROOM=hex dumps only that room's frames,
 # WIDE_DUMP_FROM=n only from tested frame n on. SAMUS_HEALTH=n: her health in the rooms mode's
 # tested frames (99 otherwise; below 30 Ceres Ridley gives up and flies off).
+# HIDE_HUD=n (1 the HUD's status half, 2 its minimap, 3 both): they are not drawn (SmWide_HideHud); in gameplay frames the CPU
+# renderer's picture must be black in the hidden half of lines 0-30 (prints HIDE_HUD ... lit pixels).
 # WIDE_EDGE=1 (with WIDE=4): the margins of the 3D without WIDE, which show only the room's edge columns: the HUD stays in
 # its band and the game does not draw the room under it (SmWide_SetView's hud_over_room off). Same checks.
 # WIDE_Y=N: N extra rows above and below (PIXEL PERFECT), leaning off a room's top or bottom;
@@ -29,6 +31,7 @@
 # LEVEL_SPLIT=f1,f2,...: those tested frames as one image per level (level-FFFF-L15.ppm; -o10 = sprites): what each
 # non-gameplay screen is made of (P3.4, source/sm_planes.c SmPlanes_Screen).
 # STEREO_PLANES=a-b: tested frames a..b split by stereo plane (planes-NNNN-P.ppm, magenta = none).
+# STEREO_P3=n: every sprite quad of OAM priority 3 (level 14) in the tested frames must be on StereoPlane n (prints STEREO_P3 ... not on the plane N).
 # STEREO_QUADS=1 (with STEREO_PLANES): also prints every quad of those frames with its level and plane.
 # ONLY_LEVEL=n keeps only the quads of compositor level n in them; QUAD_LEVELS=n prints tested frame n's quads.
 # ROOM_SEQ=hex@frame,... (buttons from each frame on) and AUTOFIRE=1 also work in the state mode;

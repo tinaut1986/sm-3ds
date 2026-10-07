@@ -101,6 +101,10 @@ The channel depends on whether `main` can reach the tagged commit:
 | Tag on `main`, or on a commit merged into `main` | `Release` |
 | Manual dispatch on any branch | `Beta` |
 
+**First, for either path:** write `docs/release-notes/<tag>.md` on a topic branch, show it
+to the owner and merge it into the release branch **before** the tag exists. Do it unprompted
+whenever a tag is about to be made (next section).
+
 **Beta**: tag the release branch, push branch then tag.
 
 ```sh
@@ -122,10 +126,44 @@ git push origin v0.1.0
 
 A tag already shipped as a beta is promoted by re-running the workflow from the
 Actions tab **on the tag itself** (not on `main`, which would describe as
-`vX.Y.Z-1-g<hash>` and create a second page).
+`vX.Y.Z-1-g<hash>` and create a second page). That is only valid if **nothing was
+committed after the beta's tag**: the CI rebuilds the tag's commit, so later commits would
+be on `main` but missing from the "stable" build. If there are any, tag the next version.
+Old beta pages stay on GitHub as history; do not delete them.
 
-After tagging, rename the release branch to the next patch and delete the old
-remote branch:
+### Release notes (shown in the updater)
+
+One file per tag, `docs/release-notes/vX.Y.Z.md` (example in its README): 3 to 6 short
+lines, each starting with `- `, plain text for the player, in English, under ~2.5 KB (the
+console's font is 5x7: no tables, links or images). The CI copies it into the release body
+between `<!-- sm-notes -->` markers (and warns if it is missing); the console reads it from
+the releases list it already downloads and shows it **before** the player installs (OPTIONS ->
+WHAT'S NEW, and a button on the "new version" prompt). The marker must stay identical in the
+workflow and in `source/updater_parse.c`.
+
+What to list: a **stable** release lists everything since the previous *stable* tag, betas
+included (stable players never see beta pages); a **beta** lists only what is new since the
+previous tag. Write it when the tag is made, as one summary of the range
+(`git log <prev>..HEAD`), not one line per commit.
+
+### The channel is baked into the binary
+
+The workflow decides Beta or Release (above) before building and passes `CHANNEL=beta` or
+`CHANNEL=release` to make. `build/version.h` then carries `APP_IS_BETA` and
+`APP_VERSION_LABEL` ("vX.Y.Z BETA"); the label is what the UI and logs show, `APP_VERSION`
+stays the plain number (user-agent, file names, comparisons). Local and dev builds leave
+`CHANNEL` empty. `Updater_IsNewerBuild` lets a beta build see the stable release of its own
+version as newer (never its own pre-release page, or it would offer to install itself forever).
+Builds from before this change carry no marker.
+
+### After tagging
+
+After **every** tag, beta or stable, rename the release branch to the next patch at once
+(before more work or any build) and delete the old remote branch. The build version comes
+from the branch name; otherwise dev builds call themselves `vX.Y.Z-dev.N` and the console
+offers the already published `vX.Y.Z` as an update. Do the steps one at a time (or with
+`set -e`) and check with `git ls-remote`: a `;`-separated script keeps running after a failed
+`&&` and once deleted a remote branch before the new one was pushed.
 
 ```sh
 git branch -m release/v0.1.0 release/v0.1.1
@@ -182,7 +220,8 @@ never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to 
 `tools/warp-test/run.sh` boots the game headless and checks the teleport into every
 room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `./run_workbench.sh` (`tools/layer-workbench/`, README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
 `tools/ra-tags/dp_tags.py` (docstring) checks the RetroAchievements table against the set the console saved,
-`tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4
+`tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4,
+`tools/update-mock-server.py` serves a fake releases list (with notes) so the updater can be tried without publishing: put its URL in `update_url.txt` in the data folder, and do not accept the install
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
 console come back the same way (`/3ds/Super Metroid 3DS/debug/`, Luma dumps in

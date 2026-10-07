@@ -31,8 +31,9 @@
 
 UiOptions g_ui = {
   .audio_on = true,
-  .frameskip = true,
+  .pacing = kPaceAuto,
   .auto_update = true,
+  .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
   // the CPU renderer), and any frame it cannot draw goes to the CPU renderer anyway.
@@ -44,7 +45,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -67,7 +68,12 @@ void BottomUi_Toast(const char *msg) {
 }
 #define Toast BottomUi_Toast
 
-static bool Pressed(Rect r) { return osGetTime() - g_tap_ms < TAP_FLASH_MS && UiIn(r, g_tap_x, g_tap_y); }
+// A tap that landed on a window or the update prompt (an overlay) lights only that overlay's buttons,
+// not the ones of the tab under it that happen to sit at the same place.
+static bool g_tap_on_overlay, g_drawing_overlay;
+static bool Pressed(Rect r) {
+  return osGetTime() - g_tap_ms < TAP_FLASH_MS && g_tap_on_overlay == g_drawing_overlay && UiIn(r, g_tap_x, g_tap_y);
+}
 
 static uint32_t FpsColor(float fps) { return fps >= 58.0f ? COL_GOOD : fps >= 45.0f ? COL_WARN : COL_BAD; }
 
@@ -616,8 +622,12 @@ static void DrawStatus(Surface s) {
   const unsigned max[3] = { samus_max_missiles, samus_max_super_missiles, samus_max_power_bombs };
   for (int i = 0; i < 3; i++) {
     const int x = 8 + i * 103;
-    UiFillRect(s, x, 73, 98, 26, COL_PANEL);
-    UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
+    // The weapon the SELECT button has chosen (the HUD's highlighted item): missiles 1, super missiles 2,
+    // power bombs 3. The top screen's HUD can be hidden while this tab is open, so it shows here.
+    const bool picked = hud_item_index == (uint16)(i + 1);
+    UiFillRect(s, x, 73, 98, 26, picked ? RGB(48, 44, 14) : COL_PANEL);
+    UiFrameRect(s, x, 73, 98, 26, picked ? COL_WARN : COL_BORDER);
+    if (picked) UiFrameRect(s, x + 1, 74, 96, 24, COL_WARN);
     UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], TrAmmo(i));
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
     UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
@@ -631,6 +641,11 @@ static void DrawStatus(Surface s) {
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrItem(i));
+    // The grapple beam (4) and the X-ray scope (5) are chosen with SELECT too.
+    if ((hud_item_index == 4 && kSmItems[i].mask == 0x4000) || (hud_item_index == 5 && kSmItems[i].mask == 0x8000)) {
+      UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
+      UiFrameRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_WARN);
+    }
   }
 #if DEBUG_TOOLS
   {
@@ -1018,35 +1033,105 @@ void BottomUi_GameReset(void) {
 }
 
 // ---- Options tab ----------------------------------------------------------------
+// Two columns of eight slots. A slot is one button, or two half buttons that share its width
+// (each shows its own setting and its current value, a tap changes it).
+//
+//   FRAMES            AUDIO [speaker]
+//   FPS | CPU         LANGUAGE
+//   IMAGE | VIEW      UPDATE | CHANNEL
+//   UPDATES           RESET GAME
+//   HUD               WHAT'S NEW
 
-typedef enum { OPT_FRAMESKIP, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_DISPLAY, OPT_WIDE, OPT_LANGUAGE, OPT_AUTO_UPDATE, OPT_UPDATES, OPT_COUNT } OptCell;
+typedef enum {
+  OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_COUNT
+} OptCell;
 
-// Two columns; RESET GAME takes the last row's free cell.
-static Rect OptRect(int i) { return (Rect){ 8 + (i % 2) * 154, 30 + (i / 2) * 34, 150, 30 }; }
-static Rect ResetRect(void) { return OptRect(OPT_COUNT); }
+enum { kOptResetSlot = 7, kOptHudSlot = 8, kOptNotesSlot = 9, kOptSpeakerW = 34 };
 
-static void DrawOptCell(Surface s, int i, const char *label, const char *value, uint32_t value_col) {
-  const Rect r = OptRect(i);
+static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
+static Rect OptHalf(int slot, int half) {
+  const Rect r = OptSlot(slot);
+  return (Rect){ r.x + half * 77, r.y, 73, r.h };
+}
+
+static Rect OptRect(OptCell c) {
+  switch (c) {
+  case OPT_PACING: return OptSlot(0);
+  case OPT_AUDIO: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
+  case OPT_FPS: return OptHalf(2, 0);
+  case OPT_SPEEDUP: return OptHalf(2, 1);
+  case OPT_LANGUAGE: return OptSlot(3);
+  case OPT_DISPLAY: return OptHalf(4, 0);
+  case OPT_WIDE: return OptHalf(4, 1);
+  case OPT_AUTO_UPDATE: return OptHalf(5, 0);
+  case OPT_CHANNEL: return OptHalf(5, 1);
+  case OPT_HUD: return OptSlot(kOptHudSlot);
+  case OPT_NOTES: return OptSlot(kOptNotesSlot);
+  default: return OptSlot(6);
+  }
+}
+static Rect SpeakerRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
+static Rect ResetRect(void) { return OptSlot(kOptResetSlot); }
+
+static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
   UiDrawText(s, r.x + 6, r.y + 5, 1, COL_TEXT, label);
   UiDrawText(s, r.x + 6, r.y + 17, 1, value_col, value);
 }
 
-static void DrawOnOffCell(Surface s, int i, const char *label, bool on) {
-  DrawOptCell(s, i, label, Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
+// A loudspeaker, 16x12 around (cx, cy): waves when the sound is on, a red cross when it is off.
+static void DrawSpeaker(Surface s, int cx, int cy, bool on, uint32_t ink) {
+  UiFillRect(s, cx - 8, cy - 2, 4, 5, ink);                       // the box
+  for (int i = 0; i < 4; i++) UiFillRect(s, cx - 4 + i, cy - 2 - i, 1, 5 + 2 * i, ink);   // the cone
+  if (on) {
+    UiFillRect(s, cx + 2, cy - 2, 1, 5, ink);
+    UiFillRect(s, cx + 3, cy - 3, 1, 1, ink), UiFillRect(s, cx + 3, cy + 3, 1, 1, ink);
+    UiFillRect(s, cx + 5, cy - 4, 1, 9, ink);
+  } else {
+    for (int i = 0; i < 7; i++) {
+      UiFillRect(s, cx + 1 + i, cy - 3 + i, 2, 1, COL_BAD);
+      UiFillRect(s, cx + 1 + i, cy + 3 - i, 2, 1, COL_BAD);
+    }
+  }
+}
+
+// The FPS counter's corner: a small screen with a block in the corner, or NO.
+static void DrawFpsCornerIcon(Surface s, Rect r, int corner) {
+  const int x = r.x + 6, y = r.y + 16;
+  if (!corner) {
+    UiDrawText(s, x, y + 1, 1, COL_DIM, Tr(kStrNo));
+    return;
+  }
+  UiFrameRect(s, x, y, 22, 11, RGB(110, 130, 170));
+  const int bx = corner == 2 || corner == 4 ? x + 22 - 9 : x + 1, by = corner >= 3 ? y + 11 - 5 : y + 1;
+  UiFillRect(s, bx, by, 8, 4, COL_GOOD);
 }
 
 static void DrawOptions(Surface s) {
-  DrawOnOffCell(s, OPT_FRAMESKIP, Tr(kStrFrameSkip), g_ui.frameskip);
-  DrawOnOffCell(s, OPT_AUDIO, Tr(kStrAudio), g_ui.audio_on);
-  DrawOnOffCell(s, OPT_FPS, Tr(kStrFpsOverlay), g_ui.fps_overlay);
-  if (g_is_new3ds) DrawOptCell(s, OPT_SPEEDUP, "CPU (NEW 3DS)", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
+  static const UiStr kPaceNames[kPaceCount] = { kStrAuto, kStrPaceLock, kStrPaceNoSkip };
+  DrawOptCell(s, OptRect(OPT_PACING), Tr(kStrPacing), Tr(kPaceNames[g_ui.pacing]), g_ui.pacing == kPaceNoSkip ? COL_WARN : COL_GOOD);
+
+  // AUDIO opens its own window one day (a volume for each kind of sound); for now a tap on it, or
+  // on the loudspeaker beside it, which stays the shortcut, switches the sound.
+  DrawOptCell(s, OptRect(OPT_AUDIO), Tr(kStrAudio), Tr(g_ui.audio_on ? kStrOn : kStrOff), g_ui.audio_on ? COL_GOOD : COL_DIM);
+  const Rect sp = SpeakerRect();
+  UiDrawBox(s, sp, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(sp));
+  DrawSpeaker(s, sp.x + sp.w / 2 - 2, sp.y + sp.h / 2, g_ui.audio_on, g_ui.audio_on ? COL_GOOD : COL_DIM);
+
+  const Rect fr = OptRect(OPT_FPS);
+  DrawOptCell(s, fr, "FPS", "", COL_TEXT);
+  DrawFpsCornerIcon(s, fr, g_ui.fps_overlay);
+  if (g_is_new3ds) DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
-  else DrawOptCell(s, OPT_SPEEDUP, "CPU", "268 MHZ (OLD 3DS)", COL_FAINT);
-  DrawOptCell(s, OPT_DISPLAY, Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelPerfect : kStrScaled), COL_GOOD);
-  DrawOnOffCell(s, OPT_WIDE, Tr(kStrWideView), g_ui.wide);
-  DrawOptCell(s, OPT_LANGUAGE, Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
-  DrawOnOffCell(s, OPT_AUTO_UPDATE, Tr(kStrAutoUpdate), g_ui.auto_update);
+  else DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", "268 MHZ", COL_FAINT);
+  DrawOptCell(s, OptRect(OPT_LANGUAGE), Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  DrawOptCell(s, OptRect(OPT_DISPLAY), Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelP : kStrScaled), COL_GOOD);
+  DrawOptCell(s, OptRect(OPT_WIDE), Tr(kStrView), Tr(g_ui.wide ? kStrViewWide : kStrViewOriginal), g_ui.wide ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_AUTO_UPDATE), Tr(kStrUpdate), Tr(g_ui.auto_update ? kStrAuto : kStrNo),
+              g_ui.auto_update ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_CHANNEL), Tr(kStrChannel), Tr(g_ui.update_beta ? kStrChanBeta : kStrChanStable),
+              g_ui.update_beta ? COL_WARN : COL_GOOD);
   {
     char value[40];
     uint32_t col = COL_GOOD;
@@ -1059,8 +1144,11 @@ static void DrawOptions(Surface s) {
     case UPD_ERROR: snprintf(value, sizeof(value), "%s", Tr(kStrUpdError)); col = COL_WARN; break;
     default: snprintf(value, sizeof(value), "%s", Tr(kStrUpdTap)); col = COL_DIM; break;
     }
-    DrawOptCell(s, OPT_UPDATES, Tr(kStrUpdates), value, col);
+    DrawOptCell(s, OptRect(OPT_UPDATES), Tr(kStrUpdates), value, col);
   }
+  DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
+              g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
+  DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
   UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
                  Tr(kStrResetGame));
 
@@ -1074,20 +1162,26 @@ static void DrawOptions(Surface s) {
 #endif
 }
 
+static void OpenNotes(void);
+
 static void OptionsTouch(int x, int y) {
   if (UiIn(ResetRect(), x, y)) {
     g_modal = MODAL_RESET;
     return;
   }
+  if (UiIn(SpeakerRect(), x, y)) {
+    g_ui.audio_on = !g_ui.audio_on;
+    return;
+  }
   for (int i = 0; i < OPT_COUNT; i++) {
-    if (!UiIn(OptRect(i), x, y)) continue;
+    if (!UiIn(OptRect((OptCell)i), x, y)) continue;
     switch ((OptCell)i) {
-    case OPT_FRAMESKIP:
-      g_ui.frameskip = !g_ui.frameskip;
-      if (!g_ui.frameskip) Toast(Tr(kStrFrameSkipOffToast));
+    case OPT_PACING:
+      g_ui.pacing = (g_ui.pacing + 1) % kPaceCount;
+      if (g_ui.pacing == kPaceNoSkip) Toast(Tr(kStrFrameSkipOffToast));
       break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
-    case OPT_FPS: g_ui.fps_overlay = !g_ui.fps_overlay; break;
+    case OPT_FPS: g_ui.fps_overlay = (g_ui.fps_overlay + 1) % 5; break;
     case OPT_SPEEDUP:
       if (!g_is_new3ds) return;
       g_ui.new3ds_speedup = !g_ui.new3ds_speedup;
@@ -1097,6 +1191,12 @@ static void OptionsTouch(int x, int y) {
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
     case OPT_AUTO_UPDATE: g_ui.auto_update = !g_ui.auto_update; break;
+    case OPT_CHANNEL:
+      g_ui.update_beta = !g_ui.update_beta;
+      Updater_SetBeta(g_ui.update_beta);
+      break;
+    case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
+    case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
     }
@@ -1128,22 +1228,171 @@ static void ResetModalTouch(int x, int y) {
   }
 }
 
+
+// ---- What's new ----------------------------------------------------------------------
+// The release notes the updater read on its last check (Updater_CopyNotes), in a window over
+// any tab: opened from OPTIONS, or from the "new version" prompt, which hides while it is up
+// and comes back on CLOSE. The text is wrapped once, when the window opens.
+enum {
+  kNotesCols = 44, kNotesMaxLines = 128, kNotesLineBytes = 96, kNotesY0 = 50, kNotesY1 = 206, kNotesPitch = 10,
+  kNotesBarX = 302, kNotesBarW = 4, kNotesBarHitX = 294,
+};
+static Rect NotesCloseRect(void) { return (Rect){ 116, 210, 88, 20 }; }
+static char g_notes_text[6144];
+static char g_notes_lines[kNotesMaxLines][kNotesLineBytes];
+static bool g_notes_head[kNotesMaxLines];   // a "== vX ==" line
+static int g_notes_count, g_notes_scroll;   // lines, pixels
+static struct { bool active, bar; int last_y; } g_notes_touch;
+
+// Appends one wrapped line; false when the table is full.
+static bool NotesAddLine(const char *text, int bytes, bool head) {
+  if (g_notes_count >= kNotesMaxLines) return false;
+  if (bytes > kNotesLineBytes - 1) bytes = kNotesLineBytes - 1;
+  memcpy(g_notes_lines[g_notes_count], text, bytes);
+  g_notes_lines[g_notes_count][bytes] = 0;
+  g_notes_head[g_notes_count++] = head;
+  return true;
+}
+
+static void WrapNotes(void) {
+  g_notes_count = 0;
+  g_notes_scroll = 0;
+  const char *p = g_notes_text;
+  while (*p) {
+    const char *e = strchr(p, '\n');
+    if (!e) e = p + strlen(p);
+    const bool head = !strncmp(p, "== ", 3);
+    const char *t = p;
+    bool first = true;
+    while (t < e) {
+      const int indent = head || first || strncmp(p, "- ", 2) ? 0 : 2;   // a bullet's continuation hangs under its text
+      const int room = kNotesCols - indent;
+      int n = 0, cut = 0;
+      const char *q = t, *cut_at = t;
+      while (q < e && n < room) {   // by characters: a UTF-8 sequence is one
+        q++;
+        while (q < e && (*q & 0xC0) == 0x80) q++;
+        n++;
+        if (q >= e || *q == ' ') cut = n, cut_at = q;
+      }
+      if (q >= e) cut_at = e;
+      else if (!cut) cut_at = q;
+      char line[kNotesLineBytes];
+      int len = snprintf(line, sizeof(line), "%*s%.*s", indent, "", (int)(cut_at - t), t);
+      if (len >= (int)sizeof(line)) len = sizeof(line) - 1;
+      if (!NotesAddLine(line, len, head)) return;
+      t = cut_at;
+      while (t < e && *t == ' ') t++;
+      first = false;
+    }
+    p = *e ? e + 1 : e;
+  }
+}
+
+static void OpenNotes(void) {
+  Updater_CopyNotes(g_notes_text, sizeof(g_notes_text));
+  WrapNotes();
+  g_notes_touch.active = false;
+  g_modal = MODAL_NOTES;
+}
+
+static int NotesMaxScroll(void) {
+  const int content = g_notes_count * kNotesPitch, view = kNotesY1 - kNotesY0;
+  return content > view ? content - view : 0;
+}
+
+static void NotesClamp(void) {
+  const int max = NotesMaxScroll();
+  if (g_notes_scroll > max) g_notes_scroll = max;
+  if (g_notes_scroll < 0) g_notes_scroll = 0;
+}
+
+static void NotesScrollToBar(int y) {
+  const int track = kNotesY1 - kNotesY0;
+  g_notes_scroll = (y - kNotesY0) * (NotesMaxScroll() + track) / track - track / 2;
+  NotesClamp();
+}
+
+static void DrawNotes(Surface s) {
+  UiFillRect(s, 6, 26, 308, 210, COL_TITLE);
+  UiFillRect(s, 8, 28, 304, 206, RGB(8, 11, 20));
+  UiDrawText(s, 14, 34, 1, COL_TITLE, Tr(kStrWhatsNew));
+  const char *tag = Updater_RemoteTag();
+  UiDrawText(s, 306 - 6 * (int)strlen(tag), 34, 1, COL_DIM, tag);
+  UiFillRect(s, 14, 44, 292, 1, COL_FAINT);
+  if (!g_notes_count) {
+    UiDrawTextCentered(s, SCREEN_W / 2, 120, COL_DIM, Tr(kStrNotesEmpty));
+  } else {
+    NotesClamp();
+    UiClipY(kNotesY0, kNotesY1);
+    for (int i = 0; i < g_notes_count; i++) {
+      const int y = kNotesY0 + 2 - g_notes_scroll + i * kNotesPitch;
+      if (y + kNotesPitch <= kNotesY0) continue;
+      if (y >= kNotesY1) break;
+      UiDrawText(s, 14, y, 1, g_notes_head[i] ? COL_TITLE : RGB(220, 235, 255), g_notes_lines[i]);
+    }
+    UiNoClip();
+    const int max = NotesMaxScroll();
+    if (max > 0) {
+      const int track = kNotesY1 - kNotesY0;
+      int thumb = track * track / (track + max);
+      if (thumb < 16) thumb = 16;
+      UiFillRect(s, kNotesBarX, kNotesY0, kNotesBarW, track, RGB(60, 24, 36));
+      UiFillRect(s, kNotesBarX, kNotesY0 + g_notes_scroll * (track - thumb) / max, kNotesBarW, thumb, RGB(80, 160, 240));
+    }
+  }
+  UiDrawBoxLabel(s, NotesCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NotesCloseRect()), Tr(kStrClose));
+}
+
+static void NotesTouch(int x, int y) {
+  if (UiIn(NotesCloseRect(), x, y)) {
+    g_modal = MODAL_NONE;
+  } else if (y >= kNotesY0 && y < kNotesY1) {
+    g_notes_touch.active = true;
+    g_notes_touch.bar = x >= kNotesBarHitX && NotesMaxScroll() > 0;
+    g_notes_touch.last_y = y;
+    if (g_notes_touch.bar) NotesScrollToBar(y);
+  }
+}
+
+static bool NotesTouchMove(int y) {
+  if (!g_notes_touch.active) return false;
+  const int before = g_notes_scroll;
+  if (g_notes_touch.bar) NotesScrollToBar(y);
+  else g_notes_scroll += g_notes_touch.last_y - y, NotesClamp();
+  g_notes_touch.last_y = y;
+  return g_notes_scroll != before;
+}
+
 // ---- Update prompt ------------------------------------------------------------
 // The updater (updater.c) asks over any tab: a newer build is there (install?), it is installing
 // (a bar), it is installed (restart?), or the install failed. Nothing else answers a touch while
 // one is up.
 
+static bool NotesAvailable(void) {
+  char c[2];
+  return Updater_CopyNotes(c, sizeof(c)) > 0;
+}
+
+// The "new version" prompt grows a WHAT'S NEW button under YES / NO when the check brought notes.
+static Rect PromptNotesRect(void) { return (Rect){ 88, 166, 144, 20 }; }
+
 static void DrawUpdatePrompt(Surface s) {
   const UpdPrompt prompt = Updater_Prompt();
-  if (prompt == UPD_PROMPT_NONE) return;
-  UiFillRect(s, 40, 76, 240, 96, COL_MODAL_EDGE);
-  UiFillRect(s, 41, 77, 238, 94, COL_MODAL);
+  if (prompt == UPD_PROMPT_NONE || g_modal == MODAL_NOTES) return;   // the notes window has the screen
+  const bool notes = prompt == UPD_PROMPT_ASK_INSTALL && NotesAvailable();
+  const int h = notes ? 120 : 96;
+  UiFillRect(s, 40, 76, 240, h, COL_MODAL_EDGE);
+  UiFillRect(s, 41, 77, 238, h - 2, COL_MODAL);
   char line[64];
   switch (prompt) {
   case UPD_PROMPT_ASK_INSTALL:
     snprintf(line, sizeof(line), Tr(kStrUpdAsk), Updater_RemoteTag());
-    UiDrawTextCentered(s, SCREEN_W / 2, 92, COL_TITLE, line);
-    UiDrawTextCentered(s, SCREEN_W / 2, 110, COL_DIM, Tr(kStrUpdAsk2));
+    UiDrawTextCentered(s, SCREEN_W / 2, 90, COL_TITLE, line);
+    UiDrawTextCentered(s, SCREEN_W / 2, 104, COL_DIM, Tr(kStrUpdAsk2));
+    snprintf(line, sizeof(line), Tr(kStrUpdFrom), g_rom_info.version, Updater_RemoteTag());
+    UiDrawTextCentered(s, SCREEN_W / 2, 118, COL_FAINT, line);
+    if (notes) UiDrawBoxLabel(s, PromptNotesRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(PromptNotesRect()), Tr(kStrWhatsNew));
     UiDrawBoxLabel(s, YesRect(), COL_BOX, COL_BOX_EDGE, COL_GOOD, Pressed(YesRect()), Tr(kStrYes));
     UiDrawBoxLabel(s, NoRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(NoRect()), Tr(kStrNo));
     break;
@@ -1178,6 +1427,7 @@ static void UpdatePromptTouch(int x, int y) {
   case UPD_PROMPT_ASK_RESTART:
     if (UiIn(YesRect(), x, y)) Updater_AnswerPrompt(true);
     else if (UiIn(NoRect(), x, y)) Updater_AnswerPrompt(false);
+    else if (Updater_Prompt() == UPD_PROMPT_ASK_INSTALL && UiIn(PromptNotesRect(), x, y) && NotesAvailable()) OpenNotes();
     break;
   case UPD_PROMPT_ERROR:
     if (UiIn((Rect){ 112, 136, 96, 24 }, x, y)) Updater_AnswerPrompt(true);
@@ -1850,11 +2100,11 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, frameskip, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update; } SavedOptions;
+typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.frameskip, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update };
+  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide };
 }
 
 static void SaveConfig(void) {
@@ -1862,9 +2112,9 @@ static void SaveConfig(void) {
   if (!f) return;
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\nframeskip=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\nauto_update=%d\n", o.tab, o.frameskip, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom, o.auto_update);
+  fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
+          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom, o.auto_update, o.update_beta, o.hud_hide);
   fclose(f);
 }
 
@@ -1885,13 +2135,16 @@ static void LoadConfig(void) {
     int v;
     if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
     if (!strcmp(key, "tab") && v >= 0 && v < TAB_COUNT && TabVisible((Tab)v)) g_tab = (Tab)v;
-    else if (!strcmp(key, "frameskip")) g_ui.frameskip = v != 0;
+    else if (!strcmp(key, "pacing") && v >= 0 && v < kPaceCount) g_ui.pacing = (int)v;
+    else if (!strcmp(key, "frameskip")) g_ui.pacing = v ? kPaceAuto : kPaceNoSkip;   // the old on/off setting
     else if (!strcmp(key, "audio")) g_ui.audio_on = v != 0;
-    else if (!strcmp(key, "fps_overlay")) g_ui.fps_overlay = v != 0;
+    else if (!strcmp(key, "fps_overlay") && v >= 0 && v <= 4) g_ui.fps_overlay = (int)v;   // 1 was "on": the top-left corner
     else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
     else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
+    else if (!strcmp(key, "update_beta")) g_ui.update_beta = v != 0;
+    else if (!strcmp(key, "hud_auto_hide")) g_ui.hud_auto_hide = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
@@ -1910,6 +2163,10 @@ static void SelectTab(Tab t) {
 static void TouchDownImpl(int x, int y) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+  if (g_modal == MODAL_NOTES && Updater_Prompt() != UPD_PROMPT_NONE) {   // opened from the prompt: it steps aside
+    NotesTouch(x, y);
+    return;
+  }
   if (Updater_Prompt() != UPD_PROMPT_NONE) {   // the update prompt is over everything
     UpdatePromptTouch(x, y);
     return;
@@ -1931,6 +2188,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_RESET: ResetModalTouch(x, y); return;
   case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
   case MODAL_STATE: StateDetailTouch(x, y); return;
+  case MODAL_NOTES: NotesTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -1954,6 +2212,7 @@ void BottomUi_TouchDown(int x, int y) {
   g_tap_y = y;
   g_tap_ms = osGetTime();
   g_tap_flash_pending = true;
+  g_tap_on_overlay = Updater_Prompt() != UPD_PROMPT_NONE || g_modal != MODAL_NONE;
   SavedOptions before = CurrentOptions();
   TouchDownImpl(x, y);
   SavedOptions after = CurrentOptions();
@@ -1965,6 +2224,7 @@ void BottomUi_TouchMove(int x, int y) {
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_STATES && g_modal == MODAL_NONE && StatesTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
+  if (g_modal == MODAL_NOTES && NotesTouchMove(y)) g_dirty = 2;
 }
 
 void BottomUi_TouchUp(void) {
@@ -1973,7 +2233,13 @@ void BottomUi_TouchUp(void) {
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();
   g_map_touch.active = false;
   g_ra_touch.active = false;
+  g_notes_touch.active = false;
   g_dirty = 2;
+}
+
+int BottomUi_HudHidden(void) {
+  if (!g_ui.hud_auto_hide) return 0;
+  return g_tab == TAB_STATUS ? 1 : g_tab == TAB_MAP ? 2 : 0;
 }
 
 void BottomUi_Busy(void) {
@@ -2005,10 +2271,12 @@ static void DrawBottom(const UiPerf *p) {
 #endif
   default: break;
   }
+  g_drawing_overlay = true;
   switch (g_modal) {
   case MODAL_RESET: DrawResetModal(s); break;
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
   case MODAL_STATE: DrawStateDetail(s); break;
+  case MODAL_NOTES: DrawNotes(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;
@@ -2016,6 +2284,7 @@ static void DrawBottom(const UiPerf *p) {
   default: break;
   }
   DrawUpdatePrompt(s);
+  g_drawing_overlay = false;
   if (g_toast[0]) {
     // On the map the bottom rows hold the warp buttons, so use the info line there.
     const int y = g_tab == TAB_MAP && g_modal == MODAL_NONE ? 201 : SCREEN_H - 12;
@@ -2072,7 +2341,11 @@ enum { kOverlayMaxW = 60, kOverlayH = 51 };
 
 static void DrawTopToastCpu(void);
 
-static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
+// The corner of the surface the overlay sits in: 1 top-left, 2 top-right, 3 bottom-left, 4 bottom-right.
+static int OverlayX(Surface s, int corner, int w) { return corner == 2 || corner == 4 ? s.w - w : 0; }
+static int OverlayY(Surface s, int corner, int h) { return corner >= 3 ? s.h - h : 0; }
+
+static void DrawOverlay(Surface s, int corner, const UiPerf *p, uint32_t box) {
   char line[5][12];
   snprintf(line[0], sizeof(line[0]), "%.1f", p->game_fps);
   snprintf(line[1], sizeof(line[1]), "L%.1f", p->logic_ms);
@@ -2086,29 +2359,33 @@ static void DrawOverlay(Surface s, const UiPerf *p, uint32_t box) {
   }
   int w = chars * 6 + 3;
   if (w > kOverlayMaxW) w = kOverlayMaxW;
-  UiFillRect(s, 0, 0, w, kOverlayH, box);
+  const int x0 = OverlayX(s, corner, w), y0 = OverlayY(s, corner, kOverlayH);
+  UiFillRect(s, x0, y0, w, kOverlayH, box);
   const uint32_t col[5] = { FpsColor(p->game_fps), COL_TEXT, COL_TEXT, COL_TEXT, COL_DIM };
-  for (int i = 0; i < 5; i++) UiDrawText(s, 2, 2 + i * 10, 1, col[i], line[i]);
+  for (int i = 0; i < 5; i++) UiDrawText(s, x0 + 2, y0 + 2 + i * 10, 1, col[i], line[i]);
 }
 
 void BottomUi_DrawTopOverlay(const UiPerf *p) {
   DrawTopToastCpu();
-  // The game is centred (274 or 256 px wide on a 400 px screen); use the left margin,
-  // which the game never redraws. The top screen is double buffered, so clear
-  // it for two frames after the overlay is switched off.
-  static int clear_frames;
+  // The game is centred (274 or 256 px wide on a 400 px screen); the overlay sits in a margin,
+  // which the game never redraws, at the corner chosen in OPTIONS. Where it was is cleared for
+  // two frames after a change: the top screen is double buffered.
+  static int clear_frames, drawn_corner, clear_corner;
   Surface s = UiDraw_Screen(GFX_TOP);
-  if (!g_ui.fps_overlay) {
-    if (clear_frames > 0) {
-      clear_frames--;
-      UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
-    }
-    return;
+  const int corner = g_ui.fps_overlay;
+  if (corner != drawn_corner) {
+    if (drawn_corner) clear_corner = drawn_corner, clear_frames = 2;
+    drawn_corner = corner;
   }
-  clear_frames = 2;
+  if (clear_frames > 0) {
+    clear_frames--;
+    UiFillRect(s, OverlayX(s, clear_corner, kOverlayMaxW), OverlayY(s, clear_corner, kOverlayH), kOverlayMaxW, kOverlayH,
+               RGB(0, 0, 0));
+  }
+  if (!corner) return;
   // The box shrinks with the numbers: clear what a wider one left in this buffer.
-  UiFillRect(s, 0, 0, kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
-  DrawOverlay(s, p, RGB(0, 0, 0));
+  UiFillRect(s, OverlayX(s, corner, kOverlayMaxW), OverlayY(s, corner, kOverlayH), kOverlayMaxW, kOverlayH, RGB(0, 0, 0));
+  DrawOverlay(s, corner, p, RGB(0, 0, 0));
 }
 
 // The achievement notice on the top screen, CPU path: drawn over the frame; once gone, the
@@ -2140,7 +2417,7 @@ bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   if (!g_ui.fps_overlay) return false;
   Surface s = { px, w, h };
   UiFillRect(s, 0, 0, w, h, 0);   // transparent around the box
-  DrawOverlay(s, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
+  DrawOverlay(s, g_ui.fps_overlay, p, 0x00000090u);  // black, alpha 0x90 (RGBA8: alpha is the low byte)
   return true;
 }
 

@@ -16,8 +16,9 @@ bool GpuPpu3ds_Ready(void);
 void GpuPpu3ds_Exit(void);
 
 // FPS overlay for the next frames: 64x64 column-major RGBA8 like the framebuffer (see
-// BottomUi_DrawOverlayInto), drawn at the top-left corner; NULL hides it.
-void GpuPpu3ds_SetOverlay(const uint32_t *px);
+// BottomUi_DrawOverlayInto), drawn at a corner of the top screen (1 top-left, 2 top-right,
+// 3 bottom-left, 4 bottom-right: the box is already at that corner of the texture); NULL hides it.
+void GpuPpu3ds_SetOverlay(const uint32_t *px, int corner);
 
 // Achievement notice for the next frames: 512x64 column-major RGBA8 with the 300x36 box in
 // its top-left corner (BottomUi_DrawTopToastInto), drawn centred at the top; NULL hides it.
