@@ -559,6 +559,24 @@ decompressed level data was sized from the room's width and height and two rooms
 (`map-rooms` in `make test`), issue #49, branch `fix/map-level-buffer` (merged into this branch so the console build has it).
 The SD log of that session was **empty** (`sm-log-03.txt`, 0 bytes): the log is buffered in RAM (16 KB) and a crash loses it; LOG MARK flushes it.
 
+### 4.18 AF14 after the palette filter, and SPREAD TILES gets a third state (2026-10-08 01:34, `v0.3.3-dev.10.25+8d456d3`)
+
+`docs/handoff/logs/sm-perf-AF14-filter-{mono,3d}.csv`: **49.4 fps mono, 45.9 with FORCE 3D** (49.2 and 43.7 before the filter): the filter cut
+each palette event from ~3050 entries to 532 but it did not show in the fps, because **the quiet frame of this room is already
+15.2 ms** (logic 6.9 + draw 7.4 + 0.9; 175 of 530 frames) and **there is a tile event nearly every frame**: the char animation (832 entries,
+spread over 4 frames at 224) every ~10 frames, and a palette event of 532 entries every 4-8 frames that costs +6.7 ms at once (draw 14.1,
+`bg` 5.7, upload 2.8+0.6 ms for 273 KB: ~6.6 us an entry, twice 9AD9's). With 1.5 ms of margin nothing fits.
+
+Done: SPREAD TILES has a third state, **CHARS + COLOURS** (`GpuPpu_SetDeferTiles(n, palettes)`): palette changes go through the same budget
+(224 entries a frame, tilemap rows in order), a 532 entry event takes 3 frames of ~1.5 ms. The cost is visual: the colours of a cycling palette
+reach the rows a few frames late, which may show as a ripple; the cell lets the owner compare. Host: `DEFER=40 DEFER_PAL=1` over every room, 15360
+frames, 0 mismatches once settled.
+
+What else AF14 needs (not done): its logic is 6.9 ms against 4.6-5.2 in the other rooms; a host profile of that room would show whether
+something hot is cheap to cut (enemies of the heat room, the lava).
+The log of this session closed normally and shows `91F8 -> A201 -> AF14`: the owner reached Norfair through the map warp, the path that
+crashed (#49) before the fix.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

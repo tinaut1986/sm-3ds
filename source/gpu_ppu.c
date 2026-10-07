@@ -471,8 +471,9 @@ typedef struct {
 
 static Surface g_surf[kSurfaces];
 static int g_defer_cap, g_defer_left;   // deferred-tile budget per frame, and what is left of this frame's
+static bool g_defer_pal;                 // palette changes may wait too, not only char data   // deferred-tile budget per frame, and what is left of this frame's
 
-void GpuPpu_SetDeferTiles(int per_frame) { g_defer_cap = per_frame > 0 ? per_frame : 0; }
+void GpuPpu_SetDeferTiles(int per_frame, bool palettes) { g_defer_cap = per_frame > 0 ? per_frame : 0, g_defer_pal = palettes; }
 
 int GpuPpu_PendingTiles(void) {
   int n = 0;
@@ -709,8 +710,8 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e) && PalAffects(s, ppu, e);
       const bool moved = s->fresh || e != *m || pl != s->slot_plane[ti];
       if (!moved && !cd && !pd && !s->pend[ti]) continue;
-      // Only the char data changed (an animated tile): it may wait for a later frame.
-      if (!moved && !pd && g_defer_cap > 0) {
+      // Only the char data (an animated tile) or, if asked for, the palette changed: it may wait for a later frame.
+      if (!moved && (!pd || g_defer_pal) && g_defer_cap > 0) {
         if (g_defer_left <= 0) {
           if (!s->pend[ti]) s->pend[ti] = 1, s->pend_count++;
           g_stats.tiles_deferred++;

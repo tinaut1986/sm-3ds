@@ -269,6 +269,7 @@ const GpuPpuStats *GpuPpu_LastStats(void);
 // tilemap rows from where the last frame stopped, the rest waiting (stale for a few frames) so a big
 // animation does not make one frame long. 0 = every tile at once (the default: the host tests compare
 // the picture with the CPU renderer's, which only a settled one equals). New tiles, tilemap, palette and
-// plane changes are never deferred.
-void GpuPpu_SetDeferTiles(int per_frame);
+// plane changes are never deferred; palette changes only when `palettes` (a cycling palette then shows a few frames late,
+// a few tile rows at a time).
+void GpuPpu_SetDeferTiles(int per_frame, bool palettes);
 int GpuPpu_PendingTiles(void);   // tiles still waiting, over every surface

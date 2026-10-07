@@ -911,7 +911,7 @@ int main(int argc, char** argv) {
         GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
-        GpuPpu_SetDeferTiles(g_ui.defer_tiles ? 224 : 0);
+        GpuPpu_SetDeferTiles(g_ui.defer_tiles ? 224 : 0, g_ui.defer_tiles == 2);
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);

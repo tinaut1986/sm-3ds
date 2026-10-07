@@ -33,7 +33,7 @@ UiOptions g_ui = {
   .audio_on = true,
   .pacing = kPaceAuto,
   .auto_update = true,
-  .defer_tiles = true,
+  .defer_tiles = 1,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -1628,7 +1628,8 @@ static void DrawToolsModal(Surface s) {
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
   DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
                !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
-  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.defer_tiles ? "ON: 224 A FRAME" : "OFF",
+  static const char *const kSpread[] = { "OFF", "CHARS: 224 A FRAME", "CHARS + COLOURS" };
+  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : kSpread[g_ui.defer_tiles % 3],
                !g_ui.gpu_render ? COL_FAINT : g_ui.defer_tiles ? COL_GOOD : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
     UiDrawText(s, 16, 195, 1, COL_DIM, "BACK");
@@ -1704,7 +1705,7 @@ static void ToolsModalTouch(int x, int y) {
       break;
     case TOOL_SPREAD_TILES:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
-      else g_ui.defer_tiles = !g_ui.defer_tiles;
+      else g_ui.defer_tiles = (g_ui.defer_tiles + 1) % 3;
       break;
     default: break;
     }

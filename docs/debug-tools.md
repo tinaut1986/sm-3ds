@@ -37,11 +37,11 @@ screen (2DS) also draw the second eye, into a target that is never shown, with t
 half and the 3D's edge columns: the CPU cost an Old 3DS pays with the slider up, to measure it
 with the PERF RECORDER on a 2DS. What is shown is the left eye, shifted like the real 3D's.
 On a console with the 3D screen the slider decides and the cell does nothing.
-SPREAD TILES (not saved, on at boot) decodes the BG tiles whose char data changed and nothing else (an animated tile
+SPREAD TILES (not saved, CHARS at boot; the cell cycles OFF / CHARS / CHARS + COLOURS; COLOURS also puts off the tiles whose palette changed, a cycling palette then shows a few frames late) decodes the BG tiles whose char data changed and nothing else (an animated tile
 set: 628 tilemap entries every 10 frames in the Landing Site) at most 224 a frame, from the tilemap row where the last frame
 stopped, the rest a few frames later: the animation lags up to ~3 frames instead of one frame growing by ~5 ms. New tiles,
 tilemap, palette and plane changes are never deferred. Off = every tile at once, as before. The host test takes `DEFER=n`
-(`DEFER=40 tools/gpu-ppu-test/run.sh ROM rooms 60`: every room, compared with the CPU renderer once no tile is waiting).
+(`DEFER=40 tools/gpu-ppu-test/run.sh ROM rooms 60`, `DEFER_PAL=1` adds the palette changes: every room, compared with the CPU renderer once no tile is waiting).
 The perf CSV has `tiles_deferred` (put off this frame) and `tiles_pending` (still waiting after it).
 
 A loaded state or a reset turns MAX off without restoring (the state brings its own
