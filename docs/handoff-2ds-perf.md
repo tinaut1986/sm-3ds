@@ -357,6 +357,37 @@ What would take the copy itself (91 MB/s on the CPU) off the frame, the next lev
 frames skipped with no event). The new `dp_ms` column splits the rest: how much is inside `DrawAndPresent` and how
 much before it (overlay, toast, setup).
 
+### 4.9 Seventh and eighth PERF runs (2026-10-07 22:18, `v0.3.3-dev.10.8+37dbc26`: runs merged at 80 blocks)
+
+Files: `docs/handoff/logs/sm-perf-06.csv` (24 s, FORCE 3D off) and `sm-perf-07.csv` (25 s, on), same room and spot.
+
+**FORCE 3D off: 55.7 fps** (51.7 before; 103 frames skipped of 1453). The upload change did what the model said:
+the 628-tile event now has 5 runs and 389 KB (copy 3.85 + flush 1.08 ms, against 67 runs and 10.6 ms), submit
+**6.0 ms against 11.9**, draw 14.0 against ~20. What is left, in frames drawn over 16.7 ms of work:
+
+| cause | frames | note |
+|---|---|---|
+| the 628-tile event (every 10 frames) | 138 | draw 14.0 + logic 5.3 = 19.3: one skipped frame each |
+| the 1536/2164-tile events (every ~4 s) | 41 | draw 17-24; `bg_ms` 7.9, `tiles` 1643 mean: a bigger re-decode |
+| the bottom screen (redraw) | 10 | the 120-frame ones |
+| steady frames | 2 | the steady frame never overruns |
+
+Next cuts for the 628 event, in order: (1) the copy is still 3.85 of its ~5 ms of upload and the CPU does it at
+91 MB/s: `GX_RequestDma` or `GX_TextureCopy` (one call per texture, synced with `C3D_SyncTextureCopy`'s
+PPF event; **not** several DMA requests waited with `gspWaitForEvent`: the DMA event is one `LightEvent` that
+coalesces, N waits can hang) would save ~2 ms; (2) its decode, +2 ms of `bg_ms` (visible tiles only would give
+~25 % of it).
+
+**FORCE 3D on: 46.4 fps, and the steady frame is the problem, not the events.** The steady frames overrun on their
+own (485 of the 978 steady frames, mean 18.0 ms of work): `gpu_wait_ms` (the CPU waiting in `C3D_FrameBegin` for
+the GPU to finish the previous frame) is **1.47 ms** per frame against 0.01 without the second eye, and
+`DrawAndPresent` costs 3.73 ms against 1.83: the **GPU is the bottleneck with two eyes**, ~16 ms a frame for the
+two renders, so the CPU waits. Fixing the CPU spikes will not give 60 there. The `gpu_draw_ms`, `gpu_proc_ms`
+and `cmdbuf` columns (build `v0.3.3-dev.10.9`) give the GPU's own time. What the GPU does per eye: the BG bands
+onto the 512x256 main target (and the sub target when colour math uses the subscreen), then the main target
+onto the 400x240 top target with the stereo plane offsets; ideas to test once the numbers say where its time
+goes: fewer passes (compose once when no plane is shifted), a smaller main target, or skipping the sub target.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

@@ -106,6 +106,14 @@ static void CopyRun(uint16_t *dst, const uint16_t *src, size_t bytes) {
   g_tex_bytes += (int)bytes;
 }
 
+// What the GPU itself spent on the last frame it finished (citro3d's counters): drawing, processing the
+// command list, and how full the command buffer got (0..1).
+void GpuPpu3ds_LastGpuTimes(float *draw_ms, float *proc_ms, float *cmdbuf) {
+  *draw_ms = C3D_GetDrawingTime();
+  *proc_ms = C3D_GetProcessingTime();
+  *cmdbuf = C3D_GetCmdBufUsage();
+}
+
 void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb) {
   *copy_ms = (float)((double)g_tex_copy_ticks * 1000.0 / SYSCLOCK_ARM11);
   *flush_ms = (float)((double)g_tex_flush_ticks * 1000.0 / SYSCLOCK_ARM11);

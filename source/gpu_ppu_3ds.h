@@ -54,6 +54,9 @@ void GpuPpu3ds_SetForceTwoEyes(bool on);
 // The last frame's texture upload: ms copying, ms flushing the cache, flush calls, KB copied.
 void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb);
 
+// The GPU's own time for the last frame it finished: drawing, command processing (ms), command buffer use (0..1).
+void GpuPpu3ds_LastGpuTimes(float *draw_ms, float *proc_ms, float *cmdbuf);
+
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);
