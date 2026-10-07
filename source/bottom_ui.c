@@ -1033,21 +1033,21 @@ void BottomUi_GameReset(void) {
 }
 
 // ---- Options tab ----------------------------------------------------------------
-// Two columns of eight slots. A slot is one button, or two half buttons that share its width
+// Two columns of slots. A slot is one button, or two half buttons that share its width
 // (each shows its own setting and its current value, a tap changes it).
 //
 //   FRAMES            AUDIO [speaker]
 //   FPS | CPU         LANGUAGE
-//   IMAGE | VIEW      UPDATE | CHANNEL
-//   UPDATES           RESET GAME
-//   HUD               WHAT'S NEW
+//   IMAGE | VIEW      HUD
+//   UPDATE | CHANNEL  UPDATES | WHAT'S NEW
+//   RESET GAME (the whole width)
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
   OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_COUNT
 } OptCell;
 
-enum { kOptResetSlot = 7, kOptHudSlot = 8, kOptNotesSlot = 9, kOptSpeakerW = 34 };
+enum { kOptHudSlot = 5, kOptUpdateSlot = 6, kOptNewsSlot = 7, kOptResetRow = 8, kOptSpeakerW = 34 };
 
 static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
 static Rect OptHalf(int slot, int half) {
@@ -1064,15 +1064,18 @@ static Rect OptRect(OptCell c) {
   case OPT_LANGUAGE: return OptSlot(3);
   case OPT_DISPLAY: return OptHalf(4, 0);
   case OPT_WIDE: return OptHalf(4, 1);
-  case OPT_AUTO_UPDATE: return OptHalf(5, 0);
-  case OPT_CHANNEL: return OptHalf(5, 1);
+  case OPT_AUTO_UPDATE: return OptHalf(kOptUpdateSlot, 0);
+  case OPT_CHANNEL: return OptHalf(kOptUpdateSlot, 1);
   case OPT_HUD: return OptSlot(kOptHudSlot);
-  case OPT_NOTES: return OptSlot(kOptNotesSlot);
-  default: return OptSlot(6);
+  case OPT_NOTES: return OptHalf(kOptNewsSlot, 1);
+  default: return OptHalf(kOptNewsSlot, 0);   // OPT_UPDATES
   }
 }
 static Rect SpeakerRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
-static Rect ResetRect(void) { return OptSlot(kOptResetSlot); }
+static Rect ResetRect(void) {
+  const Rect l = OptSlot(kOptResetRow), r = OptSlot(kOptResetRow + 1);
+  return (Rect){ l.x, l.y, r.x + r.w - l.x, l.h };
+}
 
 static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
@@ -1133,18 +1136,19 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OptRect(OPT_CHANNEL), Tr(kStrChannel), Tr(g_ui.update_beta ? kStrChanBeta : kStrChanStable),
               g_ui.update_beta ? COL_WARN : COL_GOOD);
   {
-    char value[40];
+    // A half button holds about 11 characters: the short forms; the prompts say it in full.
+    const char *value;
     uint32_t col = COL_GOOD;
     switch (Updater_State()) {
-    case UPD_CHECKING: snprintf(value, sizeof(value), "%s", Tr(kStrUpdChecking)); col = COL_DIM; break;
-    case UPD_UP_TO_DATE: snprintf(value, sizeof(value), "%s", Tr(kStrUpdUpToDate)); break;
-    case UPD_AVAILABLE: snprintf(value, sizeof(value), Tr(kStrUpdNew), Updater_RemoteTag()); break;
-    case UPD_DOWNLOADING: snprintf(value, sizeof(value), "%s %d%%", Tr(kStrUpdInstalling), Updater_Progress()); col = COL_DIM; break;
-    case UPD_INSTALLED: snprintf(value, sizeof(value), "%s", Tr(kStrUpdInstalled)); break;
-    case UPD_ERROR: snprintf(value, sizeof(value), "%s", Tr(kStrUpdError)); col = COL_WARN; break;
-    default: snprintf(value, sizeof(value), "%s", Tr(kStrUpdTap)); col = COL_DIM; break;
+    case UPD_CHECKING: value = Tr(kStrUpdsChecking); col = COL_DIM; break;
+    case UPD_UP_TO_DATE: value = Tr(kStrUpdUpToDate); break;
+    case UPD_AVAILABLE: value = Tr(kStrUpdsNew); col = COL_WARN; break;
+    case UPD_DOWNLOADING: value = Tr(kStrUpdsInstalling); col = COL_DIM; break;
+    case UPD_INSTALLED: value = Tr(kStrUpdsRestart); break;
+    case UPD_ERROR: value = Tr(kStrUpdsError); col = COL_WARN; break;
+    default: value = Tr(kStrUpdsCheck); col = COL_DIM; break;
     }
-    DrawOptCell(s, OptRect(OPT_UPDATES), Tr(kStrUpdates), value, col);
+    DrawOptCell(s, OptRect(OPT_UPDATES), Tr(kStrUpdsLabel), value, col);
   }
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);

@@ -33,6 +33,7 @@ typedef enum {
   kStrPaceLock, kStrPaceNoSkip, kStrViewOriginal, kStrViewWide, kStrChannel, kStrChanStable, kStrChanBeta,
   kStrHud, kStrHudHidden, kStrHudShown,
   kStrWhatsNew, kStrNotesEmpty, kStrUpdFrom,
+  kStrUpdsLabel, kStrUpdsCheck, kStrUpdsChecking, kStrUpdsNew, kStrUpdsInstalling, kStrUpdsRestart, kStrUpdsError,
   kStrCount
 } UiStr;
 
