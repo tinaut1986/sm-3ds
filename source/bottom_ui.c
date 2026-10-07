@@ -2338,23 +2338,28 @@ static bool ChromeChanged(void) {
 
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
+  const char *why = NULL;   // what asked for a redraw this frame, for the debug log
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
     g_dirty = 2;
+    why = "toast ended";
   }
   static uint32_t ra_seen;
   if (RetroAch_Version() != ra_seen) {
     ra_seen = RetroAch_Version();
     g_dirty = 2;
+    why = "RetroAchievements changed";
   }
   static uint32_t updater_seen;
   if (Updater_Version() != updater_seen) {
     updater_seen = Updater_Version();
     g_dirty = 2;
+    why = "updater changed";
   }
   if (g_tap_flash_pending && now - g_tap_ms >= TAP_FLASH_MS) {
     g_tap_flash_pending = false;
     g_dirty = 2;
+    why = "tap flash ended";
   }
   // The bottom screen costs ~15 ms to redraw and present on an Old 3DS, so it is redrawn only
   // when something it shows has changed: on a tab or window whose content moves by itself every
@@ -2363,12 +2368,13 @@ bool BottomUi_Frame(const UiPerf *p) {
     g_last_redraw = p->frames;
     g_dirty = 2;
   }
-  if (ChromeChanged()) g_dirty = 2;
+  if (ChromeChanged()) g_dirty = 2, why = "clock, wifi or battery changed";
   const bool notice = RetroAch_Toast() != NULL;   // the unlock notice times out on its own
   static bool notice_seen;
   if (notice != notice_seen) {
     notice_seen = notice;
     g_dirty = 2;
+    why = "unlock notice";
   }
   // The battery moves far slower than anything else here.
   if (g_ptmu && p->frames % 120 == 0) {
@@ -2376,6 +2382,7 @@ bool BottomUi_Frame(const UiPerf *p) {
     PTMU_GetBatteryChargeState(&g_charging);
     if (g_battery > 5) g_battery = 5;
   }
+  if (why && !UiIsLive() && g_dirty == 2) Debug_Log("bottom UI: redraw, %s", why);   // not the live tabs: they redraw every 15 frames
   if (g_dirty > 0) {
     // A change needs two frames (the screen is double buffered): the first draws it, the second
     // only presents the same picture to the other buffer.

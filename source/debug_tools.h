@@ -58,6 +58,7 @@ typedef struct {
   float build_ms, wait_ms, submit_ms;                  // GPU path: build the frame, wait for the GPU, push quads
   float lines_ms, diff_ms, sprites_ms, bg_ms;          // inside the build: line analysis + bands, VRAM diff, sprites, BG
   int tiles, quads, bands;                             // tiles decoded, quads and bands of the frame
+  int tiles_reused, why_fresh, why_map, why_pal, why_char, why_plane;   // of the tiles decoded: copied from an identical one; and why they were decoded (new surface, tilemap, palette, char data, plane fix)
   float tex_copy_ms, tex_flush_ms;                     // uploading the changed texels: memcpy, and the cache flush(es)
   int tex_runs, tex_kb;
   float gpu_draw_ms, gpu_proc_ms, cmdbuf;              // the GPU's own time for the last frame it finished, and the command buffer use (0..1)

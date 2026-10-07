@@ -937,6 +937,8 @@ int main(int argc, char** argv) {
             px.lines_ms = TicksToMs(gs->t_lines), px.diff_ms = TicksToMs(gs->t_diff);
             px.sprites_ms = TicksToMs(gs->t_sprites), px.bg_ms = TicksToMs(gs->t_bg);
             px.tiles = gs->tiles_decoded, px.quads = g_gpu_frame.quad_count, px.bands = g_gpu_frame.band_count;
+            px.tiles_reused = gs->tiles_reused, px.why_fresh = gs->tiles_fresh, px.why_map = gs->tiles_map;
+            px.why_pal = gs->tiles_pal, px.why_char = gs->tiles_char, px.why_plane = gs->tiles_plane;
           }
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);

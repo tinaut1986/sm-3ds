@@ -446,6 +446,24 @@ each) instead of decoding them; a fresh surface (room entry) reuses 6959 of 7168
 room-entry hitch should shrink a lot. The texture upload (copy 3.85 + flush 1.08 ms for 389 KB) is unchanged: the next cut
 is `GX_TextureCopy`/DMA for it (4.10).
 
+### 4.12 Thirteenth and fourteenth PERF runs (2026-10-07 23:35, `v0.3.3-dev.10.14+e94d8de`: tiles decoded once and copied)
+
+Files: `docs/handoff/logs/sm-perf-12.csv` (19 s, FORCE 3D off) and `sm-perf-13.csv` (15 s, on).
+
+**56.8 fps without 3D, 51.4 with it.** In 3D the steady frames now essentially fit (1 of 683 overruns; the GPU's own time 12.8 ms for two
+eyes, `gpu_wait_ms` 0.05). The 628-tile event cost less to build (bg 3.1 -> 1.7 ms, draw 15.0 -> 13.9 mono, 15.5 in 3D) but its upload
+did not change: **copy 4.14 + flush 1.33 ms for 389 KB in 5 runs**, 5.5 of its ~6.4 ms of submit. The big events (1536/2164 tiles, every
+240 frames, 28 and 27 of them) still cost `bg_ms` 6.7 for ~1650 tiles (4 us each): those are not repeats of a few tiles. The host does not
+show them in 700 frames of the same room (`TILE_TRACE`), so what changes there is unknown: the CSV now has `tiles_reused` and `why_*`
+columns (this build is `v0.3.3-dev.10.16`) to tell.
+
+What remains in mono: bottom-screen redraws every 120 frames (29 of the 63 skipped frames; none comes from the clock, wifi or battery,
+as `ChromeChanged` would have logged it: the build now logs the reason of every redraw outside the live tabs, `bottom UI: redraw, ...`),
+the 1536/2164 events (23) and 11 others. In 3D: the 628-tile event (draw 15.5 + logic 5.1 = 20.6) and the big ones.
+
+Next, in order: (1) the upload of the event by hardware copy (`GX_TextureCopy` + `C3D_SyncTextureCopy`, one call per texture) to cut the
+~4 ms of `memcpy`; (2) what the 1536 events are; (3) the 120-frame bottom redraw (the log will say).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
