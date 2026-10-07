@@ -388,6 +388,46 @@ onto the 512x256 main target (and the sub target when colour math uses the subsc
 onto the 400x240 top target with the stereo plane offsets; ideas to test once the numbers say where its time
 goes: fewer passes (compose once when no plane is shifted), a smaller main target, or skipping the sub target.
 
+### 4.10 Ninth and tenth PERF runs (2026-10-07 22:25, `v0.3.3-dev.10.10+d6757f1`: the GPU's own time) and what mzm knows
+
+Files: `docs/handoff/logs/sm-perf-08.csv` (24.7 s, FORCE 3D off, 53.9 fps) and `sm-perf-09.csv` (32.3 s, on, 46.6 fps).
+
+**The GPU's own drawing time, from citro3d's counters (`gpu_draw_ms`), in steady frames:** 7.63 ms with one eye
+and **15.59 ms with two**: exactly double, **~7.7 ms per eye**, against a 16.7 ms frame. With two eyes the GPU is
+at 93 % of the budget by itself, so the CPU waits for it (`gpu_wait_ms` 1.3 ms) and half the steady frames
+overrun (670 of 1272, mean work 17.9). `cmdbuf` is 0-1 %, the command buffer is not the limit.
+The 628-tile event does not change the GPU's time (7.7), only the CPU's (the upload).
+
+**What `../mzm` says about the same machine** (`platform/3ds/source/port_gpu_renderer.c` l.1293-1320,
+`docs/3ds-renderer-perf-plan.md` ~l.280-310, `docs/3ds-debug-tools.md` ~l.742-780):
+- on an Old 3DS the GPU's frame time "tracks the pixels drawn (~94 ns each), i.e. it is bound by the
+  texture reads" from FCRAM: it keeps its textures RGBA5551 (so do we) and measured ~3.2 us of GPU per quad;
+- in 3D its GPU time was **constant per eye (~8.5 ms, 16.5 for two) whatever the quads (357 or 38) or
+  pixels**: the cost was **full-screen passes per eye that no counter saw** (an alpha-blended
+  overlay quad over the whole 400x240 target, the bezel, a per-scanline blit), "a read-modify-write of the
+  framebuffer". Their lesson: count every full-screen pass, keep the opaque pass at blend ONE/ZERO;
+- the structural answer to stereo cost there was a **per-layer VRAM render target composed once per
+  frame, one quad per eye** (and the same idea for effects);
+- they put the atlas in FCRAM (`C3D_TexInit`, not `C3D_TexInitVRAM`) so the CPU can write it and skip
+  a blocking `C3D_SyncDisplayTransfer` (~19 ms/frame measured there); with our shadow + copy design that
+  trade could be different: VRAM textures filled by DMA would also take the CPU copy off the frame.
+
+**Our per-eye GPU passes (`DrawEye`)** also look like a fixed cost: clear + backdrop of the 512x256 main target (colour +
+depth24/stencil8), each layer's quads for **both priority textures even when the texture is empty** (every
+pixel of a quad is paid, transparent or not: up to 6 full-width passes with depth and stencil tests for three
+layers), the colour-math passes, then the stretch of the main target onto the top target, then the overlays.
+
+**First cut, done (build `v0.3.3-dev.11`, to measure):** a surface now counts the tiles with something visible per
+texture (`Surface.occ`, `ne`, kept by `DecodeBgTile`, whose `DecodeTile` returns the OR of the texels) and `EmitBg`
+emits no quad for a texture with none. `make test` passes (the GPU picture stays identical to the CPU's in every
+room). Expected: fewer quads (the `quads` column) and a lower `gpu_draw_ms`; how much depends on how many
+priority textures are empty in the room.
+
+If it is not enough, the experiments in order: (1) crop each quad to the bounding box of the visible tiles
+(window wrap makes this fiddly); (2) BG textures in VRAM (`C3D_TexInitVRAM`, with the upload by DMA);
+(3) skip the clears/sub target when the frame has no colour math; (4) probe the passes one by one (skip the bands,
+skip the stretch, skip the clears) with `gpu_draw_ms`, which tells which is the big one.
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

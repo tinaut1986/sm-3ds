@@ -402,10 +402,12 @@ static inline void TexWriteBegin(void) {
 // 0/1, 2/3, ... of a row; may_alias because the texture is read back as 16-bit texels).
 typedef uint32_t __attribute__((may_alias)) TexPair;
 
-static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const uint16_t *lut, bool hflip, bool vflip) {
+// Returns the OR of all the texels written: 0 = the tile has nothing visible (index 0 is transparent).
+static uint32_t DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const uint16_t *lut, bool hflip, bool vflip) {
   TexWriteBegin();
   const uint32_t *spread = g_spread[hflip];
   TexPair *pairs = (TexPair *)dst;   // dst is a 128-byte block: 4-byte aligned
+  uint32_t any = 0;
   for (int r = 0; r < 8; r++) {
     const int sr = vflip ? 7 - r : r;
     const uint16_t w0 = ppu->vram[(base + sr) & 0x7fff];
@@ -415,9 +417,13 @@ static void DecodeTile(uint16_t *dst, const Ppu *ppu, int base, int bpp, const u
       pix |= spread[w1 & 0xff] << 2 | spread[w1 >> 8] << 3;
     }
     const uint8_t *m = g_row_morton[r];
-    for (int x = 0; x < 8; x += 2, pix >>= 8)
-      pairs[m[x] >> 1] = (uint32_t)lut[pix & 15] | (uint32_t)lut[(pix >> 4) & 15] << 16;
+    for (int x = 0; x < 8; x += 2, pix >>= 8) {
+      const uint32_t pair = (uint32_t)lut[pix & 15] | (uint32_t)lut[(pix >> 4) & 15] << 16;
+      pairs[m[x] >> 1] = pair;
+      any |= pair;
+    }
   }
+  return any;
 }
 
 // ---- BG surfaces: a whole tilemap decoded into two textures -------------------------
@@ -443,6 +449,11 @@ typedef struct {
   GpuTex xtex[kGpuXPlanes][2];   // [StereoPlane + 1 - 1][priority]: tiles sent to that plane; px NULL = not created
   int xcount;              // how many of xtex exist
   uint8_t slot_plane[64 * 64];   // the plane (StereoPlane + 1, 0 = none) each tile was decoded for
+  // What each texture holds, so a texture with nothing to draw costs no quad (every pixel of a quad
+  // is paid by the GPU, transparent or not): per tile 0 = nothing visible, else 1 + the texture it was
+  // decoded into ((plane) * 2 + priority, as TileChoice), and how many tiles each texture has.
+  uint8_t ne[64 * 64];
+  uint16_t occ[(kGpuXPlanes + 1) * 2];
   uint16_t map[64 * 64];   // tilemap entries the textures were decoded from
 } Surface;
 
@@ -570,9 +581,15 @@ static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e,
   }
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
-  DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000);
+  const bool visible = DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000) != 0;
   GpuBackend_TexBlockWritten(to, tile);
   g_stats.tiles_decoded++;
+  // Which texture the tile ended up in (the layer's own when the plane's could not be made).
+  const int where = own || plane == 0 ? plane * 2 + prio : prio;
+  uint8_t *ne = &s->ne[ty * 64 + tx];
+  if (*ne) s->occ[*ne - 1]--;
+  *ne = visible ? (uint8_t)(1 + where) : 0;
+  if (visible) s->occ[where]++;
 }
 
 // Any VRAM change in words [a, a+n) (wrapping), in 8-word groups.
@@ -602,6 +619,7 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       return;
     }
   }
+  if (s->fresh) memset(s->ne, 0, sizeof(s->ne)), memset(s->occ, 0, sizeof(s->occ));   // every tile is decoded again
   for (int ty = 0; ty < th; ty++) {
     for (int tx = 0; tx < tw; tx++) {
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
@@ -1056,6 +1074,7 @@ static const char *EmitBg(const Ppu *ppu, const PpuLineCapture *cap, int layer, 
     for (int prio = 0; prio < 2; prio++) {
       for (int v = -1; v < kGpuXPlanes; v++) {
         GpuTex *tex = &s->tex[prio];
+        if (!s->occ[(v + 1) * 2 + prio]) continue;   // nothing visible in that texture: no quad
         if (v < 0) {
           UsePlaneRule(layer + 1, prio);
         } else {
