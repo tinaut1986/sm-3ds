@@ -948,6 +948,7 @@ int main(int argc, char** argv) {
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
           px.wait_ms = wait_ms, px.submit_ms = submit_ms;
+          GpuPpu3ds_LastTexStats(&px.tex_copy_ms, &px.tex_flush_ms, &px.tex_runs, &px.tex_kb);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
           perf.gpu_submit_ms += (submit_ms - perf.gpu_submit_ms) * 0.1f;
           gpu_presented = true;

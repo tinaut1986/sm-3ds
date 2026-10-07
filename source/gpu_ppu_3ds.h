@@ -51,6 +51,9 @@ void GpuPpu3ds_SetPlaneTint(int mode);
 // on a 2DS. The left eye is what is shown, shifted like the real 3D's.
 void GpuPpu3ds_SetForceTwoEyes(bool on);
 
+// The last frame's texture upload: ms copying, ms flushing the cache, flush calls, KB copied.
+void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb);
+
 // Debug: the last frame's GPU output as 256x224 XRGB rows like the CPU renderer's,
 // for comparing against it on the console. Blocks until the GPU is done.
 bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);

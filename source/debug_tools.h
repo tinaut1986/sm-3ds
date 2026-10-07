@@ -58,6 +58,8 @@ typedef struct {
   float build_ms, wait_ms, submit_ms;                  // GPU path: build the frame, wait for the GPU, push quads
   float lines_ms, diff_ms, sprites_ms, bg_ms;          // inside the build: line analysis + bands, VRAM diff, sprites, BG
   int tiles, quads, bands;                             // tiles decoded, quads and bands of the frame
+  float tex_copy_ms, tex_flush_ms;                     // uploading the changed texels: memcpy, and the cache flush(es)
+  int tex_runs, tex_kb;                                // flush calls (runs of blocks) and KB copied
   float ui_ms;                                         // BottomUi_Frame (redraws the tab when it is dirty)
   float present_ms, present_wait_ms;                   // UiDraw_Present of both screens + swap, and the vblank wait inside it
 } DebugPerfExtra;

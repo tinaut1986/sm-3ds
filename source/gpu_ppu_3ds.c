@@ -88,6 +88,29 @@ static int g_dirty_n;
 // cache flush per run costs more than copying the few clean blocks between two runs.
 enum { kRunGap = 8 };
 
+// What the last FlushTextures spent (for the perf recorder): copying to the textures, flushing the
+// data cache, the flush calls made and the bytes copied.
+static u64 g_tex_copy_ticks, g_tex_flush_ticks;
+static int g_tex_runs, g_tex_bytes;
+
+static void CopyRun(uint16_t *dst, const uint16_t *src, size_t bytes) {
+  const u64 t0 = svcGetSystemTick();
+  memcpy(dst, src, bytes);
+  const u64 t1 = svcGetSystemTick();
+  GSPGPU_FlushDataCache(dst, (u32)bytes);
+  g_tex_copy_ticks += t1 - t0;
+  g_tex_flush_ticks += svcGetSystemTick() - t1;
+  g_tex_runs++;
+  g_tex_bytes += (int)bytes;
+}
+
+void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb) {
+  *copy_ms = (float)((double)g_tex_copy_ticks * 1000.0 / SYSCLOCK_ARM11);
+  *flush_ms = (float)((double)g_tex_flush_ticks * 1000.0 / SYSCLOCK_ARM11);
+  *runs = g_tex_runs;
+  *kb = g_tex_bytes / 1024;
+}
+
 static void CopyBlocks(TexImpl *im) {
   const int words = im->bw1;
   int run0 = -1, last = -1;
@@ -99,26 +122,21 @@ static void CopyBlocks(TexImpl *im) {
       const int b = wi * 32 + __builtin_ctz(bits);
       bits &= bits - 1;
       if (run0 >= 0 && b - last > kRunGap) {
-        memcpy(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
-        GSPGPU_FlushDataCache(dst + (size_t)run0 * 64, (u32)(last - run0 + 1) * 128);
+        CopyRun(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
         run0 = -1;
       }
       if (run0 < 0) run0 = b;
       last = b;
     }
   }
-  if (run0 >= 0) {
-    memcpy(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
-    GSPGPU_FlushDataCache(dst + (size_t)run0 * 64, (u32)(last - run0 + 1) * 128);
-  }
+  if (run0 >= 0) CopyRun(dst + (size_t)run0 * 64, im->px + (size_t)run0 * 64, (size_t)(last - run0 + 1) * 128);
   im->bw0 = im->bw1 = 0;
 }
 
 static void CopyDirty(TexImpl *im) {
   if (im->b1 > im->b0) {
     const size_t off = (size_t)im->b0 * 8 * im->w, n = (size_t)(im->b1 - im->b0) * 8 * im->w;
-    memcpy((uint16_t *)im->tex.data + off, im->px + off, n * 2);
-    GSPGPU_FlushDataCache((uint16_t *)im->tex.data + off, (u32)(n * 2));
+    CopyRun((uint16_t *)im->tex.data + off, im->px + off, n * 2);
   }
   if (im->bw1 > im->bw0) CopyBlocks(im);
   im->b0 = im->b1 = 0;
@@ -172,6 +190,8 @@ static bool g_any_frame;
 static u64 g_tex_wait_ticks;   // counted into the frame's "wait for GPU" (a copy forced out of turn)
 // Copies every changed row to the textures the GPU samples: only when the GPU is not drawing (after C3D_FrameBegin).
 static void FlushTextures(void) {
+  g_tex_copy_ticks = g_tex_flush_ticks = 0;
+  g_tex_runs = g_tex_bytes = 0;
   for (int i = 0; i < g_dirty_n; i++) CopyDirty(g_dirty[i]);
   g_dirty_n = 0;
 }
