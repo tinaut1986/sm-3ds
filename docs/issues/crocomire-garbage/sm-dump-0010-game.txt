@@ -1,0 +1,5 @@
+version=v0.3.3-dev.10.18+3b67c41
+game_state=08 area=2 room=10 room_ptr=A98D
+samus x=890 y=155 pose=01 movement=00 xdir=8
+health=199/199 missiles=7/15 super=0 pb=0
+layer1 x=826 y=0 frame_counter=29407

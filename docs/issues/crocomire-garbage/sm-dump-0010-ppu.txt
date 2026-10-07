@@ -1,0 +1,21 @@
+mode=1 bg3priority=1 forcedBlank=0 brightness=15 overscan=0 pseudoHires=0 directColor=0
+bg1 hscroll=570 vscroll=0 tilemapAdr=5000 tileAdr=0000 wider=1 higher=0 big=0 mosaic=0
+bg2 hscroll=749 vscroll=459 tilemapAdr=4800 tileAdr=0000 wider=1 higher=0 big=0 mosaic=0
+bg3 hscroll=570 vscroll=59 tilemapAdr=5800 tileAdr=4000 wider=0 higher=1 big=0 mosaic=0
+bg4 hscroll=0 vscroll=0 tilemapAdr=0000 tileAdr=0000 wider=0 higher=0 big=0 mosaic=0
+layer0 main=0 sub=1 mainWindowed=0 subWindowed=0
+layer1 main=0 sub=1 mainWindowed=0 subWindowed=0
+layer2 main=1 sub=0 mainWindowed=0 subWindowed=0
+layer3 main=0 sub=0 mainWindowed=0 subWindowed=0
+layer4 main=0 sub=1 mainWindowed=0 subWindowed=0
+window0 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window1 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window2 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window3 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window4 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window5 w1=0 w2=0 w1inv=0 w2inv=0 logic=0
+window1=0..0 window2=0..0
+colormath clip=0 prevent=0 addSub=1 sub=0 half=0 fixed=0,0,0 enabled=001001
+obj size=0 tileAdr1=6000 tileAdr2=7000 priority=0
+mode7 a=256 b=0 c=0 d=256 x=128 y=128 h=1594 v=0 large=1 charFill=0 xflip=0 yflip=0 extBg=0
+mosaicSize=1
