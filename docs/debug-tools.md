@@ -32,7 +32,17 @@ DEBUG TOOLS window: SCREEN DUMP, FRAME DUMP, LOG TO SD (below), LOG MARK, SCENE 
 (GPU by default, CPU for the session; see docs/gpu-ppu-design.md), PLANE TINT (below) and GPU CHECK (draws the next frame with both
 renderers: a dump set whose `-top.rgb` is the CPU's and `-gpu.rgb` the GPU's, and a
 toast with how many pixels differ). Dumps and frame captures are always drawn by the
-CPU renderer, even with RENDERER on GPU.
+CPU renderer, even with RENDERER on GPU. FORCE 3D (not saved) makes a console without the 3D
+screen (2DS) also draw the second eye, into a target that is never shown, with the slider at
+half and the 3D's edge columns: the CPU cost an Old 3DS pays with the slider up, to measure it
+with the PERF RECORDER on a 2DS. What is shown is the left eye, shifted like the real 3D's.
+On a console with the 3D screen the slider decides and the cell does nothing.
+SPREAD TILES (not saved, CHARS at boot; the cell cycles OFF / CHARS / CHARS + COLOURS; COLOURS also puts off the tiles whose palette changed, a cycling palette then shows a few frames late) decodes the BG tiles whose char data changed and nothing else (an animated tile
+set: 628 tilemap entries every 10 frames in the Landing Site) at most 224 a frame, from the tilemap row where the last frame
+stopped, the rest a few frames later: the animation lags up to ~3 frames instead of one frame growing by ~5 ms. New tiles,
+tilemap, palette and plane changes are never deferred. Off = every tile at once, as before. The host test takes `DEFER=n`
+(`DEFER=40 tools/gpu-ppu-test/run.sh ROM rooms 60`, `DEFER_PAL=1` adds the palette changes: every room, compared with the CPU renderer once no tile is waiting).
+The perf CSV has `tiles_deferred` (put off this frame) and `tiles_pending` (still waiting after it).
 
 A loaded state or a reset turns MAX off without restoring (the state brings its own
 values) and forgets the forced maps.
@@ -96,7 +106,7 @@ once landed in slot 00 (issue #8).
 | `sm-dump-NNNN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |
 | `sm-log-NN.txt` | the SD log. Debug builds start it at boot (one per session; LOG TO SD toggles it): console model, the core-1 time limit granted, every settings change (CPU clock, renderer, audio, display mode, WIDE, pause), and every 5 s the speed, shown fps, work/logic/draw times, the GPU build stages, submit and GPU wait, bands and quads, tiles and mode 7 cells decoded, and the audio thread's health (block time, callbacks slower than their buffer, late starts); then each exit step |
 | `sm-exit.txt` | the steps of the last exit, in every build: if closing hangs, the last line says where |
-| `sm-perf-NN.csv` | frame-time recorder |
+| `sm-perf-NN.csv` (summarise it with `tools/perf-csv/analyze.py`) | frame-time recorder, one row per game frame: `logic_ms, draw_ms, audio_ms` (the audio thread), `work_ms` (the whole loop iteration), `shown`, `game_state, area, room` (0 right after a save state is loaded), the audio block's parts, then, for a frame that drew: `gpu_build_ms, gpu_wait_ms, gpu_submit_ms`, inside the build `lines_ms, diff_ms, sprites_ms, bg_ms`, `tiles` decoded, `quads`, `bands`, the texture upload (`tex_copy_ms`, `tex_flush_ms`, `tex_runs` = cache-flush calls, `tex_kb` copied), `gpu_draw_ms`, `gpu_proc_ms`, `cmdbuf` (the GPU's own time for the last frame it finished and the command buffer use, citro3d's counters), `dp_ms` (the whole `GpuPpu3ds_DrawAndPresent` call), and for every frame `ui_ms` (`BottomUi_Frame`, the bottom screen's redraw), `present_ms` (both screens' conversion + swap) and `present_wait_ms` (the vblank wait inside it); then `tiles_reused` (of the tiles decoded, copied from an identical one decoded earlier in the frame) and `why_fresh, why_map, why_pal, why_char, why_plane` (why they were decoded: a new surface, the tilemap entry, the palette row, the char data or the plane fix changed); `tiles_deferred`, `tiles_pending` (SPREAD TILES). `work_ms - logic_ms - draw_ms` is what the bottom screen cost |
 | `sm-rec-NNNN.bin` | scene recorder (below) |
 | `sm-dump-NNNN-note.txt`, `sm-rec-NNNN-note.txt` | what the owner said was wrong when taking it (REPORT, below): one line |
 | `sm-crash.txt` | assert / `Unreachable()` notes (all builds) |

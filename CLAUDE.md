@@ -221,6 +221,7 @@ never committed): `tools/ui-preview/build.sh` renders the bottom-screen tabs to 
 room, `tools/stereo-test/run.sh` checks the stereo depth mapping (no ROM), `./run_workbench.sh` (`tools/layer-workbench/`, README) looks at every room layer by layer and saves which blocks or layers go to another 3D plane in `source/sm_plane_fixes.inc`,
 `tools/ra-tags/dp_tags.py` (docstring) checks the RetroAchievements table against the set the console saved,
 `tools/game-text/` (README) finds a screen's text for the game's translation, `tools/scene-rec/decode.py` turns a scene recording from the console into PNGs/mp4,
+`tools/perf-csv/analyze.py FILE.csv` summarises a PERF RECORDER recording (fps, a steady frame, tile events, what the frames over budget were doing),
 `tools/update-mock-server.py` serves a fake releases list (with notes) so the updater can be tried without publishing: put its URL in `update_url.txt` in the data folder, and do not accept the install
 (see `docs/debug-tools.md`). Installing on the owner's console: FBI's FTP server, `curl -T
 output/SuperMetroid3DSPort.cia ftp://<3ds-ip>:5000/cias/sm-3ds-dev.cia`; files from the
