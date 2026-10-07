@@ -341,7 +341,7 @@ So the right run size follows the model: a clean gap of g blocks costs 1.4 us pe
 call costs 108 us, so runs closer than ~80 blocks should merge. `kRunGap` is now 80 (was 8); the prediction is
 ~4 runs and ~480 KB (copy ~5.2 + flush ~1.1 = ~6.3 ms) for the event instead of 10.6: about -4.5 ms on the
 spike frame, which does not by itself bring it under the budget (logic 5.3 + draw ~15.6). The build
-`v0.3.3-dev.10.6` records it (`tex_*` columns) and the whole `DrawAndPresent` call as `dp_ms`.
+`v0.3.3-dev.10.8+37dbc26` records it (`tex_*` columns) and the whole `DrawAndPresent` call as `dp_ms`.
 
 What would take the copy itself (91 MB/s on the CPU) off the frame, the next lever:
 - `GX_RequestDma(src, dst, length)` (libctru `gx.h`): the GSP's DMA copies the runs, the CPU only queues them; the
