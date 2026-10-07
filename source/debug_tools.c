@@ -259,6 +259,9 @@ void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra) {
   WriteRgb(fmt, slot, bgra);
 }
 
+static void (*g_obj_dump)(FILE *f);
+void Debug_SetObjDump(void (*fn)(FILE *f)) { g_obj_dump = fn; }
+
 int Debug_DumpScreen(const uint8_t *bgra) {
   mkdir(DEBUG_DIR, 0777);
   int slot = Debug_NextSlot("dump", DEBUG_DIR "/sm-dump-%04d-top.rgb", DUMP_SLOTS);
@@ -277,6 +280,8 @@ int Debug_DumpScreen(const uint8_t *bgra) {
   if (f) { WritePpuText(f, p); fclose(f); }
   f = OpenSlotFile(DEBUG_DIR "/sm-dump-%04d-game.txt", slot, "w");
   if (f) { WriteGameText(f); fclose(f); }
+  f = OpenSlotFile(DEBUG_DIR "/sm-dump-%04d-obj.txt", slot, "w");
+  if (f) { if (g_obj_dump) g_obj_dump(f); fclose(f); }
   // Files left in this slot by an older set would pass for this set's.
   char path[96];
   snprintf(path, sizeof(path), DEBUG_DIR "/sm-dump-%04d-frame.txt", slot);

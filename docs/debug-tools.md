@@ -90,6 +90,7 @@ once landed in slot 00 (issue #8).
 | `sm-dump-NNNN-vram.bin`, `-cgram.bin`, `-oam.bin`, `-highoam.bin` | PPU memories |
 | `sm-dump-NNNN-wram.bin` | the whole 128 KB of WRAM (`g_ram`) |
 | `sm-dump-NNNN-ppu.txt` | PPU register state at the end of the frame |
+| `sm-dump-NNNN-obj.txt` | the OAM entries with the position tags the GPU renderer reads (`g_rtl_oam_shown_*`: -32768 unknown, 16384 parked on purpose, h = HUD) and every sprite quad of the last GPU frame: to see which entries did not become quads |
 | `sm-dump-NNNN-game.txt` | game state, room, Samus |
 | `sm-dump-NNNN-frame.txt` | FRAME DUMP only: every PPU register write of the frame (below) |
 | `sm-dump-NNNN-gpu.rgb` | GPU CHECK only: the GPU renderer's output read back, like `-top.rgb` |

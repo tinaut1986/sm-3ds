@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 // Creates debug/ if needed. Safe to call more than once.
 void Debug_Init(const char *version);
@@ -34,6 +35,10 @@ int Debug_DumpScreen(const uint8_t *bgra);
 
 // Adds sm-dump-NN-<suffix>.rgb (256x240 like -top.rgb) to dump set `slot`.
 void Debug_DumpExtraImage(int slot, const char *suffix, const uint8_t *bgra);
+
+// Adds sm-dump-NN-obj.txt to every dump set: what `fn` writes (main.c: the OAM entries with the
+// position tags the GPU renderer reads, and the sprite quads of the last GPU frame it built).
+void Debug_SetObjDump(void (*fn)(FILE *f));
 
 // Frame capture: a dump set plus debug/sm-dump-NN-frame.txt, which lists every PPU
 // register write of one frame with its scanline, the HDMA channel setup and a

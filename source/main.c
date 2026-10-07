@@ -176,6 +176,26 @@ static float Stereo3dSlider(void) {
 // top screen is currently being presented by citro3d rather than by DrawPpuFrame.
 static PpuLineCapture g_line_capture;
 static GpuFrame g_gpu_frame;
+
+// sm-dump-NN-obj.txt: per OAM entry the raw bytes and the position tags the GPU renderer uses
+// (x/y tag; -32768 unknown, 16384 parked on purpose; h = HUD), then every sprite quad of the last
+// GPU frame, to see which entries became quads.
+static void DumpObjText(FILE *f) {
+  const Ppu *p = g_snes->ppu;
+  fprintf(f, "# gpu_frame x0 %d show_x0 %d quads %d (this dump's frame may be one later)\n# oam: idx rawx rawy tile attr hi | tagx tagy hud\n",
+          g_gpu_frame.x0, g_gpu_frame.show_x0, g_gpu_frame.quad_count);
+  for (int i = 0; i < 128; i++) {
+    const uint16_t o0 = p->oam[i * 2], o1 = p->oam[i * 2 + 1];
+    const int hi = (p->highOam[i >> 2] >> ((i & 3) * 2)) & 3;
+    fprintf(f, "%3d %3d %3d %02X %04X %d | %d %d %d\n", i, o0 & 0xff, o0 >> 8, o1 & 0xff, o1 >> 8, hi, g_rtl_oam_shown_x[i],
+            g_rtl_oam_shown_y[i], g_rtl_oam_shown_hud[i]);
+  }
+  fprintf(f, "# sprite quads: x y w h level plane\n");
+  for (int q = 0; q < g_gpu_frame.quad_count; q++) {
+    const GpuQuad *qd = &g_gpu_frame.quads[q];
+    if (qd->flags & kGpuQuadObj) fprintf(f, "%d %d %d %d %d %d\n", qd->x, qd->y, qd->w, qd->h, qd->level, qd->plane);
+  }
+}
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
 // WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
@@ -707,6 +727,7 @@ int main(int argc, char** argv) {
 
   mkdir("saves", 0755);
   Debug_Init(APP_VERSION);
+  Debug_SetObjDump(DumpObjText);
 #if DEBUG_TOOLS
   // Debug builds log from boot, so a playtest always leaves a log behind.
   Debug_LogSetEnabled(true);
