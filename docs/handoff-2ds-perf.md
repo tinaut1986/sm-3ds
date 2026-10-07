@@ -264,6 +264,55 @@ PERF run. Also run `make test` since `SyncSurface` changes.
 
 The 1298 ms frame at frame 72 is not a draw cost (the recording was started right after a load).
 
+### 4.7 Third and fourth PERF runs (2026-10-07 22:00, `v0.3.3-dev.10.4+4ba9bc8`: dirty tile blocks, FORCE 3D)
+
+Files: `docs/handoff/logs/sm-perf-02.csv` (2328 frames, FORCE 3D off) and `sm-perf-03.csv` (1692 frames,
+FORCE 3D on; a different room, 55 quads against 79). Scripts like the ones in this section are easy
+to rewrite: group the shown frames by `tiles` and compare the columns.
+
+**The per-tile copy did not help the spike: it made it a little worse.** 02: 50.3 fps (no change from
+50.1), spike frames still every 10 frames, `gpu_submit_ms` 10.6 against 8.5 before, draw 19.6.
+Only the build got cheaper (8.0 against 8.9: the 32-bit `DecodeTile`). The shape of the cost says why:
+
+| tiles in the frame | frames | submit ms |
+|---|---|---|
+| 0 | 1409 | 1.75 |
+| 1-50 | 267 | 1.9 |
+| **300-700** (the every-10-frames event: 628) | 223 | **11.6** |
+| 700-1700 (the 1536-tile ones) | 41 | **4.3** |
+| 1700+ (room entry) | 10 | 14.3 |
+
+Submit does not follow the number of tiles or bytes: 1536 tiles (**contiguous**: they fill whole
+rows) are cheap, 628 **scattered** tiles are the worst. So the cost is per **flush call**:
+`GSPGPU_FlushDataCache` is an IPC to the GSP, and `CopyBlocks` makes one per run of dirty blocks
+(runs closer than `kRunGap` = 8 blocks merge), maybe 40+ runs a texture for 628 scattered tiles. The old
+code made two calls and copied 512 KB (8.5 ms); this one copies ~160 KB with many calls (11.6 ms).
+The per-call cost is estimated at ~0.1 ms, not measured: the build `v0.3.3-dev.10.5+82c63ed` adds
+`tex_copy_ms, tex_flush_ms, tex_runs, tex_kb` to the CSV (copy and flush timed apart, calls and KB), and
+the next recording fits both costs (copy ms per KB, flush ms per call). Then choose the run size
+(merge runs when the clean blocks between them cost less to copy than a call: if a call is ~0.1 ms and
+copying ~13 us/KB, runs up to ~60 blocks apart should merge, which at 31 % density is one run per
+texture again, i.e. no gain over the old code; then the way forward is fewer dirty tiles or
+a cheaper upload, below).
+
+Ideas if the fit says copying dominates (the flush calls do not): the animation changes few chars but
+628 tilemap entries use them; **decode and upload per distinct char instead of per entry** is out of
+reach in this design, but **uploading as 8x8 blocks with the GPU's own copy** (`GX_RequestDma`,
+the source flushed once) would take the memcpy off the CPU. Another is a different texture
+layout for the BG: the tile chars in an atlas (once per char) and the tilemap as quads or a lookup
+(a bigger change; the renderer draws the tilemap as a texture today).
+
+**FORCE 3D (03): 45.9 fps against 50.3.** The normal frame (no spike) costs draw 10.8 ms against
+8.05 (submit 2.3 against 1.8, build 5.9 against 5.3, the edge columns widen the frame) and work
+**16.2 ms mean, p95 18.2** against 13.5: with the second eye the steady frame is on the budget by
+itself (127 frames skipped for no event, "other"). Even with the spike fixed, an Old 3DS with the slider up
+would hover at 55-60 fps with frequent skips; then the fixed costs matter (`lines+bands` 3.4, submit
+2.3, logic 5.2). Careful with the comparison: 03 is a different room.
+
+Also: the bottom screen's redraws are down to ~72 in 39 s (gaps 15 and 120: the log shows no
+"bottom UI: redraw" line with a non-clock field, so the 120-frame ones are the minute or ... check
+once the log has run longer).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
