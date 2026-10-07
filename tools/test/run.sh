@@ -135,6 +135,9 @@ WARP_AT=192,256,330,315 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F253 run_gpu wide-pipebug 
 WARP_AT=105,256,110,411 WIDE=72 WIDE_Y=8 ENEMY_MARGIN=F193 run_gpu wide-pipebug-leaving rooms 200 A56B &
 # PIXEL PERFECT's extra rows in every room: they lean off a room's top or bottom (#7).
 WIDE=72 WIDE_Y=8 run_gpu wide-rows rooms 10 &
+# Spore Spawn's room: the stalk's balls (OAM priority 3) are drawn under Samus and the head, so they must be
+# on OBJ (plane 3), not on PLAY (#23).
+STEREO_P3=3 run_gpu stereo-stalk rooms 60 9DC7 &
 # The same rooms with AddressSanitizer: sprites in the extra rows above the picture read the line tables
 # at a negative row (Spore Spawn's crown and head vanished on the console, 2026-10-07, #25).
 GPU_BUILD=asan-build WIDE=72 WIDE_Y=8 run_gpu wide-asan rooms 10 &
@@ -225,6 +228,10 @@ echo "wide-rows: every room with WIDE PIXEL PERFECT (72 px, 8 extra rows), 10 fr
 gpu_checks wide-rows
 wide_checks wide-rows
 expect wide-rows.image "$(field "$OUT/wide-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
+echo "stereo-stalk: Spore Spawn's room, the stalk's priority 3 sprites on the same plane as Samus and the head"
+gpu_checks stereo-stalk
+check stereo-stalk "the room had priority 3 sprites (frames > 0)" "$([ "$(field "$OUT/stereo-stalk.log" 'STEREO_P3 frames with priority 3 sprites: [0-9]*' | awk '{print $NF}')" -gt 0 ]; echo $?)"
+check stereo-stalk "none of them off the OBJ plane" "$([ "$(field "$OUT/stereo-stalk.log" 'STEREO_P3 frames with priority 3 sprites: [0-9]*, quads [0-9]*, not on the plane [0-9]*' | awk '{print $NF}')" = 0 ]; echo $?)"
 echo "wide-asan: the wide-rows rooms built with AddressSanitizer (no out-of-range read in the frame builder)"
 check wide-asan "no sanitizer report" "$(! grep -q 'AddressSanitizer' "$OUT/wide-asan.log"; echo $?)"
 check wide-asan "ran to the end" "$(grep -q '^RESULT frames' "$OUT/wide-asan.log"; echo $?)"
