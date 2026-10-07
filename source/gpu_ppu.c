@@ -458,6 +458,19 @@ typedef struct {
 } Surface;
 
 static Surface g_surf[kSurfaces];
+
+// Tiles decoded this frame, by what they look like (chars, palette, flips): an animated char used by dozens of
+// tilemap entries is decoded once and copied (128 bytes) to the others. Pointers into the textures are only good
+// until a texture is freed, so every free, and every new frame, starts a new generation.
+typedef struct {
+  uint64_t key;
+  uint32_t gen;
+  const uint16_t *block;
+  bool visible;
+} TileMemo;
+static TileMemo g_tile_memo[2048];
+static uint32_t g_memo_gen = 1;
+
 static uint32_t g_frame_no;
 
 static uint32_t SurfaceKey(const BgLayer *bg, int bpp) {
@@ -476,6 +489,7 @@ static uint16_t MapAddr(const Surface *s, int tx, int ty) {
 }
 
 static void FreeExtras(Surface *s) {
+  g_memo_gen++;   // the tile memo points into textures
   for (int p = 0; p < kGpuXPlanes; p++)
     for (int i = 0; i < 2; i++)
       if (s->xtex[p][i].px) GpuBackend_TexFree(&s->xtex[p][i]);
@@ -485,6 +499,7 @@ static void FreeExtras(Surface *s) {
 }
 
 static void FreeSurface(Surface *s) {
+  g_memo_gen++;
   for (int i = 0; i < 2; i++)
     if (s->tex[i].px) GpuBackend_TexFree(&s->tex[i]);
   FreeExtras(s);
@@ -581,7 +596,18 @@ static void DecodeBgTile(Surface *s, const Ppu *ppu, int tx, int ty, uint16_t e,
   }
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const int base = s->bpp == 4 ? s->tiles + c * 16 : s->tiles + c * 8;
-  const bool visible = DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000) != 0;
+  const uint32_t tag = (uint32_t)(e & 0x3ff) | (uint32_t)pal << 10 | (uint32_t)(e >> 14) << 13;
+  const uint64_t key = (uint64_t)s->tiles << 17 | (uint64_t)(s->bpp == 4) << 16 | tag;
+  TileMemo *memo = &g_tile_memo[(tag * 2654435761u ^ (uint32_t)s->tiles * 40503u) >> 21];
+  bool visible;
+  if (memo->gen == g_memo_gen && memo->key == key) {
+    memcpy(dst, memo->block, 64 * sizeof(uint16_t));
+    visible = memo->visible;
+    g_stats.tiles_reused++;
+  } else {
+    visible = DecodeTile(dst, ppu, base, s->bpp, s->bpp == 4 ? g_lut_bg4[pal] : g_lut_bg2[pal], e & 0x4000, e & 0x8000) != 0;
+    memo->key = key, memo->gen = g_memo_gen, memo->block = dst, memo->visible = visible;
+  }
   GpuBackend_TexBlockWritten(to, tile);
   g_stats.tiles_decoded++;
   // Which texture the tile ended up in (the layer's own when the plane's could not be made).
@@ -625,7 +651,13 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       const uint16_t e = ppu->vram[MapAddr(s, tx, ty)];
       uint16_t *m = &s->map[ty * 64 + tx];
       const uint8_t pl = fixes ? grid[ty * 64 + tx] : 0;
-      if (!s->fresh && e == *m && pl == s->slot_plane[ty * 64 + tx] && !CharDirty(s, e) && !PalDirty(s, e)) continue;
+      const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e);
+      if (!s->fresh && e == *m && pl == s->slot_plane[ty * 64 + tx] && !cd && !pd) continue;
+      if (s->fresh) g_stats.tiles_fresh++;
+      else if (e != *m) g_stats.tiles_map++;
+      else if (pd) g_stats.tiles_pal++;
+      else if (cd) g_stats.tiles_char++;
+      else g_stats.tiles_plane++;
       const int prev = s->fresh ? -1 : TileChoice(*m, s->slot_plane[ty * 64 + tx]);
       *m = e;
       s->slot_plane[ty * 64 + tx] = pl;
@@ -1408,6 +1440,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   static PpuLineCapture work;
   const PpuLineCapture *orig = cap;
   memset(&g_stats, 0, sizeof(g_stats));
+  g_memo_gen++;
   g_quad_plane = 0;
   out->tex_count = out->quad_count = out->band_count = out->cw_count = out->mask_count = 0;
   out->hud_first = out->hud_count = g_hud_quad_count = 0;

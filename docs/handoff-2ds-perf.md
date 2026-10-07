@@ -428,6 +428,24 @@ If it is not enough, the experiments in order: (1) crop each quad to the boundin
 (3) skip the clears/sub target when the frame has no colour math; (4) probe the passes one by one (skip the bands,
 skip the stretch, skip the clears) with `gpu_draw_ms`, which tells which is the big one.
 
+### 4.11 Eleventh and twelfth PERF runs (2026-10-07 22:44, `v0.3.3-dev.10.12+ed3b723`: empty textures skipped)
+
+Files: `docs/handoff/logs/sm-perf-10.csv` (17 s, FORCE 3D off, 53.3 fps) and `sm-perf-11.csv` (22 s, on, 51.4 fps);
+the owner's first recording of that session was made on the DEBUG tab by mistake and is not kept.
+
+The empty-texture skip worked: quads 79 -> **72**, the GPU's own drawing time **7.63 -> 6.71 ms per eye** (-12 %), and with two eyes
+**15.59 -> 12.85 ms**. The steady frame now fits in 3D: **3 of 958 steady frames overrun** (670 of 1272 before), `gpu_wait_ms` back to
+0.01, 51.4 fps against 46.6. What is left in both modes is the **tile events**: the 628-tile one (draw 15.0 mono, 16.7 in 3D) and the
+1536/2164 ones every ~4 s.
+
+**What the 628-tile event is, reproduced on the host** (`TILE_TRACE=1 tools/gpu-ppu-test/run.sh ROM rooms 400 91F8`: the tile
+counters now say why a tile is decoded): every 10 frames the game rewrites the **char data** of an animated tile set in VRAM
+(`char 628`, not the palette nor the tilemap), and 628 tilemap entries use those chars. But only **6 distinct tiles** are involved:
+`DecodeBgTile` now keeps a per-frame memo of what it decoded (char base, char, palette, flips) and copies the other 622 (128 bytes
+each) instead of decoding them; a fresh surface (room entry) reuses 6959 of 7168. The decode part of the event (bg +2 ms) and the
+room-entry hitch should shrink a lot. The texture upload (copy 3.85 + flush 1.08 ms for 389 KB) is unchanged: the next cut
+is `GX_TextureCopy`/DMA for it (4.10).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the

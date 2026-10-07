@@ -254,6 +254,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
 
 typedef struct {
   int surfaces, tiles_decoded, sprites, screen_rows_composed, m7_cells_decoded;
+  int tiles_reused, tiles_fresh, tiles_map, tiles_pal, tiles_char, tiles_plane;   // tiles_reused: of tiles_decoded, copied from an identical tile decoded earlier in the frame   // why the BG tiles were decoded: new surface, tilemap entry changed, palette row changed, char data changed, plane fix changed
   // Time per stage of the last build, in g_gpu_ppu_clock units (0 without a clock):
   // line analysis + bands, VRAM/CGRAM diff, sprites, BG surfaces and quads, shadow copy.
   uint64_t t_lines, t_diff, t_sprites, t_bg, t_shadow;

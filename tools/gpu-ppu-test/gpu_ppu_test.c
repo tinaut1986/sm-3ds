@@ -717,6 +717,9 @@ static void TestFrame(const char *label, bool check_capture) {
   }
   const GpuPpuStats *st = GpuPpu_LastStats();
   g_tiles += st->tiles_decoded;
+  if (getenv("TILE_TRACE") && st->tiles_decoded)   // why the BG tiles were decoded this frame
+    printf("%s: frame %d tiles %d (reused %d): fresh %d map %d palette %d char %d plane %d\n", label, g_frames, st->tiles_decoded, st->tiles_reused, st->tiles_fresh,
+           st->tiles_map, st->tiles_pal, st->tiles_char, st->tiles_plane);
   g_composed += st->screen_rows_composed;
   g_composed_frames += st->screen_rows_composed > 0;
   if (getenv("SHOW_COMPOSE") && st->screen_rows_composed) printf("%s: composed %d rows\n", label, st->screen_rows_composed);
