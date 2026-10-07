@@ -2376,8 +2376,10 @@ bool BottomUi_Frame(const UiPerf *p) {
     g_dirty = 2;
     why = "unlock notice";
   }
-  // The battery moves far slower than anything else here.
-  if (g_ptmu && p->frames % 120 == 0) {
+  // The battery moves far slower than anything else here, and the two PTM calls cost 2-3 ms on an
+  // Old 3DS (the perf CSV: ui_ms 2-3 with no present, every 120 frames, enough to overrun the frame):
+  // every 20 s.
+  if (g_ptmu && p->frames % 1200 == 0) {
     PTMU_GetBatteryLevel(&g_battery);
     PTMU_GetBatteryChargeState(&g_charging);
     if (g_battery > 5) g_battery = 5;

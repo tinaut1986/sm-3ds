@@ -464,6 +464,27 @@ the 1536/2164 events (23) and 11 others. In 3D: the 628-tile event (draw 15.5 + 
 Next, in order: (1) the upload of the event by hardware copy (`GX_TextureCopy` + `C3D_SyncTextureCopy`, one call per texture) to cut the
 ~4 ms of `memcpy`; (2) what the 1536 events are; (3) the 120-frame bottom redraw (the log will say).
 
+### 4.13 Fifteenth and sixteenth PERF runs (2026-10-07 23:42, `v0.3.3-dev.10.15+9b5ef29`: why the bottom screen and the tiles)
+
+Files: `docs/handoff/logs/sm-perf-14.csv` (23 s, FORCE 3D off, 55.8 fps) and `sm-perf-15.csv` (20 s, on, 52.0 fps).
+
+**The "bottom redraw every 120 frames" was not a redraw**: those frames have `ui_ms` 1.8-3.3 and `present_ms` 0.0 (no conversion, no
+swap). It is the battery poll in `BottomUi_Frame` every 120 frames: `PTMU_GetBatteryLevel` + `PTMU_GetBatteryChargeState`, two service calls
+that cost 2-3 ms on this console (the log's `bottom UI: redraw, <why>` lines only show taps and toasts: the owner's own taps starting and
+stopping the recorder). Now every 1200 frames (20 s).
+
+**The 1536-tile events are palette animations**, now visible in `why_*`: `pal 1487..1664` (not the tilemap nor the chars), in a burst of
+~10 frames two apart every ~240 frames (frames 180..199, then 438..), i.e. a flash or fade of a palette row (the Landing Site's lightning?).
+Each frame of the burst re-decodes the ~1536 tilemap entries that use that row; the memo reuses ~1400 of them, but the cost stays
+`bg_ms` 6.2-7.3 (~3.4 us per entry: the memcpy of 128-byte blocks into a 512 KB texture, cache misses, not the decode of the ~150
+distinct tiles) and the frame 15-16 ms of draw. In the 628-tile event (`char 628`, `reused 623`) it is the upload that costs
+(copy 4.1 + flush 1.3 ms).
+
+Frames (mono): skipped 98 = 38 after a draw over 15 ms, 27 with an extra over 5 ms outside logic and draw (the PTM poll, taps,
+toasts), 33 other. Steady frames over 16.7: 3. The remaining levers, in order: (1) the PTM poll (done); (2) the upload of the 628 event
+by hardware copy; (3) the palette bursts: decode only the entries in the visible window (WIDE + PIXEL PERFECT shows ~73 % of the
+tilemap) and skip the burst's intermediate frames (the animation is 2 frames apart: a decode every other game frame already).
+
 ### 4.4 Constraints to respect when changing the renderer
 
 - The GPU output must stay pixel-identical to the CPU renderer (host tests; max error 8 on the
