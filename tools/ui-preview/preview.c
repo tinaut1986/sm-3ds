@@ -34,6 +34,8 @@ Result PTMU_GetBatteryChargeState(u8 *out) { *out = 1; return 0; }
 u8 osGetWifiStrength(void) { return 2; }
 void NORETURN Die(const char *e) { exit(1); }
 void Warning(const char *e) {}
+static bool g_gameplay;   // what SmWide_Gameplay says (the low-energy blink only runs in gameplay)
+bool SmWide_Gameplay(void) { return g_gameplay; }
 
 static void Dump(const char *name) {
   FILE *f = fopen(name, "wb");
@@ -138,6 +140,20 @@ int main(int argc, char **argv) {
   Tap(192 + 15, 198 + 6);            // back to 1X
   TapTab(kStatus);
   Shot("status");
+  {   // the low-energy blink of the tab buttons (P1.10)
+    const uint16 health = samus_health;
+    g_gameplay = true;
+    samus_health = 25;
+    Shot("status, energy 25: tabs red, bright");
+    perf.frames += 8;
+    Shot("status, energy 25: tabs red, dim");
+    samus_health = 50;
+    perf.frames += 8;
+    Shot("status, energy 50: tabs yellow, bright");
+    samus_health = health;
+    g_gameplay = false;
+    Shot("status, energy back: tabs as usual");
+  }
 #if DEBUG_TOOLS
   Tap(260, 55);                      // GOD
   Tap(290, 55);                      // MAX

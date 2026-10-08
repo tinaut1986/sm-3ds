@@ -19,6 +19,7 @@
 #include "stereo_depth.h"
 #include "ui_draw.h"
 #include "updater.h"
+#include "sm_wide.h"
 #include "states_store.h"
 #include "ui_lang.h"
 #include "retro_ach.h"
@@ -189,16 +190,56 @@ static void DrawSystemStatus(Surface s) {
   UiDrawText(s, wx - 4 - UiTextWidth(buf, 1), cy - 3, 1, RGB(210, 220, 235), buf);
 }
 
-static void DrawTabBar(Surface s) {
+// Low energy (P1.10, as mzm's RenderTabBar): in gameplay the tab buttons blink yellow below 60 energy and red below 30,
+// 8 frames bright and 8 dim. Only the buttons change, so a blink is a partial update (TabBlinkUpdate), not a redraw.
+static uint32_t g_ui_frames;        // UiPerf.frames of the frame being drawn
+static int g_tab_warn_drawn;        // 0 none, 1 yellow, 2 red: what the buttons show
+static bool g_tab_bright_drawn;
+
+static int TabWarn(void) {
+  if (!SmWide_Gameplay()) return 0;
+  return samus_health < 30 ? 2 : samus_health < 60 ? 1 : 0;
+}
+
+static bool TabBright(void) { return (g_ui_frames & 15) < 8; }
+
+// The tab buttons only; returns the rectangle they cover (and how many there are in *count, if asked).
+static Rect DrawTabButtons(Surface s, int *count) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+  const int warn = TabWarn();
+  const bool bright = TabBright();
   for (int i = 0; i < n; i++) {
     const bool on = tabs[i] == g_tab;
     const Rect r = TabRect(i);
-    UiFillRect(s, r.x, r.y, r.w, r.h, on ? RGB(45, 150, 240) : RGB(50, 56, 75));
-    UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, on ? RGB(18, 70, 130) : RGB(26, 30, 42));
-    DrawTabIcon(s, tabs[i], r.x + r.w / 2, r.y + r.h / 2, on ? RGB(255, 255, 255) : RGB(140, 150, 175));
+    uint32_t edge, body, icon;
+    if (warn == 2) {
+      edge = bright ? (on ? RGB(230, 55, 40) : RGB(100, 30, 24)) : (on ? RGB(160, 38, 30) : RGB(65, 22, 18));
+      body = bright ? (on ? RGB(140, 28, 22) : RGB(60, 18, 16)) : (on ? RGB(80, 18, 18) : RGB(35, 12, 12));
+      icon = on ? RGB(255, 200, 190) : RGB(200, 120, 110);
+    } else if (warn == 1) {
+      edge = bright ? (on ? RGB(230, 180, 45) : RGB(100, 80, 28)) : (on ? RGB(170, 130, 35) : RGB(70, 58, 22));
+      body = bright ? (on ? RGB(130, 100, 24) : RGB(55, 44, 16)) : (on ? RGB(90, 70, 18) : RGB(38, 32, 12));
+      icon = on ? RGB(255, 245, 200) : RGB(200, 175, 110);
+    } else {
+      edge = on ? RGB(45, 150, 240) : RGB(50, 56, 75);
+      body = on ? RGB(18, 70, 130) : RGB(26, 30, 42);
+      icon = on ? RGB(255, 255, 255) : RGB(140, 150, 175);
+    }
+    UiFillRect(s, r.x, r.y, r.w, r.h, edge);
+    UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, body);
+    DrawTabIcon(s, tabs[i], r.x + r.w / 2, r.y + r.h / 2, icon);
   }
+  g_tab_warn_drawn = warn;
+  g_tab_bright_drawn = bright;
+  if (count) *count = n;
+  const Rect a = TabRect(0), b = TabRect(n - 1);
+  return (Rect){ a.x, a.y, b.x + b.w - a.x, a.h };
+}
+
+static void DrawTabBar(Surface s) {
+  int n;
+  DrawTabButtons(s, &n);
   // Things that are on whatever tab is shown.
   int x = TabRect(n).x;
   if (SceneRec_Active()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
@@ -2451,6 +2492,14 @@ static void PartAdd(Rect r) {
   g_part = 2;
 }
 
+// The low-energy blink and its start or end: the tab buttons alone. The unlock notice sits over them: they wait for it.
+static void TabBlinkUpdate(void) {
+  const int warn = TabWarn();
+  if (warn == g_tab_warn_drawn && (!warn || TabBright() == g_tab_bright_drawn)) return;
+  if (RetroAch_Toast()) return;
+  PartAdd(DrawTabButtons(UiDraw_Screen(GFX_BOTTOM), NULL));
+}
+
 static void LiveUpdate(const UiPerf *p) {
   Surface s = UiDraw_Screen(GFX_BOTTOM);
   if (g_tab == TAB_STATUS && GameTimeKey() != g_time_drawn) {
@@ -2470,6 +2519,7 @@ bool BottomUi_PresentRect(Rect *r) {
 
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
+  g_ui_frames = p->frames;
   const char *why = NULL;   // what asked for a redraw this frame, for the debug log
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
@@ -2534,6 +2584,7 @@ bool BottomUi_Frame(const UiPerf *p) {
   // only presents the same picture to the other buffer.
   if (g_dirty == 2) DrawBottom(p), g_live_key = LiveOk() ? LiveKey() : 0;
   if (LiveOk()) LiveUpdate(p);
+  TabBlinkUpdate();
   if (g_dirty > 0) {
     g_dirty--;
     if (g_part) g_part--;   // a full present carries the part too
