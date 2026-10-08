@@ -60,6 +60,9 @@ bool SmMap_RoomOwnsCell(const SmRoom *room, int col, int row);
 
 // True if the area's map station has been used, so every existing cell shows.
 bool SmMap_HasMapStation(int area);
+// Changes when what the pause map of `area` shows changes: its explored cells, its bosses, its map station
+// (the bottom screen's MAP tab redraws on it instead of every few frames).
+uint32_t SmMap_AreaKey(int area);
 
 // Where Samus is, in map cells of the current area. False outside of gameplay.
 bool SmMap_SamusCell(int *area, int *col, int *row);

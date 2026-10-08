@@ -74,6 +74,14 @@ static uint8_t *ExploredBits(int area) {
   return NULL;
 }
 
+uint32_t SmMap_AreaKey(int area) {
+  uint32_t h = 2166136261u;
+  const uint8_t *bits = ExploredBits(area);
+  for (int i = 0; bits && i < 256; i++) h = (h ^ bits[i]) * 16777619u;
+  if (area >= 0 && area < 6) h = (h ^ boss_bits_for_area[area]) * 16777619u;
+  return (h ^ (SmMap_HasMapStation(area) ? 1u : 0u)) * 16777619u;
+}
+
 bool SmMap_Cell(int area, int col, int row, bool *exists, bool *explored) {
   if (area < 0 || area >= kSmAreaCount || col < 0 || col >= kSmMapCols || row < 0 || row >= kSmMapRows) return false;
   const int i = CellIndex(col, row);
