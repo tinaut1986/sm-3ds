@@ -55,6 +55,8 @@ enum { kGpuTestOff, kGpuTestBgFlat, kGpuTestNoBg, kGpuTestNoSprites, kGpuTestNoT
 void GpuPpu3ds_SetGpuTest(int mode);
 // Eyes the last GpuPpu3ds_DrawAndPresent drew: 2 with the 3D on (slider up, or FORCE 3D), 1 otherwise.
 int GpuPpu3ds_LastEyes(void);
+// The last submit split: copying the decoded texels to the textures, building the eyes' commands, ending the frame.
+void GpuPpu3ds_LastSubmitParts(float *tex_ms, float *eyes_ms, float *end_ms);
 
 // The last frame's texture upload: ms copying, ms flushing the cache, flush calls, KB copied.
 void GpuPpu3ds_LastTexStats(float *copy_ms, float *flush_ms, int *runs, int *kb);
