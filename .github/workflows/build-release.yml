@@ -151,6 +151,9 @@ jobs:
           name: ${{ steps.vars.outputs.channel }} ${{ steps.vars.outputs.tag }}
           draft: false
           prerelease: ${{ steps.vars.outputs.prerelease == 'true' }}
+          # A beta promoted in place stays behind the previous stable as "latest" unless asked
+          # (v0.5.0 had to be set by hand): /releases/latest must be the stable one.
+          make_latest: ${{ steps.vars.outputs.prerelease == 'true' && 'false' || 'true' }}
           generate_release_notes: true
           body_path: release_notes.md
           files: |
