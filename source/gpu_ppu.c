@@ -831,6 +831,9 @@ static void M7DecodeCell(const Ppu *ppu, int c) {
     const uint8_t *m = g_row_morton[r];
     for (int x = 0; x < 8; x++) dst[m[x]] = g_lut_m7[src[r * 8 + x] >> 8];
   }
+  // Marked block by block, as the BG tiles: the Ceres elevator decodes 16-36 cells a frame spread over ~90 rows of
+  // cells, and marking the rows between them uploaded 1.4 MB a frame (13.7 ms on the 2DS) for ~4 KB of texels.
+  GpuBackend_TexBlockWritten(&g_m7_tex, c);
   g_stats.m7_cells_decoded++;
 }
 
@@ -840,18 +843,13 @@ static void M7Sync(const Ppu *ppu, int x0, int x1, int y0, int y1) {
   int cx0 = x0 >> 3, cx1 = x1 >> 3, cy0 = y0 >> 3, cy1 = y1 >> 3;
   if (cx1 - cx0 >= 127) cx0 = 0, cx1 = 127;
   if (cy1 - cy0 >= 127) cy0 = 0, cy1 = 127;
-  int rows0 = 128, rows1 = -1;
   for (int cy = cy0; cy <= cy1; cy++) {
     if (!g_m7_row_stale[cy & 127]) continue;
     for (int cx = cx0; cx <= cx1; cx++) {
       const int c = (cy & 127) * 128 + (cx & 127);
-      if (!g_m7_stale[c]) continue;
-      M7DecodeCell(ppu, c);
-      if ((cy & 127) < rows0) rows0 = cy & 127;
-      if ((cy & 127) > rows1) rows1 = cy & 127;
+      if (g_m7_stale[c]) M7DecodeCell(ppu, c);
     }
   }
-  if (rows1 >= rows0) GpuBackend_TexWritten(&g_m7_tex, rows0 * 8, rows1 * 8 + 8);
 }
 
 // The CPU renderer's per-line setup (PpuDrawBackground_mode7): plane position of the
