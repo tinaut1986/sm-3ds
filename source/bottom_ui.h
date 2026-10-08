@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ui_draw.h"
+
 typedef struct {
   float fps;          // frames actually shown per second, averaged over ~1 s
   float game_fps;     // game logic frames per second: 60 means full speed
@@ -90,6 +92,8 @@ void BottomUi_TouchUp(void);
 // gfxSwapBuffers.
 // Returns true if it drew this frame, i.e. the bottom screen needs a swap.
 bool BottomUi_Frame(const UiPerf *perf);
+// After BottomUi_Frame asked for a present: true when only *r changed (convert and present just that).
+bool BottomUi_PresentRect(Rect *r);
 
 // Short message at the bottom of the screen for ~1.5 s.
 void BottomUi_Toast(const char *msg);

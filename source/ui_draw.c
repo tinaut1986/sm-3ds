@@ -64,6 +64,25 @@ void UiDraw_Present(gfxScreen_t screen, bool both_eyes) {
     memcpy(gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL), gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL), n * 3);
 }
 
+void UiDraw_PresentRect(gfxScreen_t screen, Rect r) {
+  UiDraw_WaitSwapShown();
+  const Surface s = UiDraw_Screen(screen);
+  if (r.x < 0) r.w += r.x, r.x = 0;
+  if (r.y < 0) r.h += r.y, r.y = 0;
+  if (r.x + r.w > s.w) r.w = s.w - r.x;
+  if (r.y + r.h > s.h) r.h = s.h - r.y;
+  uint8_t *fb = gfxGetFramebuffer(screen, GFX_LEFT, NULL, NULL);
+  for (int x = r.x; x < r.x + r.w; x++) {   // column-major, origin bottom-left: rows y..y+h-1 are one run per column
+    const int i0 = x * s.h + (s.h - (r.y + r.h));
+    const uint32_t *src = s.px + i0;
+    uint8_t *dst = fb + i0 * 3;
+    for (int k = 0; k < r.h; k++, dst += 3) {
+      const uint32_t c = src[k];
+      dst[0] = (uint8_t)(c >> 8), dst[1] = (uint8_t)(c >> 16), dst[2] = (uint8_t)(c >> 24);
+    }
+  }
+}
+
 static int g_clip_y0, g_clip_y1 = 1 << 30;
 
 void UiClipY(int y0, int y1) { g_clip_y0 = y0, g_clip_y1 = y1; }

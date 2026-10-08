@@ -1034,7 +1034,9 @@ int main(int argc, char** argv) {
         // Nothing new on the top screen from us (skipped frame, or the
         // GPU presents it), but the UI changed: swap the bottom screen only.
         t1 = svcGetSystemTick();
-        UiDraw_Present(GFX_BOTTOM, false);
+        Rect part;
+        if (BottomUi_PresentRect(&part)) UiDraw_PresentRect(GFX_BOTTOM, part);   // a clock or a blinking mark
+        else UiDraw_Present(GFX_BOTTOM, false);
         gfxFlushBuffers();
         gfxScreenSwapBuffers(GFX_BOTTOM, false);
         UiDraw_Swapped();
