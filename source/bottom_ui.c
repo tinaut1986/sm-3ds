@@ -1567,7 +1567,7 @@ typedef enum {
 } Tool;
 
 // GPU TEST's states, in the order of kGpuTest* (gpu_ppu_3ds.h).
-static const char *const kGpuTestName[] = { "OFF", "BG NOT TEXTURED", "NO BG", "NO SPRITES", "NO TOP PASS", "NO COLOUR MATH", "NO CLEARS" };
+static const char *const kGpuTestName[] = { "OFF", "BG NOT TEXTURED", "NO BG", "NO SPRITES", "NO TOP PASS", "NO COLOUR MATH", "NO CLEARS", "NO STRIP RUNS" };
 enum { kGpuTestModes = sizeof(kGpuTestName) / sizeof(kGpuTestName[0]) };
 
 static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 42 + (i / 2) * 25, 140, 23 }; }

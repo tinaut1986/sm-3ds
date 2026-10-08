@@ -51,7 +51,7 @@ void GpuPpu3ds_SetPlaneTint(int mode);
 // on a 2DS. The left eye is what is shown, shifted like the real 3D's.
 void GpuPpu3ds_SetForceTwoEyes(bool on);
 // Debug: leave one pass out (or draw the BG without reading its textures) to measure it on the console.
-enum { kGpuTestOff, kGpuTestBgFlat, kGpuTestNoBg, kGpuTestNoSprites, kGpuTestNoTop, kGpuTestNoMath, kGpuTestNoClears, kGpuTestCount };
+enum { kGpuTestOff, kGpuTestBgFlat, kGpuTestNoBg, kGpuTestNoSprites, kGpuTestNoTop, kGpuTestNoMath, kGpuTestNoClears, kGpuTestNoRuns, kGpuTestCount };
 void GpuPpu3ds_SetGpuTest(int mode);
 // Eyes the last GpuPpu3ds_DrawAndPresent drew: 2 with the 3D on (slider up, or FORCE 3D), 1 otherwise.
 int GpuPpu3ds_LastEyes(void);

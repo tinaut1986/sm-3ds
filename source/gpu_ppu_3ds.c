@@ -443,6 +443,9 @@ static inline float RtV(int y) {
   return g_rt_flip_v ? t : 1.0f - t;
 }
 
+// Texture u of screen column x in a render target.
+static inline float RtU(int x) { return (float)(x + g_off_x) / kTexW; }
+
 static void SetTarget(C3D_RenderTarget *rt, const C3D_Mtx *proj) {
   C3D_FrameDrawOn(rt);
   C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_uloc_proj, proj);
@@ -455,13 +458,122 @@ static void SetTarget(C3D_RenderTarget *rt, const C3D_Mtx *proj) {
 static bool g_fx_front;   // drawing a band whose scene is on the subscreen: its main BG3 is the fog added over it
 static bool g_flat_sub;   // drawing the subscreen: its quads take no shift, the colour math gives it its owner's
 
+// ---- Strip runs (two eyes) ----------------------------------------------------------------
+// A layer with a per-line scroll (the heat rooms' lava surface, water) comes as a run of quads one or two rows high. The GPU
+// pays for each quad far more than for its pixels (GPU TEST on the 2DS: ~9 us a quad), and with the 3D on it paid twice. With
+// two eyes each run is drawn once a frame, unshifted, into a target of its own, and each eye draws it as one quad moved by the
+// run's plane, as mzm does with its haze (one strip per scanline per frame instead of per eye). Same texels: a 1:1 copy.
+enum { kMaxRuns = 4, kRunMinStrips = 6, kRunMaxStripH = 4 };
+typedef struct { int first, count, x0, y0, x1, y1; } StripRun;
+static StripRun g_runs[kMaxRuns];
+static int g_run_count;
+static uint8_t g_run_at[kGpuMaxQuads];   // run index + 1 for the run's first quad, 0 otherwise
+static C3D_Tex g_run_tex[kMaxRuns];
+static C3D_RenderTarget *g_run_rt[kMaxRuns];
+static int g_run_ready;   // 0 not tried, 1 allocated, -1 failed (no runs then)
+
+static bool RunsInit(void) {
+  if (g_run_ready) return g_run_ready > 0;
+  g_run_ready = -1;
+  for (int i = 0; i < kMaxRuns; i++) {
+    // RGBA5551 like the textures they copy: lossless, half the VRAM.
+    if (!C3D_TexInitVRAM(&g_run_tex[i], kTexW, kTexH, GPU_RGBA5551)) return false;
+    C3D_TexSetFilter(&g_run_tex[i], GPU_NEAREST, GPU_NEAREST);
+    g_run_rt[i] = C3D_RenderTargetCreateFromTex(&g_run_tex[i], GPU_TEXFACE_2D, 0, -1);
+    if (!g_run_rt[i]) return false;
+  }
+  g_run_ready = 1;
+  return true;
+}
+
+static bool SameStripLayer(const GpuQuad *a, const GpuQuad *b) {
+  return a->tex == b->tex && a->level == b->level && a->flags == b->flags && a->plane == b->plane;
+}
+
+// The runs among quads [first, first+count): consecutive BG quads of one layer, each at most kRunMaxStripH rows, rows going
+// down without overlapping, on one plane.
+static void FindRuns(const GpuFrame *f, int first, int count) {
+  for (int q = first; q < first + count && g_run_count < kMaxRuns;) {
+    const GpuQuad *a = &f->quads[q];
+    int n = 1;
+    if (!(a->flags & (kGpuQuadObj | kGpuQuadAffine)) && a->h <= kRunMaxStripH) {
+      const StereoPlane pa = QuadPlane(a, false);
+      while (q + n < first + count) {
+        const GpuQuad *b = &f->quads[q + n], *p = &f->quads[q + n - 1];
+        if (!SameStripLayer(a, b) || b->h > kRunMaxStripH || b->y < p->y + p->h || QuadPlane(b, false) != pa) break;
+        n++;
+      }
+    }
+    if (n >= kRunMinStrips) {
+      StripRun *r = &g_runs[g_run_count];
+      r->first = q, r->count = n;
+      r->x0 = a->x, r->x1 = a->x + a->w, r->y0 = a->y, r->y1 = f->quads[q + n - 1].y + f->quads[q + n - 1].h;
+      for (int k = 1; k < n; k++) {
+        const GpuQuad *b = &f->quads[q + k];
+        if (b->x < r->x0) r->x0 = b->x;
+        if (b->x + b->w > r->x1) r->x1 = b->x + b->w;
+      }
+      g_run_at[q] = (uint8_t)(++g_run_count);
+    }
+    q += n;
+  }
+}
+
+static void QuadUv(const GpuQuad *qd, float inv_w, float inv_h, float *u0, float *v0, float *u1, float *v1) {
+  *u0 = qd->sx * inv_w, *u1 = (qd->sx + qd->w) * inv_w;
+  *v0 = 1.0f - qd->sy * inv_h, *v1 = 1.0f - (qd->sy + qd->h) * inv_h;   // TexV
+  if (qd->flags & kGpuQuadFlipX) { float s = *u0; *u0 = *u1; *u1 = s; }
+  if (qd->flags & kGpuQuadFlipY) { float s = *v0; *v0 = *v1; *v1 = s; }
+}
+
+static void ClearRuns(void) {
+  for (int i = 0; i < g_run_count; i++) g_run_at[g_runs[i].first] = 0;
+  g_run_count = 0;
+}
+
+// Finds this frame's runs and draws each into its target. Called once a frame, before the eyes, and only with two.
+static void PrepareRuns(const GpuFrame *f) {
+  ClearRuns();
+  if (g_gpu_test == kGpuTestNoRuns || !RunsInit()) return;
+  for (int i = 0; i < f->band_count; i++) {
+    const GpuBand *b = &f->bands[i];
+    if (b->black) continue;
+    FindRuns(f, b->main_first, b->main_count);
+    FindRuns(f, b->sub_first, b->sub_count);
+  }
+  for (int i = 0; i < g_run_count; i++) {
+    const StripRun *r = &g_runs[i];
+    const GpuQuad *a = &f->quads[r->first];
+    const GpuTex *t = f->tex[a->tex];
+    C3D_RenderTargetClear(g_run_rt[i], C3D_CLEAR_COLOR, 0, 0);
+    SetTarget(g_run_rt[i], &g_proj_tex);
+    C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
+    C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+    C3D_AlphaTest(false, GPU_ALWAYS, 0);
+    BlendOff();
+    EnvTexture();
+    C3D_Tex *tex = (C3D_Tex *)t->impl;
+    C3D_TexSetWrap(tex, GPU_REPEAT, GPU_REPEAT);
+    C3D_TexBind(0, tex);
+    const float inv_w = 1.0f / t->w, inv_h = 1.0f / t->h;
+    BatchBegin();
+    for (int k = 0; k < r->count; k++) {
+      const GpuQuad *qd = &f->quads[r->first + k];
+      float u0, v0, u1, v1;
+      QuadUv(qd, inv_w, inv_h, &u0, &v0, &u1, &v1);
+      PushQuad(qd->x, qd->y, qd->x + qd->w, qd->y + qd->h, 0, u0, v0, u1, v1);
+    }
+    BatchDraw();
+  }
+}
+
 static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, bool over) {
   // Sprites: the first one on a pixel wins (stencil bit 0), they take the pixel from
   // anything below whatever their level, as the CPU renderer writes them first.
   EnvTexture();
   C3D_AlphaTest(true, GPU_GREATER, 0);
   int q = first;
-  const GpuTex *bound = NULL;
+  const C3D_Tex *bound = NULL;
   int bound_wrap = -1;   // the texture's wrap mode: 0 repeat, 1 clamp to a transparent border
   float inv_w = 0, inv_h = 0;   // of the bound texture: no divisions per quad
   int state = -1;   // 0 sprites, 1 sprites with math, 2 BG, 3 BG with math
@@ -471,6 +583,8 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
   for (; q < first + count; q++) {
     const GpuQuad *qd = &f->quads[q];
     const GpuTex *t = f->tex[qd->tex];
+    const int run = over ? -1 : (int)g_run_at[q] - 1;   // a strip run drawn into its own target this frame
+    C3D_Tex *ct = run >= 0 ? &g_run_tex[run] : (C3D_Tex *)t->impl;
     const bool obj = qd->flags & kGpuQuadObj, math = track_math && (qd->flags & kGpuQuadMath);
     const int st = (obj ? 0 : 2) + math;
     const int wrap = (qd->flags & kGpuQuadBorder) ? 1 : 0;
@@ -481,15 +595,14 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
         (qd->level == 1 || qd->level == 15) && !qd->plane && g_stereo_frame.gameplay)
       plane = kStereoFront;
     const int mplane = math ? (int)plane : 0;
-    if (t != bound || st != state || mplane != state_plane || wrap != bound_wrap) {
+    if (ct != bound || st != state || mplane != state_plane || wrap != bound_wrap) {
       BatchDraw();
-      if (t != bound || wrap != bound_wrap) {
-        C3D_Tex *tex = (C3D_Tex *)t->impl;
+      if (ct != bound || wrap != bound_wrap) {
         const GPU_TEXTURE_WRAP_PARAM w = wrap ? GPU_CLAMP_TO_BORDER : GPU_REPEAT;
-        tex->border = 0;
-        C3D_TexSetWrap(tex, w, w);
-        C3D_TexBind(0, tex);
-        bound = t;
+        ct->border = 0;
+        C3D_TexSetWrap(ct, w, w);
+        C3D_TexBind(0, ct);
+        bound = ct;
         bound_wrap = wrap;
         inv_w = 1.0f / t->w;
         inv_h = 1.0f / t->h;
@@ -515,7 +628,10 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
         }
       }
     }
-    if (!over && ((g_gpu_test == kGpuTestNoBg && !obj) || (g_gpu_test == kGpuTestNoSprites && obj))) continue;
+    if (!over && ((g_gpu_test == kGpuTestNoBg && !obj) || (g_gpu_test == kGpuTestNoSprites && obj))) {
+      if (run >= 0) q += g_runs[run].count - 1;
+      continue;
+    }
     const int dx = g_flat_sub ? 0 : g_eye_dx[plane];
     if (g_plane_tint) {
       // What the tint depends on: the plane, the drawing level or the plane's depth.
@@ -532,10 +648,14 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
       PushAffine(qd, dx);
       continue;
     }
-    float u0 = qd->sx * inv_w, u1 = (qd->sx + qd->w) * inv_w;
-    float v0 = 1.0f - qd->sy * inv_h, v1 = 1.0f - (qd->sy + qd->h) * inv_h;   // TexV
-    if (qd->flags & kGpuQuadFlipX) { float s = u0; u0 = u1; u1 = s; }
-    if (qd->flags & kGpuQuadFlipY) { float s = v0; v0 = v1; v1 = s; }
+    if (run >= 0) {   // the whole run as one quad: its target holds the strips at their screen places
+      const StripRun *r = &g_runs[run];
+      PushQuad(r->x0 + dx, r->y0, r->x1 + dx, r->y1, LevelZ(qd->level), RtU(r->x0), RtV(r->y0), RtU(r->x1), RtV(r->y1));
+      q += r->count - 1;
+      continue;
+    }
+    float u0, v0, u1, v1;
+    QuadUv(qd, inv_w, inv_h, &u0, &v0, &u1, &v1);
     PushQuad(qd->x + dx, qd->y, qd->x + qd->w + dx, qd->y + qd->h, LevelZ(qd->level), u0, v0, u1, v1);
   }
   BatchDraw();
@@ -575,8 +695,6 @@ static void DrawBandSub(const GpuFrame *f, const GpuBand *b) {
   g_flat_sub = false;
 }
 
-// Texture u of screen column x in a render target.
-static inline float RtU(int x) { return (float)(x + g_off_x) / kTexW; }
 
 // The subscreen added to the pixels whose owner has math on, `dx` columns over (the owner plane's shift): a pixel of the
 // effect (ash, fog, water) takes the depth of what it is drawn on. `stencil_ref`/`stencil_mask`: which owners.
@@ -874,6 +992,8 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   }
   const int eyes = forced && g_rt_top_dummy ? 2 : slider > 0 && gfxIs3D() ? 2 : 1;
   g_last_eyes = eyes;
+  if (eyes == 2) PrepareRuns(f);
+  else ClearRuns();
   for (int e = 0; e < eyes; e++) {
     g_slider = eyes == 2 ? slider : 0;
     g_eye_sign = e ? -1 : 1;
