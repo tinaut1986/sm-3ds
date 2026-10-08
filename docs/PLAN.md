@@ -10,14 +10,14 @@ change (what goes where: the table in CLAUDE.md).
   which wraps `snesrev/sm` in a thin SDL2 frontend. Upstream claims ~50 fps on
   hardware (model not stated) and unreliable saves on hardware.
 
-## Status (2026-10-07)
+## Status (2026-10-08)
 
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.3.3` (nothing yet). Last stable: `v0.3.2` (2026-10-07, on `main`: OPTIONS regrouped, the updater's settings, UPDATES and WHAT'S NEW in one row, RESET GAME alone at the bottom); before it `v0.3.1` (2026-10-07, first a beta and then promoted in place: the updater's release notes and the BETA marker (P4.13), OPTIONS -> HUD, half buttons, WIDE and Spore Spawn fixes (#46, #25, #23)); before it `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.4.1` (nothing yet). `v0.4.0` (2026-10-08, the owner chose the number: a minor bump for the 2DS / Old 3DS smoothness work, P2.5) was tagged as a **beta** from `release/v0.4.0`, to be promoted in place to stable once the owner confirms it on the console. Last stable: `v0.3.2` (2026-10-07, on `main`: OPTIONS regrouped, the updater's settings, UPDATES and WHAT'S NEW in one row, RESET GAME alone at the bottom); before it `v0.3.1` (2026-10-07, first a beta and then promoted in place: the updater's release notes and the BETA marker (P4.13), OPTIONS -> HUD, half buttons, WIDE and Spore Spawn fixes (#46, #25, #23)); before it `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** none open. (2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** `perf/2ds-periodic-spikes` is **kept on origin as an archive, never to be merged**: it holds the analysis, the owner's recordings (`docs/handoff/logs/`) and the day-by-day notes behind `v0.4.0` (`docs/handoff-2ds-perf.md`, sections 4.x); `v0.4.0` has its work squashed into three commits. `chore/crocomire-garbage-evidence` (#47, pushed, not merged: delete it with the issue). What waits for the owner: the `v0.4.0` beta on the console (an eye on the animated tiles with SPREAD TILES on, `AF14` with CHARS + COLOURS, the debug map's cells of Norfair `ADAD` and the Wrecked Ship `C98E`: #49), and then the promotion to stable. (2026-10-08: `fix/map-level-buffer` and the perf work went into `release/v0.4.0`. 2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -31,7 +31,7 @@ achievements: 19 of the set's now unlock (#37, checked by the owner), through a 
 from the console is in its task (P4.4, P4.8, P3.2).
 
 **Priority** (owner's order; the reasons are in the decisions log):
-P3.3 only as depth bugs turn up (#23, #34) → P2.5 (the measurements) → P4.9 → P1.10, P1.7, P0.4 when useful.
+**P2.5 first** (what is left of the 2DS / Old 3DS smoothness: `AF14`'s quiet frame is 15 ms, `AB64` with the 3D slider up, see its task) → P3.3 only as depth bugs turn up (#23, #34) → P4.9 → P1.10, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -303,6 +303,19 @@ Lessons from mzm that apply directly:
   (fps in the Norfair rooms against `v0.2.2`, or a counter around `UiDraw_Present`). Drawing everything natively in 24 bits was
   weighed and not done: 3-byte writes are slower by CPU, and RGB8 render targets lose the alpha the renderer may use; revisit
   only if the conversion shows up in the measurement.
+  2026-10-08, shipped in `v0.4.0` (beta): the Landing Site went from 46 to ~57 shown fps on the 2DS (mono), and rooms of Brinstar and Norfair
+  to 57-59 (`A0A4`, `AA82`, `AB64`, `9AD9`); with the 3D slider up (the debug FORCE 3D draws the second eye on a 2DS) 56-57 in most, `AB64` 45.6;
+  `AF14` (a heat room) 49. What the recordings said, frame by frame: every frame over budget was one of two periodic events (the bottom
+  screen's redraw every 15 frames, ~15 ms; a 628-tile animated set every 10 frames) plus palette cycles, never the quiet frame (13.4 ms).
+  Done: the bottom screen redraws only on change (battery every 20 s); no quad for a BG texture with nothing visible (GPU 7.6 -> 6.7 ms an
+  eye; with two eyes the GPU was the limit, 15.6 ms); one decode per distinct tile and frame; a palette change decodes only the tiles that
+  draw a changed colour (-80-93 %); the texture upload per dirty tile block with runs merged at 80 blocks (cost model: a flush call 0.108 ms,
+  a memcpy 0.011 ms/KB); SPREAD TILES (animated tiles decoded <= 224 a frame, on by default; a debug state also spreads palette changes);
+  the perf CSV with per-stage columns (`tools/perf-csv/analyze.py`, `docs/debug-tools.md`) and FORCE 3D. Left: `AF14`'s quiet frame is
+  15.2 ms (logic 6.9, against 4.6-5.2 elsewhere) so any event overruns it; `AB64` with the slider up (263 per-line scroll quads, GPU 8.3 ms an
+  eye); the biggest events' upload by hardware copy (needs linearAlloc'ed shadows, `GX_RequestDma`'s event can hang: the analysis is in
+  the archive branch). Issues from this stretch: #47 (garbage in Crocomire's room after the debug teleport: stale VRAM, the warp does not
+  clear it), #48 (WIDE: Crocomire's parked body shows in the right margin), #49 (the map's buffer, fixed).
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
@@ -385,7 +398,7 @@ Lessons from mzm that apply directly:
   Status: the live map and items/equipment exist (P1.9 A and C, debug-flavoured).
   Open: player-facing polish, touch shortcuts.
 - [ ] **P4.2** Bezel/borders for the unused top-screen area.
-- [ ] **P4.3** Self-updater (issue #42; after mzm's `port_updater_3ds.c`, owner's request 2026-10-06).
+- [x] **P4.3** Self-updater (issue #42; after mzm's `port_updater_3ds.c`, owner's request 2026-10-06).
   Done 2026-10-06 (merged into `release/v0.2.3`); the owner ran it on the 2DS and the check works, but no newer release has existed to install yet: `source/updater.c` (libcurl + mbedtls, the console's own
   TLS cannot talk to GitHub; worker thread; downloads the release's `.cia` to `update/sm-update.cia` in the data folder and installs
   it with `am:net`, over the running title or after deleting it, keeping the file for FBI if both fail), `updater_parse.c` (version
@@ -395,7 +408,10 @@ Lessons from mzm that apply directly:
   others the releases. The CI image needs `dkp-pacman -S 3ds-curl 3ds-mbedtls 3ds-zlib` (added to the workflow).
   *Known limit:* the TLS certificate is not verified (no CA bundle, as in mzm): someone on the same network could serve another CIA.
   *Done when:* on the console, UPDATES finds a newer release and installs it, the game restarts into it, and the boot check stays quiet
-  without Wi-Fi. (The old text of this task: "Self-updater.")
+  without Wi-Fi.
+  Checked by the owner 2026-10-07 on the console: a dev build was offered `v0.3.1` and `v0.3.2`, installed the update, restarted into the new
+  version; without Wi-Fi the UPDATES cell reads ERROR and nothing pops up. (The notes are kept in memory only: with no Wi-Fi WHAT'S NEW says
+  there is no data yet. A copy on the SD card is possible if it is ever wanted, P4.13.) (The old text of this task: "Self-updater.")
 - [x] **P4.4** RetroAchievements (softcore only).
   Implemented 2026-10-02 (owner's request) after mzm's `port_retroachievements_3ds.c`:
   rcheevos vendored (`third_party/rcheevos`, mzm's copy), `source/retro_ach.c`, trophy tab.
@@ -645,6 +661,11 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 
 ## Decisions log
 
+- 2026-10-08: **`v0.4.0`** for the smoothness work (the owner's choice, a minor bump), shipped beta first and promoted in place to stable after
+  their check, like `v0.3.1`: the stable is then the same commit rebuilt without the debug tools. SPREAD TILES is on by default (animated tiles
+  show up to ~3 frames late; the owner saw no difference in `AF14`'s lava between off, CHARS and CHARS + COLOURS); the stable has no cell to turn
+  it off, so it is a candidate for an OPTIONS entry if it is ever noticed. The state of the 2DS work was recorded in
+  `docs/handoff-2ds-perf.md` on the archive branch `perf/2ds-periodic-spikes`.
 - 2026-09-30: Base on `CharlesAverill/sm-3ds` rather than a raw fork of
   `snesrev/sm`, because it already has a working 3DS toolchain, audio and
   input.

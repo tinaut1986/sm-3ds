@@ -54,6 +54,7 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h) {
 }
 void GpuBackend_TexFree(GpuTex *t) { free(t->px); t->px = NULL; }
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1) {}
+void GpuBackend_TexBlockWritten(GpuTex *t, int block) {}
 void GpuBackend_BeforeTexWrite(void) {}
 
 enum { kPitch = 256 * 4 };
@@ -656,6 +657,7 @@ static void TestFrame(const char *label, bool check_capture) {
   // The planes set by hand for the room (source/sm_plane_fixes.inc), as the console does in gameplay.
   GpuPpu_SetPlaneRule(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? SmPlanes_LayerRule : NULL);
   GpuPpu_SetSlotPlanes(SmWide_Gameplay() && SmPlanes_RoomHasRules() ? TestSlotPlanes : NULL);
+  if (getenv("DEFER")) GpuPpu_SetDeferTiles(atoi(getenv("DEFER")), getenv("DEFER_PAL") != NULL);   // DEFER=n: animated tiles at most n a frame (DEFER_PAL: palette changes too)
   clock_gettime(CLOCK_MONOTONIC, &t0);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
   clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -716,6 +718,9 @@ static void TestFrame(const char *label, bool check_capture) {
   }
   const GpuPpuStats *st = GpuPpu_LastStats();
   g_tiles += st->tiles_decoded;
+  if (getenv("TILE_TRACE") && st->tiles_decoded)   // why the BG tiles were decoded this frame
+    printf("%s: frame %d tiles %d (reused %d): fresh %d map %d palette %d char %d plane %d\n", label, g_frames, st->tiles_decoded, st->tiles_reused, st->tiles_fresh,
+           st->tiles_map, st->tiles_pal, st->tiles_char, st->tiles_plane);
   g_composed += st->screen_rows_composed;
   g_composed_frames += st->screen_rows_composed > 0;
   if (getenv("SHOW_COMPOSE") && st->screen_rows_composed) printf("%s: composed %d rows\n", label, st->screen_rows_composed);
@@ -867,6 +872,16 @@ static void TestFrame(const char *label, bool check_capture) {
         }
       fclose(f);
     }
+  }
+  // With DEFER the picture is only the CPU renderer's once no tile is waiting: count the frames compared.
+  static int defer_compared, defer_waiting;
+  if (getenv("DEFER")) {
+    if (GpuPpu_PendingTiles()) {
+      defer_waiting++;
+      return;
+    }
+    defer_compared++;
+    if (defer_compared % 200 == 0) printf("DEFER: %d frames compared, %d skipped while tiles waited\n", defer_compared, defer_waiting);
   }
   if ((n = Diff(g_b, g_c, &x0, &y0, &x1, &y1))) {
     g_gpu_bad++;

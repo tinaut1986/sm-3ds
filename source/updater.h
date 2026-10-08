@@ -43,13 +43,14 @@ UpdState Updater_State(void);
 UpdPrompt Updater_Prompt(void);
 void Updater_AnswerPrompt(bool yes);   // YES/NO of the current prompt (OK = either)
 int Updater_Progress(void);            // 0..100 while DOWNLOADING
-const char *Updater_RemoteTag(void);   // "" until a check succeeded
+const char *Updater_RemoteTag(void);   // "" until a check succeeded (this run, or an earlier one: update/notes.txt)
 const char *Updater_Message(void);     // a short error text
 bool Updater_KeptCia(void);            // a failed install left update/sm-update.cia for FBI
 // The "what's new" text of the last successful check: the releases newer than this build, or
 // (when up to date) the latest published ones; "== vX.Y.Z ==" lines and "- " lines, each ending
 // in '\n'. Copies at most cap-1 bytes into `out` and returns the length (0 until a check
-// succeeded). The text is never read in place: the worker thread rewrites it.
+// succeeded, in this run or an earlier one: the last text is kept in update/notes.txt, so it
+// shows with no network). The text is never read in place: the worker thread rewrites it.
 size_t Updater_CopyNotes(char *out, size_t cap);
 
 uint32_t Updater_Version(void);        // changes with every state, so the UI redraws
