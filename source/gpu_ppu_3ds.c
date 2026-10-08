@@ -287,6 +287,18 @@ static void EnvConstRgbTexAlpha(uint32_t rgba) {
   C3D_TexEnvColor(e, rgba);
 }
 
+// The texel's colour where its alpha is 1, the constant's where it is 0 (alpha comes from the texture).
+static void EnvTexOverConst(uint32_t rgba) {
+  C3D_TexEnv *e = C3D_GetTexEnv(0);
+  C3D_TexEnvInit(e);
+  C3D_TexEnvSrc(e, C3D_RGB, GPU_TEXTURE0, GPU_CONSTANT, GPU_TEXTURE0);
+  C3D_TexEnvOpRgb(e, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_ALPHA);
+  C3D_TexEnvFunc(e, C3D_RGB, GPU_INTERPOLATE);
+  C3D_TexEnvSrc(e, C3D_Alpha, GPU_TEXTURE0, 0, 0);
+  C3D_TexEnvFunc(e, C3D_Alpha, GPU_REPLACE);
+  C3D_TexEnvColor(e, rgba);
+}
+
 static void EnvModulate(uint32_t rgba) {
   C3D_TexEnv *e = C3D_GetTexEnv(0);
   C3D_TexEnvInit(e);
@@ -300,6 +312,12 @@ static void EnvModulate(uint32_t rgba) {
 // one on a far plane); the alpha stays the texel's so the alpha test and the silhouettes are unchanged. Stage 1 goes back to a plain init when the pass is over.
 static bool g_force_two_eyes;
 void GpuPpu3ds_SetForceTwoEyes(bool on) { g_force_two_eyes = on; }
+// Debug GPU TEST (kGpuTest*): one pass left out or made cheaper, to see in the perf CSV's gpu_draw_ms what it costs the
+// GPU. The picture is wrong while it is on.
+static int g_gpu_test;
+void GpuPpu3ds_SetGpuTest(int mode) { g_gpu_test = mode; }
+static int g_last_eyes;
+int GpuPpu3ds_LastEyes(void) { return g_last_eyes; }
 static C3D_RenderTarget *g_rt_top_dummy;   // the forced second eye's target: drawn into, never output
 static int g_plane_tint;   // kPlaneTint*
 void GpuPpu3ds_SetPlaneTint(int mode) { g_plane_tint = mode; }
@@ -491,8 +509,13 @@ static void DrawQuads(const GpuFrame *f, int first, int count, bool track_math, 
           C3D_StencilTest(true, GPU_ALWAYS, math ? 2 | mplane << 2 : 0, 0, math ? 0x1e : 2);
           C3D_StencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_REPLACE);
         }
+        if (g_gpu_test == kGpuTestBgFlat && !over) {   // BG quads with no texture read: same pixels, depth and stencil
+          if (obj) EnvTexture();
+          else EnvSolid(0xff808080);
+        }
       }
     }
+    if (!over && ((g_gpu_test == kGpuTestNoBg && !obj) || (g_gpu_test == kGpuTestNoSprites && obj))) continue;
     const int dx = g_flat_sub ? 0 : g_eye_dx[plane];
     if (g_plane_tint) {
       // What the tint depends on: the plane, the drawing level or the plane's depth.
@@ -562,7 +585,18 @@ static void MathAdd(const GpuFrame *f, const GpuBand *b, int stencil_ref, int st
   const GPU_BLENDEQUATION eq = b->subtract ? GPU_BLEND_REVERSE_SUBTRACT : GPU_BLEND_ADD;
   const float v0 = RtV(b->y0), v1 = RtV(b->y1);
   C3D_TexBind(0, &g_sub_tex);
-  // Subscreen pixels (alpha 1): halved if `half`.
+  if (!b->half) {
+    // Subscreen pixels (alpha 1) and its backdrop (alpha 0: the fixed colour) added in one pass: the same sums as the two
+    // passes below, which only `half` needs (it halves the pixels and never the backdrop).
+    EnvTexOverConst(ColorFrom555(b->fixed, 255));
+    C3D_AlphaTest(false, GPU_ALWAYS, 0);
+    C3D_AlphaBlend(eq, eq, GPU_ONE, GPU_ONE, GPU_ZERO, GPU_ONE);
+    BatchBegin();
+    PushQuad(f->x0, b->y0, f->x1, b->y1, 0, RtU(f->x0 - dx), v0, RtU(f->x1 - dx), v1);
+    BatchDraw();
+    return;
+  }
+  // Subscreen pixels (alpha 1): halved.
   EnvTexture();
   C3D_AlphaTest(true, GPU_GREATER, 0);
   if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
@@ -678,7 +712,7 @@ static void DrawBandMain(const GpuFrame *f, const GpuBand *b) {
       BatchDraw();
     }
   }
-  if (b->math) MathPass(f, b);
+  if (b->math && g_gpu_test != kGpuTestNoMath) MathPass(f, b);
 }
 
 // ---- Frame --------------------------------------------------------------------------------
@@ -728,19 +762,31 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
 
 // One eye: the frame into the main (and sub) target with each plane moved by g_eye_dx,
 // then onto that eye's top-screen target.
-static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_top) {
+static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_top, bool second_eye) {
   BlendOff();
-  bool any_sub = false;
-  for (int i = 0; i < f->band_count; i++) any_sub |= !f->bands[i].black && f->bands[i].math && f->bands[i].add_subscreen;
-  if (any_sub) {
-    C3D_RenderTargetClear(g_rt_sub, C3D_CLEAR_ALL, 0, 0);
+  bool any_sub = false, sub_flat = true;
+  for (int i = 0; i < f->band_count; i++) {
+    const GpuBand *b = &f->bands[i];
+    if (b->black || !b->math || !b->add_subscreen) continue;
+    any_sub = true;
+    sub_flat &= SubIsEffect(f, b) && !SubByHand(f, b);
+  }
+  if (g_gpu_test == kGpuTestNoMath) any_sub = false;
+  // A subscreen that holds only an effect (rain, fog) is drawn with no eye's shift (g_flat_sub): the first eye's is the
+  // second's too. MathAdd moves it per eye when it adds it.
+  if (any_sub && !(second_eye && sub_flat)) {
+    if (g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(g_rt_sub, C3D_CLEAR_ALL, 0, 0);
     SetTarget(g_rt_sub, &g_proj_tex);
     for (int i = 0; i < f->band_count; i++) {
       const GpuBand *b = &f->bands[i];
       if (!b->black && b->math && b->add_subscreen) DrawBandSub(f, b);
     }
   }
-  C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
+  // Each band's backdrop writes colour, depth and stencil over all of its rows from x0 to x1, and the top pass reads only
+  // those: with the bands covering the frame's rows the clear is not needed.
+  bool covered = f->band_count > 0;
+  for (int i = 1; i < f->band_count; i++) covered &= f->bands[i].y0 == f->bands[i - 1].y1;
+  if (!covered && g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_main, &g_proj_tex);
   for (int i = 0; i < f->band_count; i++) DrawBandMain(f, &f->bands[i]);
   if (f->mask_count) {   // the margins: they belong to the screen, not to a plane
@@ -758,7 +804,7 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
 
   // Top screen: the 256x224 picture centred, scaled to 274x240 or 1:1, like the CPU path
   // (DrawPpuFrame); WIDE margins at the same scale on each side, cut by the screen edge.
-  C3D_RenderTargetClear(rt_top, C3D_CLEAR_ALL, 0, 0);
+  if (g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(rt_top, C3D_CLEAR_COLOR, 0, 0);   // the top pass uses no depth
   SetTarget(rt_top, &g_proj_top);
   C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
@@ -772,7 +818,7 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
   // PIXEL PERFECT: the frame's rows centred (the extra rows may lean to one side).
   const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f,
               y_off = pixel_perfect ? (240 - (f->y1 - f->y0)) / 2 - f->y0 : 0;
-  for (int i = 0; i < f->band_count; i++) {
+  for (int i = 0; i < f->band_count && g_gpu_test != kGpuTestNoTop; i++) {
     const GpuBand *b = &f->bands[i];
     const int bright = b->black ? 0 : b->brightness * 255 / 15;
     EnvModulate((uint32_t)bright | (uint32_t)bright << 8 | (uint32_t)bright << 16 | 0xff000000u);
@@ -827,12 +873,13 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
     if (!g_rt_top_dummy) g_rt_top_dummy = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
   }
   const int eyes = forced && g_rt_top_dummy ? 2 : slider > 0 && gfxIs3D() ? 2 : 1;
+  g_last_eyes = eyes;
   for (int e = 0; e < eyes; e++) {
     g_slider = eyes == 2 ? slider : 0;
     g_eye_sign = e ? -1 : 1;
     for (int p = 0; p < kStereoPlaneCount; p++)
       g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
-    DrawEye(f, pixel_perfect, e ? (forced ? g_rt_top_dummy : g_rt_top_right) : g_rt_top);
+    DrawEye(f, pixel_perfect, e ? (forced ? g_rt_top_dummy : g_rt_top_right) : g_rt_top, e > 0);
   }
   EndFrame();
   g_submit_ticks = svcGetSystemTick() - t1;

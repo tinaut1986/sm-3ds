@@ -911,7 +911,7 @@ int main(int argc, char** argv) {
         GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
-        GpuPpu_SetDeferTiles(g_ui.defer_tiles ? 224 : 0, g_ui.defer_tiles == 2);
+        GpuPpu_SetDeferTiles(224, true);   // animated tiles and palette changes: at most 224 decoded a frame, the rest later
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
@@ -941,6 +941,7 @@ int main(int argc, char** argv) {
             px.tiles_reused = gs->tiles_reused, px.why_fresh = gs->tiles_fresh, px.why_map = gs->tiles_map;
             px.why_pal = gs->tiles_pal, px.why_char = gs->tiles_char, px.why_plane = gs->tiles_plane;
             px.tiles_deferred = gs->tiles_deferred, px.tiles_pending = GpuPpu_PendingTiles();
+            px.gpu_test = g_ui.gpu_test;
           }
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
@@ -948,9 +949,11 @@ int main(int argc, char** argv) {
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
           GpuPpu3ds_SetForceTwoEyes(g_ui.force_3d);
+          GpuPpu3ds_SetGpuTest(g_ui.gpu_test);
           const u64 t_dp = svcGetSystemTick();
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           px.draw_present_ms = TicksToMs(svcGetSystemTick() - t_dp);
+          px.eyes = GpuPpu3ds_LastEyes(), px.slider = osGet3DSliderState();
           GpuPpu3ds_LastGpuTimes(&px.gpu_draw_ms, &px.gpu_proc_ms, &px.cmdbuf);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);

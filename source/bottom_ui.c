@@ -33,7 +33,6 @@ UiOptions g_ui = {
   .audio_on = true,
   .pacing = kPaceAuto,
   .auto_update = true,
-  .defer_tiles = 1,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -1530,6 +1529,7 @@ static void ReportDone(const char *reason) {
   case REPORT_DUMP: g_ui.req_dump = true; break;
   case REPORT_FRAME_DUMP: g_ui.req_frame_dump = true; break;
   case REPORT_SCENE_REC:
+    BottomUi_Busy();
     SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
     Toast(Debug_LastMessage());
     g_ui.paused = g_report_was_paused;
@@ -1562,9 +1562,13 @@ static void ReportTouch(int x, int y) {
 }
 
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_SPREAD_TILES,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_GPU_TEST,
   TOOL_COUNT
 } Tool;
+
+// GPU TEST's states, in the order of kGpuTest* (gpu_ppu_3ds.h).
+static const char *const kGpuTestName[] = { "OFF", "BG NOT TEXTURED", "NO BG", "NO SPRITES", "NO TOP PASS", "NO COLOUR MATH", "NO CLEARS" };
+enum { kGpuTestModes = sizeof(kGpuTestName) / sizeof(kGpuTestName[0]) };
 
 static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 42 + (i / 2) * 25, 140, 23 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
@@ -1628,9 +1632,8 @@ static void DrawToolsModal(Surface s) {
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
   DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
                !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
-  static const char *const kSpread[] = { "OFF", "CHARS: 224 A FRAME", "CHARS + COLOURS" };
-  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : kSpread[g_ui.defer_tiles % 3],
-               !g_ui.gpu_render ? COL_FAINT : g_ui.defer_tiles ? COL_GOOD : COL_DIM);
+  DrawToolCell(s, TOOL_GPU_TEST, "GPU TEST", !g_ui.gpu_render ? "RENDERER IS CPU" : kGpuTestName[g_ui.gpu_test % kGpuTestModes],
+               !g_ui.gpu_render ? COL_FAINT : g_ui.gpu_test ? COL_WARN : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
     UiDrawText(s, 16, 195, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
@@ -1664,6 +1667,7 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_FRAME_DUMP: OpenReport(REPORT_FRAME_DUMP); break;
     case TOOL_LOG:
       if (side) {
+        if (Debug_LogEnabled()) BottomUi_Busy();   // stopping writes what is buffered
         Debug_LogSetEnabled(!Debug_LogEnabled());
         Toast(Debug_LastMessage());
       } else {
@@ -1689,7 +1693,11 @@ static void ToolsModalTouch(int x, int y) {
         SceneRec_CycleRate();
       }
       break;
-    case TOOL_PERF: Debug_PerfToggle(); Toast(Debug_LastMessage()); break;
+    case TOOL_PERF:
+      if (Debug_PerfRecording()) BottomUi_Busy();   // stopping writes the CSV
+      Debug_PerfToggle();
+      Toast(Debug_LastMessage());
+      break;
     case TOOL_RENDERER: g_ui.gpu_render = !g_ui.gpu_render; break;
     case TOOL_GPU_CHECK:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
@@ -1703,9 +1711,9 @@ static void ToolsModalTouch(int x, int y) {
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.force_3d = !g_ui.force_3d;
       break;
-    case TOOL_SPREAD_TILES:
+    case TOOL_GPU_TEST:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
-      else g_ui.defer_tiles = (g_ui.defer_tiles + 1) % 3;
+      else g_ui.gpu_test = (g_ui.gpu_test + 1) % kGpuTestModes;
       break;
     default: break;
     }
@@ -2318,7 +2326,12 @@ static void DrawBottom(const UiPerf *p) {
 static bool UiIsLive(void) {
   switch (g_modal) {
   case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: break;
-  default: return true;   // the debug windows and a state's detail (its two-tap confirm times out)
+#if DEBUG_TOOLS
+  // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
+  case MODAL_TOOLS: return SceneRec_Active();
+  case MODAL_REPORT: return false;   // the game is paused under it
+#endif
+  default: return true;   // a state's detail (its two-tap confirm times out)
   }
   if (RetroAch_Toast()) return true;
   switch (g_tab) {
@@ -2379,6 +2392,13 @@ bool BottomUi_Frame(const UiPerf *p) {
   if (ChromeChanged()) g_dirty = 2, why = "clock, wifi or battery changed";
   const bool notice = RetroAch_Toast() != NULL;   // the unlock notice times out on its own
   static bool notice_seen;
+#if DEBUG_TOOLS
+  static bool perf_seen;   // the perf recorder stops by itself when its buffer is full: the tools window shows it
+  if (Debug_PerfRecording() != perf_seen) {
+    perf_seen = !perf_seen;
+    g_dirty = 2;
+  }
+#endif
   if (notice != notice_seen) {
     notice_seen = notice;
     g_dirty = 2;

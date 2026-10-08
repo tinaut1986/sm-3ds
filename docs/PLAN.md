@@ -15,9 +15,9 @@ change (what goes where: the table in CLAUDE.md).
 Only what no other place records. Bugs: the open GitHub issues. Tasks: the unticked
 boxes below. History: `git log` and the decisions log.
 
-**Release line:** `release/v0.4.1` (nothing yet). Last stable: **`v0.4.0`** (2026-10-08, on `main`; the owner chose the number: a minor bump for the 2DS / Old 3DS smoothness work, P2.5; first tagged as a beta, then promoted in place to stable after the owner's check; the map crash of #49 confirmed fixed on the console); before it `v0.3.2` (2026-10-07, on `main`: OPTIONS regrouped, the updater's settings, UPDATES and WHAT'S NEW in one row, RESET GAME alone at the bottom); before it `v0.3.1` (2026-10-07, first a beta and then promoted in place: the updater's release notes and the BETA marker (P4.13), OPTIONS -> HUD, half buttons, WIDE and Spore Spawn fixes (#46, #25, #23)); before it `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
+**Release line:** `release/v0.4.1` (P2.5 second round: fast DMA, colour math on the GPU). Last stable: **`v0.4.0`** (2026-10-08, on `main`; the owner chose the number: a minor bump for the 2DS / Old 3DS smoothness work, P2.5; first tagged as a beta, then promoted in place to stable after the owner's check; the map crash of #49 confirmed fixed on the console); before it `v0.3.2` (2026-10-07, on `main`: OPTIONS regrouped, the updater's settings, UPDATES and WHAT'S NEW in one row, RESET GAME alone at the bottom); before it `v0.3.1` (2026-10-07, first a beta and then promoted in place: the updater's release notes and the BETA marker (P4.13), OPTIONS -> HUD, half buttons, WIDE and Spore Spawn fixes (#46, #25, #23)); before it `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** `perf/2ds-periodic-spikes` is **kept on origin as an archive, never to be merged**: it holds the analysis, the owner's recordings (`docs/handoff/logs/`) and the day-by-day notes behind `v0.4.0` (`docs/handoff-2ds-perf.md`, sections 4.x); `v0.4.0` has its work squashed into three commits. `chore/crocomire-garbage-evidence` (#47, closed; kept because the issue's images link to its commit). What waits for the owner: nothing from `v0.4.0`; the owner saw no difference in `AF14`'s lava between SPREAD TILES off, CHARS and CHARS + COLOURS. (2026-10-08: `fix/map-level-buffer` and the perf work went into `release/v0.4.0`, published as `v0.4.0`; #47 (the teleport leaves stale VRAM, a debug-tool artefact) and #49 were closed. 2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** `perf/2ds-periodic-spikes` is **kept on origin as an archive, never to be merged**: it holds the analysis, the owner's recordings (`docs/handoff/logs/`) and the day-by-day notes behind `v0.4.0` (`docs/handoff-2ds-perf.md`, sections 4.x); `v0.4.0` has its work squashed into three commits. `chore/crocomire-garbage-evidence` (#47, closed; kept because the issue's images link to its commit). What waits for the owner: nothing. (2026-10-08: `perf/fast-dma` (P2.5: fast DMA, palette cycles spread, cheaper colour math on the GPU, GPU TEST) was checked by the owner on the 2DS and merged into `release/v0.4.1`, squashed by content; `fix/map-level-buffer` and the perf work went into `release/v0.4.0`, published as `v0.4.0`; #47 (the teleport leaves stale VRAM, a debug-tool artefact) and #49 were closed. 2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -31,7 +31,7 @@ achievements: 19 of the set's now unlock (#37, checked by the owner), through a 
 from the console is in its task (P4.4, P4.8, P3.2).
 
 **Priority** (owner's order; the reasons are in the decisions log):
-**P2.5 first** (what is left of the 2DS / Old 3DS smoothness: `AF14`'s quiet frame is 15 ms, `AB64` with the 3D slider up, see its task) → P3.3 only as depth bugs turn up (#23, #34) → P4.9 → P1.10, P1.7, P0.4 when useful.
+**P2.5 first** (what is left of the 2DS / Old 3DS smoothness, then P2.7, the live tabs: `AF14`'s quiet frame is 15 ms, `AB64` with the 3D slider up, see its task) → P3.3 only as depth bugs turn up (#23, #34) → P4.9 → P1.10, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -316,6 +316,14 @@ Lessons from mzm that apply directly:
   eye); the biggest events' upload by hardware copy (needs linearAlloc'ed shadows, `GX_RequestDma`'s event can hang: the analysis is in
   the archive branch). Issues from this stretch: #47 (garbage in Crocomire's room after the debug teleport: stale VRAM, the warp does not
   clear it), #48 (WIDE: Crocomire's parked body shows in the right margin), #49 (the map's buffer, fixed).
+  2026-10-08, second round (`release/v0.4.1`): a DMA ran byte by byte through a cycle counter and was ~75 % of the "logic" time;
+  now each transfer goes in one go (logic on the 2DS: Landing Site 5.3 -> 1.6 ms, `AF14` 6.4 -> 3.0, same state bit for bit).
+  Palette cycles (at most 6 colours of a row) are spread like animated tiles: `AF14` mono 49.6 -> 57.9 fps. GPU TEST (debug)
+  measured the GPU with two eyes: texture reads cost nothing (so no VRAM textures), colour math was half the time, the clears
+  ~1 ms an eye. Now: one pass for the subscreen add, a flat effect subscreen (rain, fog) composed once a frame, no clear of the
+  main target. With FORCE 3D: Landing Site GPU 12.8 -> 8.9 ms, 59.8 fps; `AB64` 17.2 -> 15.8 ms, 46.5 -> 50.6 fps. Left: rooms
+  whose whole scene is on the subscreen under a main-screen effect (`AB64`, `AF14`: BG3 heat glow on main, everything else on
+  sub) compose two full pictures an eye; next is to compose the scene straight into the main target and add the effect on top.
   *Done when:* each is either measured and cut on the 2DS or noted here as not worth it.
 - [x] **P2.6** Audio cost, second pass. Closed 2026-10-06 without more changes: on the 2DS a
   16.7 ms block of sound costs ~14 ms of wall time (New 3DS: 4 ms) on a core that grants
@@ -351,6 +359,17 @@ Lessons from mzm that apply directly:
     only if the driver keeps them on fixed voices (not checked): a per-voice-group
     multiplier in `dsp_cycleBlock` is a few tenths of a ms; rendering them apart would
     double the cost, so no.
+
+- [ ] **P2.7** The STATUS and MAP tabs cost fps on Old 3DS / 2DS (asked by the owner, 2026-10-08).
+  *Spec:* those two tabs are "live" (`UiIsLive` in `source/bottom_ui.c`): the whole bottom screen is redrawn
+  and presented every 15 frames whether or not anything changed, and on an Old 3DS a redraw costs ~15 ms
+  (P2.5's recordings), so every 15th frame overruns and the frame skip drops one. Redraw only when what the
+  tab shows changes (a cheap key of the game values each one draws: energy, ammo, items, Samus's map cell,
+  the markers), and make a redraw that does happen cheaper (only the changed part, or the 32-to-24-bit
+  conversion of `UiDraw_Present` limited to the dirty rows). Measure with the PERF RECORDER's `ui_ms` and
+  `present_ms` on the 2DS with each tab open.
+  *Done when:* on the 2DS the shown fps with STATUS or MAP open is within ~1 fps of the same room with a
+  static tab (OPTIONS), or what is left is noted here as not worth it.
 
 ## Phase 3: stereoscopic 3D
 
@@ -661,6 +680,15 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 
 ## Decisions log
 
+- 2026-10-08 (`perf/fast-dma`): SPREAD TILES is gone as a choice: the renderer always spreads both kinds of tile decodes (char data and
+  palette, 224 a frame), the state the owner judged no different by eye and that took `AF14` mono from 51 to 58 fps; the owner asked to
+  drop settled debug switches so they are not toggled by mistake later (the host test keeps `DEFER`/`DEFER_PAL`). The debug tools
+  window is no longer redrawn every 15 frames (only on a tap, the scene recorder's count, or the perf recorder stopping by itself):
+  the owner keeps it open while stepping GPU TEST, and its periodic redraw cost frames under a window that hides the tab anyway.
+  The perf CSV records `eyes` and `slider`, so one recording can switch the 3D on and off.
+  Same day: spreading every palette change made the Landing Site's lightning (8 colours of one row, ~1940 tiles) reach the screen a
+  band of rows at a time over ~13 frames (owner's scene recording); only rows that change at most 6 colours (a cycle: the lava's 5)
+  are spread now, a bigger change lands in one frame.
 - 2026-10-08: **`v0.4.0`** for the smoothness work (the owner's choice, a minor bump), shipped beta first and promoted in place to stable after
   their check, like `v0.3.1`: the stable is then the same commit rebuilt without the debug tools. SPREAD TILES is on by default (animated tiles
   show up to ~3 frames late; the owner saw no difference in `AF14`'s lava between off, CHARS and CHARS + COLOURS); the stable has no cell to turn
