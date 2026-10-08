@@ -49,7 +49,7 @@ def report(fn):
     if 'eyes' in rows[0]:
         # One recording can switch the 3D (eyes) and GPU TEST (gpu_test) on the way: a line per state. gpu_draw_ms is
         # the GPU's own time for the frame it finished last, so the median keeps the switch frames out.
-        names = ['OFF', 'BG NOT TEXTURED', 'NO BG', 'NO SPRITES', 'NO TOP PASS', 'NO COLOUR MATH', 'NO CLEARS']
+        names = ['OFF', 'BG NOT TEXTURED', 'NO BG', 'NO SPRITES', 'NO TOP PASS', 'NO COLOUR MATH', 'NO CLEARS', 'NO STRIP RUNS']
         # A skipped frame drew nothing (eyes 0): it counts in the state of the frame drawn before it.
         groups = collections.OrderedDict()
         state = None
