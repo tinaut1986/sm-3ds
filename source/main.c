@@ -223,7 +223,7 @@ static int WideMargin(void) {
 // moved by its plane's offset uncovers that many columns of its edge. Not needed with
 // WIDE, whose margins are far wider.
 static int StereoEdge(void) {
-  return g_ui.gpu_render && GameplayView() && osGet3DSliderState() > 0 ? kStereoMaxPx : 0;
+  return g_ui.gpu_render && GameplayView() && (osGet3DSliderState() > 0 || g_ui.force_3d) ? kStereoMaxPx : 0;
 }
 
 
@@ -828,7 +828,9 @@ int main(int argc, char** argv) {
       GameText_Forget();
     }
     g_ui.req_reset = g_ui.req_save_state = g_ui.req_load_state = false;
-    u64 t_logic = 0, t_draw = 0;
+    u64 t_logic = 0, t_draw = 0, t_ui = 0, t_pres = 0;
+    DebugPerfExtra px;   // what the perf recorder writes for this frame
+    memset(&px, 0, sizeof(px));
     bool presented = false, gpu_presented = false;
     if (!g_ui.paused) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
@@ -909,6 +911,7 @@ int main(int argc, char** argv) {
         GpuPpu_SetHudY(hud_y);
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
+        GpuPpu_SetDeferTiles(g_ui.defer_tiles ? 224 : 0, g_ui.defer_tiles == 2);
         GpuPpu_SetNoSpriteWrap(margin_l || margin_r);
         GpuPpu_SetNarrowBg3Map(margin_l || margin_r ? kSmWideMessageBoxMap : -1);
         GpuPpu_SetWindow2Extent(margin_l || margin_r ? SmWide_Window2Extent() : NULL);
@@ -928,15 +931,31 @@ int main(int argc, char** argv) {
         const bool built = gpu && GpuPpu_BuildFrame(g_snes->ppu, &g_line_capture, &g_gpu_frame, &why);
         if (built) {
           SmWide_AddMasks(&g_gpu_frame, &g_line_capture);
-          perf.gpu_build_ms += (TicksToMs(svcGetSystemTick() - t_build) - perf.gpu_build_ms) * 0.1f;
+          px.build_ms = TicksToMs(svcGetSystemTick() - t_build);
+          perf.gpu_build_ms += (px.build_ms - perf.gpu_build_ms) * 0.1f;
+          {
+            const GpuPpuStats *gs = GpuPpu_LastStats();
+            px.lines_ms = TicksToMs(gs->t_lines), px.diff_ms = TicksToMs(gs->t_diff);
+            px.sprites_ms = TicksToMs(gs->t_sprites), px.bg_ms = TicksToMs(gs->t_bg);
+            px.tiles = gs->tiles_decoded, px.quads = g_gpu_frame.quad_count, px.bands = g_gpu_frame.band_count;
+            px.tiles_reused = gs->tiles_reused, px.why_fresh = gs->tiles_fresh, px.why_map = gs->tiles_map;
+            px.why_pal = gs->tiles_pal, px.why_char = gs->tiles_char, px.why_plane = gs->tiles_plane;
+            px.tiles_deferred = gs->tiles_deferred, px.tiles_pending = GpuPpu_PendingTiles();
+          }
           static uint32_t overlay_px[64 * 64];
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
+          GpuPpu3ds_SetForceTwoEyes(g_ui.force_3d);
+          const u64 t_dp = svcGetSystemTick();
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
+          px.draw_present_ms = TicksToMs(svcGetSystemTick() - t_dp);
+          GpuPpu3ds_LastGpuTimes(&px.gpu_draw_ms, &px.gpu_proc_ms, &px.cmdbuf);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);
+          px.wait_ms = wait_ms, px.submit_ms = submit_ms;
+          GpuPpu3ds_LastTexStats(&px.tex_copy_ms, &px.tex_flush_ms, &px.tex_runs, &px.tex_kb);
           perf.gpu_wait_ms += (wait_ms - perf.gpu_wait_ms) * 0.1f;
           perf.gpu_submit_ms += (submit_ms - perf.gpu_submit_ms) * 0.1f;
           gpu_presented = true;
@@ -987,12 +1006,16 @@ int main(int argc, char** argv) {
       swapped = true;
       BottomUi_DrawTopOverlay(&perf);
       if (record) RecordTop(UiDraw_Screen(GFX_TOP).px, frameCtr, t_logic, t_draw);
+      u64 t1 = svcGetSystemTick();
       BottomUi_Frame(&perf);
+      t_ui = svcGetSystemTick() - t1;
+      t1 = svcGetSystemTick();
       UiDraw_Present(GFX_TOP, gfxIs3D());
       UiDraw_Present(GFX_BOTTOM, false);
       gfxFlushBuffers();
       gfxSwapBuffers();
       UiDraw_Swapped();
+      t_pres = svcGetSystemTick() - t1;
       shown_window++;
     } else {
       if (presented) {
@@ -1000,13 +1023,18 @@ int main(int argc, char** argv) {
         shown_window++;
       }
       if (record) RecordTop(GpuPpu3ds_ReadTop(), frameCtr, t_logic, t_draw);
-      if (BottomUi_Frame(&perf)) {
+      u64 t1 = svcGetSystemTick();
+      const bool ui_changed = BottomUi_Frame(&perf);
+      t_ui = svcGetSystemTick() - t1;
+      if (ui_changed) {
         // Nothing new on the top screen from us (skipped frame, or the
         // GPU presents it), but the UI changed: swap the bottom screen only.
+        t1 = svcGetSystemTick();
         UiDraw_Present(GFX_BOTTOM, false);
         gfxFlushBuffers();
         gfxScreenSwapBuffers(GFX_BOTTOM, false);
         UiDraw_Swapped();
+        t_pres = svcGetSystemTick() - t1;
         swapped = true;
       }
     }
@@ -1015,8 +1043,9 @@ int main(int argc, char** argv) {
     u64 now = svcGetSystemTick();
     float work_ms = TicksToMs(now - frame_start);
     perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
+    px.ui_ms = TicksToMs(t_ui), px.present_ms = TicksToMs(t_pres), px.present_wait_ms = UiDraw_TakeWaitMs();
     if (!g_ui.paused)
-      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms);
+      Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms, &px);
     float window_ms = TicksToMs(now - fps_window_start);
     if (window_ms >= 1000.0f) {
       perf.fps = shown_window * 1000.0f / window_ms;

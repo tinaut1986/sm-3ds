@@ -33,6 +33,7 @@ UiOptions g_ui = {
   .audio_on = true,
   .pacing = kPaceAuto,
   .auto_update = true,
+  .defer_tiles = 1,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -1561,11 +1562,11 @@ static void ReportTouch(int x, int y) {
 }
 
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_SPREAD_TILES,
   TOOL_COUNT
 } Tool;
 
-static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 44 + (i / 2) * 29, 140, 26 }; }
+static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 42 + (i / 2) * 25, 140, 23 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
 // Cells with something that runs (log, scene recorder), as in mzm: the right side is a
 // start/stop button, the rest of the cell changes its option.
@@ -1577,8 +1578,8 @@ static Rect SideRect(int i) {
 static void DrawToolCell(Surface s, int i, const char *label, const char *state, uint32_t state_col) {
   const Rect r = ToolRect(i);
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
-  UiDrawText(s, r.x + 6, r.y + 4, 1, COL_TEXT, label);
-  UiDrawText(s, r.x + 6, r.y + 15, 1, state_col, state);
+  UiDrawText(s, r.x + 6, r.y + 3, 1, COL_TEXT, label);
+  UiDrawText(s, r.x + 6, r.y + 13, 1, state_col, state);
 }
 
 // Green play triangle while stopped (tap to start), red stop square while running.
@@ -1625,23 +1626,28 @@ static void DrawToolsModal(Surface s) {
   static const char *const kTintName[] = { "OFF", "PLANES", "DRAW ORDER", "STEREO DEPTH" };
   DrawToolCell(s, TOOL_PLANE_TINT, "PLANE TINT", !g_ui.gpu_render ? "RENDERER IS CPU" : kTintName[g_ui.plane_tint & 3],
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
+  DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
+               !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
+  static const char *const kSpread[] = { "OFF", "CHARS: 224 A FRAME", "CHARS + COLOURS" };
+  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : kSpread[g_ui.defer_tiles % 3],
+               !g_ui.gpu_render ? COL_FAINT : g_ui.defer_tiles ? COL_GOOD : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
-    UiDrawText(s, 16, 188, 1, COL_DIM, "BACK");
+    UiDrawText(s, 16, 195, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
       const uint32_t c = StereoDepth_RampColor(i / 159.0f, g_ui.plane_tint == 3 ? kRampDepth : kRampOrder);
-      UiFillRect(s, 52 + i, 189, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiFillRect(s, 52 + i, 196, 1, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
     }
-    UiDrawText(s, 216, 188, 1, COL_DIM, "FRONT");
+    UiDrawText(s, 216, 195, 1, COL_DIM, "FRONT");
   } else if (g_ui.plane_tint == 1 && g_ui.gpu_render) {   // legend: a chip and the name of each plane, nearest first
     int x = 16;
     for (int p = 0; p < kStereoPlaneCount - 1; p++) {
       const uint32_t c = StereoDepth_PlaneColor((StereoPlane)p);
-      UiFillRect(s, x, 189, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
-      UiDrawText(s, x + 8, 188, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
+      UiFillRect(s, x, 196, 6, 6, RGB(c >> 16 & 255, c >> 8 & 255, c & 255));
+      UiDrawText(s, x + 8, 195, 1, COL_DIM, StereoDepth_PlaneName((StereoPlane)p));
       x += 8 + (int)strlen(StereoDepth_PlaneName((StereoPlane)p)) * 6 + 6;
     }
   }
-  UiDrawTextCentered(s, SCREEN_W / 2, 200, COL_WARN, Debug_LastMessage());
+  UiDrawTextCentered(s, SCREEN_W / 2, 204, COL_WARN, Debug_LastMessage());
   UiDrawBoxLabel(s, CloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(CloseRect()), "CLOSE");
 }
 
@@ -1692,6 +1698,14 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_PLANE_TINT:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.plane_tint = (g_ui.plane_tint + 1) % 4;
+      break;
+    case TOOL_FORCE_3D:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.force_3d = !g_ui.force_3d;
+      break;
+    case TOOL_SPREAD_TILES:
+      if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
+      else g_ui.defer_tiles = (g_ui.defer_tiles + 1) % 3;
       break;
     default: break;
     }
@@ -2299,39 +2313,91 @@ static void DrawBottom(const UiPerf *p) {
   DrawUnlockNotice(s);
 }
 
+// Does the tab or window on screen change by itself (game values, markers, live numbers, a
+// timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
+static bool UiIsLive(void) {
+  switch (g_modal) {
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: break;
+  default: return true;   // the debug windows and a state's detail (its two-tap confirm times out)
+  }
+  if (RetroAch_Toast()) return true;
+  switch (g_tab) {
+  case TAB_STATUS: case TAB_MAP: return true;
+#if DEBUG_TOOLS
+  case TAB_DEBUG: return true;
+#endif
+  case TAB_STATES: return g_arm_state >= 0;
+  default: return false;
+  }
+}
+
+// The clock, battery and Wi-Fi bars are drawn on every tab; true when what they show changed.
+static bool ChromeChanged(void) {
+  static long minute = -1;
+  static int wifi = -1, battery = -1, charging = -1;
+  const long m = (long)(time(NULL) / 60);
+  const int w = osGetWifiStrength();
+  if (m == minute && w == wifi && g_battery == battery && g_charging == charging) return false;
+  if (minute >= 0 && m == minute)   // not just the clock: say which, in the debug log (it showed every 2 s once)
+    Debug_Log("bottom UI: redraw, wifi %d -> %d, battery %d -> %d, charging %d -> %d", wifi, w, battery, g_battery, charging, g_charging);
+  minute = m, wifi = w, battery = g_battery, charging = g_charging;
+  return true;
+}
+
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
+  const char *why = NULL;   // what asked for a redraw this frame, for the debug log
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
     g_dirty = 2;
+    why = "toast ended";
   }
   static uint32_t ra_seen;
   if (RetroAch_Version() != ra_seen) {
     ra_seen = RetroAch_Version();
     g_dirty = 2;
+    why = "RetroAchievements changed";
   }
   static uint32_t updater_seen;
   if (Updater_Version() != updater_seen) {
     updater_seen = Updater_Version();
     g_dirty = 2;
+    why = "updater changed";
   }
   if (g_tap_flash_pending && now - g_tap_ms >= TAP_FLASH_MS) {
     g_tap_flash_pending = false;
     g_dirty = 2;
+    why = "tap flash ended";
   }
-  if (p->frames - g_last_redraw >= REFRESH_FRAMES) {
+  // The bottom screen costs ~15 ms to redraw and present on an Old 3DS, so it is redrawn only
+  // when something it shows has changed: on a tab or window whose content moves by itself every
+  // REFRESH_FRAMES, elsewhere when the clock, battery or Wi-Fi bars change.
+  if (p->frames - g_last_redraw >= REFRESH_FRAMES && UiIsLive()) {
     g_last_redraw = p->frames;
     g_dirty = 2;
   }
-  // The battery moves far slower than anything else here.
-  if (g_ptmu && p->frames % 120 == 0) {
+  if (ChromeChanged()) g_dirty = 2, why = "clock, wifi or battery changed";
+  const bool notice = RetroAch_Toast() != NULL;   // the unlock notice times out on its own
+  static bool notice_seen;
+  if (notice != notice_seen) {
+    notice_seen = notice;
+    g_dirty = 2;
+    why = "unlock notice";
+  }
+  // The battery moves far slower than anything else here, and the two PTM calls cost 2-3 ms on an
+  // Old 3DS (the perf CSV: ui_ms 2-3 with no present, every 120 frames, enough to overrun the frame):
+  // every 20 s.
+  if (g_ptmu && p->frames % 1200 == 0) {
     PTMU_GetBatteryLevel(&g_battery);
     PTMU_GetBatteryChargeState(&g_charging);
     if (g_battery > 5) g_battery = 5;
   }
+  if (why && !UiIsLive() && g_dirty == 2) Debug_Log("bottom UI: redraw, %s", why);   // not the live tabs: they redraw every 15 frames
   if (g_dirty > 0) {
+    // A change needs two frames (the screen is double buffered): the first draws it, the second
+    // only presents the same picture to the other buffer.
+    if (g_dirty == 2) DrawBottom(p);
     g_dirty--;
-    DrawBottom(p);
     return true;
   }
   return false;

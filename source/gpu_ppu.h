@@ -144,6 +144,10 @@ bool GpuBackend_TexCreate(GpuTex *t, int w, int h);
 void GpuBackend_TexFree(GpuTex *t);
 // The CPU changed texels in rows [y0, y1); flush them to where the GPU reads them.
 void GpuBackend_TexWritten(GpuTex *t, int y0, int y1);
+// One 8x8 block of texels (64 texels = 128 bytes in the Morton layout, `block` counted in
+// blocks from the start of the texture) was rewritten. Cheaper than TexWritten when few,
+// scattered blocks changed: only those are copied to the texture the GPU samples.
+void GpuBackend_TexBlockWritten(GpuTex *t, int block);
 // About to write texels for the next frame: the GPU may still be drawing the previous one
 // from the same textures (they are written in place), so the backend waits for it here.
 // Called at most once per GpuPpu_BuildFrame, and only when that frame writes texels.
@@ -250,6 +254,8 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
 
 typedef struct {
   int surfaces, tiles_decoded, sprites, screen_rows_composed, m7_cells_decoded;
+  int tiles_reused, tiles_fresh, tiles_map, tiles_pal, tiles_char, tiles_plane;
+  int tiles_deferred;   // BG tiles whose char data changed but whose decode waits for a later frame (GpuPpu_SetDeferTiles)   // tiles_reused: of tiles_decoded, copied from an identical tile decoded earlier in the frame   // why the BG tiles were decoded: new surface, tilemap entry changed, palette row changed, char data changed, plane fix changed
   // Time per stage of the last build, in g_gpu_ppu_clock units (0 without a clock):
   // line analysis + bands, VRAM/CGRAM diff, sprites, BG surfaces and quads, shadow copy.
   uint64_t t_lines, t_diff, t_sprites, t_bg, t_shadow;
@@ -258,3 +264,12 @@ typedef struct {
 // Optional clock for the stage times above (the 3DS frontend sets svcGetSystemTick).
 extern uint64_t (*g_gpu_ppu_clock)(void);
 const GpuPpuStats *GpuPpu_LastStats(void);
+
+// Animated BG tiles (their char data changed, nothing else) are decoded at most `per_frame` a frame, in
+// tilemap rows from where the last frame stopped, the rest waiting (stale for a few frames) so a big
+// animation does not make one frame long. 0 = every tile at once (the default: the host tests compare
+// the picture with the CPU renderer's, which only a settled one equals). New tiles, tilemap, palette and
+// plane changes are never deferred; palette changes only when `palettes` (a cycling palette then shows a few frames late,
+// a few tile rows at a time).
+void GpuPpu_SetDeferTiles(int per_frame, bool palettes);
+int GpuPpu_PendingTiles(void);   // tiles still waiting, over every surface

@@ -19,6 +19,9 @@ typedef struct {
 } SmRoom;
 
 // Scans the room headers in the ROM once. Call after the ROM is loaded.
+// The most a room's decompressed level data takes (the game's own buffer: WRAM bank $7F).
+enum { kSmMapLevelBytes = 0x10000 };
+
 void SmMap_Init(void);
 const SmRoom *SmMap_Rooms(int *count);
 
