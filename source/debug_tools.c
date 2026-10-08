@@ -450,14 +450,14 @@ static void PerfStop(void) {
   int shown = 0;
   if (f) {
     fprintf(f, "# Super Metroid 3DS %s\nframe,logic_ms,draw_ms,audio_ms,work_ms,shown,game_state,area,room,audio_lock_ms,audio_spc_ms,audio_dsp_ms,audio_resample_ms,"
-                "gpu_build_ms,gpu_wait_ms,gpu_submit_ms,lines_ms,diff_ms,sprites_ms,bg_ms,tiles,quads,bands,tex_copy_ms,tex_flush_ms,tex_runs,tex_kb,gpu_draw_ms,gpu_proc_ms,cmdbuf,dp_ms,ui_ms,present_ms,present_wait_ms,tiles_reused,why_fresh,why_map,why_pal,why_char,why_plane,tiles_deferred,tiles_pending\n", g_version);
+                "gpu_build_ms,gpu_wait_ms,gpu_submit_ms,lines_ms,diff_ms,sprites_ms,bg_ms,tiles,quads,bands,tex_copy_ms,tex_flush_ms,tex_runs,tex_kb,gpu_draw_ms,gpu_proc_ms,cmdbuf,dp_ms,ui_ms,present_ms,present_wait_ms,tiles_reused,why_fresh,why_map,why_pal,why_char,why_plane,tiles_deferred,tiles_pending,gpu_test,eyes,slider,submit_tex_ms,submit_eyes_ms,submit_end_ms\n", g_version);
     for (int i = 0; i < g_perf_count; i++) {
       const PerfSample *s = &g_perf[i];
       const DebugPerfExtra *x = &s->x;
-      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%.3f,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d\n",
+      fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%u,%02X,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%.3f,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.3f,%.3f,%.3f\n",
               i, s->logic, s->draw, s->audio, s->work, s->shown, s->state, s->area, s->room, s->a_lock, s->a_spc, s->a_dsp,
               s->a_resample, x->build_ms, x->wait_ms, x->submit_ms, x->lines_ms, x->diff_ms, x->sprites_ms, x->bg_ms, x->tiles,
-              x->quads, x->bands, x->tex_copy_ms, x->tex_flush_ms, x->tex_runs, x->tex_kb, x->gpu_draw_ms, x->gpu_proc_ms, x->cmdbuf, x->draw_present_ms, x->ui_ms, x->present_ms, x->present_wait_ms, x->tiles_reused, x->why_fresh, x->why_map, x->why_pal, x->why_char, x->why_plane, x->tiles_deferred, x->tiles_pending);
+              x->quads, x->bands, x->tex_copy_ms, x->tex_flush_ms, x->tex_runs, x->tex_kb, x->gpu_draw_ms, x->gpu_proc_ms, x->cmdbuf, x->draw_present_ms, x->ui_ms, x->present_ms, x->present_wait_ms, x->tiles_reused, x->why_fresh, x->why_map, x->why_pal, x->why_char, x->why_plane, x->tiles_deferred, x->tiles_pending, x->gpu_test, x->eyes, x->slider, x->submit_tex_ms, x->submit_eyes_ms, x->submit_end_ms);
       sum += s->work;
       if (s->work > max) max = s->work;
       shown += s->shown;

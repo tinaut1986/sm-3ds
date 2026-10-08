@@ -58,6 +58,10 @@ typedef struct {
   float build_ms, wait_ms, submit_ms;                  // GPU path: build the frame, wait for the GPU, push quads
   float lines_ms, diff_ms, sprites_ms, bg_ms;          // inside the build: line analysis + bands, VRAM diff, sprites, BG
   int tiles, quads, bands;                             // tiles decoded, quads and bands of the frame
+  int gpu_test;   // GPU TEST mode of the frame (kGpuTest*)
+  int eyes;       // eyes the GPU drew (2: 3D on, slider up or FORCE 3D; 0: CPU renderer or not drawn)
+  float slider;   // the 3D slider (0..1)
+  float submit_tex_ms, submit_eyes_ms, submit_end_ms;   // gpu_submit_ms split: texture upload, the eyes' commands, EndFrame
   int tiles_deferred, tiles_pending;   // animated tiles whose decode was put off this frame, and how many still wait after it
   int tiles_reused, why_fresh, why_map, why_pal, why_char, why_plane;   // of the tiles decoded: copied from an identical one; and why they were decoded (new surface, tilemap, palette, char data, plane fix)
   float tex_copy_ms, tex_flush_ms;                     // uploading the changed texels: memcpy, and the cache flush(es)

@@ -605,6 +605,17 @@ static uint16_t CharColours(const Surface *s, int c, const Ppu *ppu) {
 // Does this frame's palette change touch a colour the tile (entry `e`) draws with? A palette row that
 // changed two colours leaves most tiles of that row exactly as they are: their texels hold the same
 // colours, so they are not decoded again (the heat rooms' cycling lava, a fade of a few colours).
+// A palette change of at most this many colours in a row may be spread over frames (a cycle: the heat rooms' lava turns 5
+// colours of each row every few frames). A bigger one (the Landing Site's lightning, a flash, a fade) is a picture-wide
+// event that must land in one frame: spread, it reached the screen a band of rows at a time.
+enum { kPalSpreadMaxColours = 6 };
+
+static bool PalSmall(const Surface *s, uint16_t e) {
+  const int pal = (e >> 10) & 7;
+  const uint16_t changed = (uint16_t)((s->bpp == 4 ? g_pal4_changed[pal] : g_pal2_changed[pal]) & ~1u);
+  return __builtin_popcount(changed) <= kPalSpreadMaxColours;
+}
+
 static bool PalAffects(Surface *s, const Ppu *ppu, uint16_t e) {
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const uint16_t changed = (uint16_t)((s->bpp == 4 ? g_pal4_changed[pal] : g_pal2_changed[pal]) & ~1u);   // index 0 is never drawn
@@ -710,8 +721,8 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e) && PalAffects(s, ppu, e);
       const bool moved = s->fresh || e != *m || pl != s->slot_plane[ti];
       if (!moved && !cd && !pd && !s->pend[ti]) continue;
-      // Only the char data (an animated tile) or, if asked for, the palette changed: it may wait for a later frame.
-      if (!moved && (!pd || g_defer_pal) && g_defer_cap > 0) {
+      // Only the char data (an animated tile) or, if asked for, a small palette cycle changed: it may wait for a later frame.
+      if (!moved && (!pd || (g_defer_pal && PalSmall(s, e))) && g_defer_cap > 0) {
         if (g_defer_left <= 0) {
           if (!s->pend[ti]) s->pend[ti] = 1, s->pend_count++;
           g_stats.tiles_deferred++;
@@ -820,6 +831,9 @@ static void M7DecodeCell(const Ppu *ppu, int c) {
     const uint8_t *m = g_row_morton[r];
     for (int x = 0; x < 8; x++) dst[m[x]] = g_lut_m7[src[r * 8 + x] >> 8];
   }
+  // Marked block by block, as the BG tiles: the Ceres elevator decodes 16-36 cells a frame spread over ~90 rows of
+  // cells, and marking the rows between them uploaded 1.4 MB a frame (13.7 ms on the 2DS) for ~4 KB of texels.
+  GpuBackend_TexBlockWritten(&g_m7_tex, c);
   g_stats.m7_cells_decoded++;
 }
 
@@ -829,18 +843,13 @@ static void M7Sync(const Ppu *ppu, int x0, int x1, int y0, int y1) {
   int cx0 = x0 >> 3, cx1 = x1 >> 3, cy0 = y0 >> 3, cy1 = y1 >> 3;
   if (cx1 - cx0 >= 127) cx0 = 0, cx1 = 127;
   if (cy1 - cy0 >= 127) cy0 = 0, cy1 = 127;
-  int rows0 = 128, rows1 = -1;
   for (int cy = cy0; cy <= cy1; cy++) {
     if (!g_m7_row_stale[cy & 127]) continue;
     for (int cx = cx0; cx <= cx1; cx++) {
       const int c = (cy & 127) * 128 + (cx & 127);
-      if (!g_m7_stale[c]) continue;
-      M7DecodeCell(ppu, c);
-      if ((cy & 127) < rows0) rows0 = cy & 127;
-      if ((cy & 127) > rows1) rows1 = cy & 127;
+      if (g_m7_stale[c]) M7DecodeCell(ppu, c);
     }
   }
-  if (rows1 >= rows0) GpuBackend_TexWritten(&g_m7_tex, rows0 * 8, rows1 * 8 + 8);
 }
 
 // The CPU renderer's per-line setup (PpuDrawBackground_mode7): plane position of the

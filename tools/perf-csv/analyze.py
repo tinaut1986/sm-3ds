@@ -46,6 +46,28 @@ def report(fn):
             mean(fl(r, 'gpu_draw_ms') for r in steady), mean(fl(r, 'gpu_wait_ms') for r in steady),
             mean(fl(r, 'quads') for r in steady), mean(fl(r, 'work_ms') for r in steady)))
         print('   steady frames over %.1f ms: %d' % (BUDGET, sum(fl(r, 'work_ms') > BUDGET for r in steady)))
+    if 'eyes' in rows[0]:
+        # One recording can switch the 3D (eyes) and GPU TEST (gpu_test) on the way: a line per state. gpu_draw_ms is
+        # the GPU's own time for the frame it finished last, so the median keeps the switch frames out.
+        names = ['OFF', 'BG NOT TEXTURED', 'NO BG', 'NO SPRITES', 'NO TOP PASS', 'NO COLOUR MATH', 'NO CLEARS', 'NO STRIP RUNS']
+        # A skipped frame drew nothing (eyes 0): it counts in the state of the frame drawn before it.
+        groups = collections.OrderedDict()
+        state = None
+        for r in rows:
+            if fl(r, 'draw_ms') > 0 or state is None:
+                state = (int(fl(r, 'eyes')), int(fl(r, 'gpu_test')))
+            groups.setdefault(state, []).append(r)
+        if len(groups) > 1 or any(k[1] for k in groups):
+            print('   by state (eyes, GPU TEST): frames | fps shown | GPU own draw median | draw | work median | wait | submit (tex+eyes+end):')
+            for (eyes, test), g in sorted(groups.items()):
+                d = [fl(r, 'gpu_draw_ms') for r in g if fl(r, 'draw_ms') > 0]
+                dr = [r for r in g if fl(r, 'draw_ms') > 0] or g
+                med = lambda k: st.median(fl(r, k) for r in dr)
+                print('     %d eyes %-16s n=%4d | %4.1f | %5.2f | %5.2f | %5.2f | %4.2f | %4.2f (%4.2f+%4.2f+%4.2f)' % (
+                    eyes, names[test] if test < len(names) else test, len(g), sum(int(r['shown']) for r in g) / (len(g) / 60),
+                    st.median(d) if d else 0, mean(fl(r, 'draw_ms') for r in g if fl(r, 'draw_ms') > 0),
+                    st.median(fl(r, 'work_ms') for r in g), med('gpu_wait_ms'), med('gpu_submit_ms'),
+                    med('submit_tex_ms'), med('submit_eyes_ms'), med('submit_end_ms')))
     if 'tiles' in rows[0]:
         print('   tile decodes by size (tiles | reused | deferred | why: map pal char | draw build bg submit | upload copy+flush KB):')
         for lo, hi in ((2, 100), (100, 300), (300, 700), (700, 1700), (1700, 99999)):
@@ -57,7 +79,7 @@ def report(fn):
                     mean(fl(r, 'why_char') for r in g), mean(fl(r, 'draw_ms') for r in g), mean(fl(r, 'gpu_build_ms') for r in g),
                     mean(fl(r, 'bg_ms') for r in g), mean(fl(r, 'gpu_submit_ms') for r in g), mean(fl(r, 'tex_copy_ms') for r in g),
                     mean(fl(r, 'tex_flush_ms') for r in g), mean(fl(r, 'tex_kb') for r in g)))
-        print('   tiles still waiting (SPREAD TILES): max %d' % max(int(fl(r, 'tiles_pending')) for r in rows))
+        print('   tiles still waiting (spread decodes): max %d' % max(int(fl(r, 'tiles_pending')) for r in rows))
     over = [r for r in rows if fl(r, 'work_ms') > BUDGET and fl(r, 'draw_ms') > 0]
     c = collections.Counter()
     for r in over:

@@ -19,6 +19,7 @@
 #include "stereo_depth.h"
 #include "ui_draw.h"
 #include "updater.h"
+#include "sm_wide.h"
 #include "states_store.h"
 #include "ui_lang.h"
 #include "retro_ach.h"
@@ -33,7 +34,6 @@ UiOptions g_ui = {
   .audio_on = true,
   .pacing = kPaceAuto,
   .auto_update = true,
-  .defer_tiles = 1,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
   .new3ds_speedup = true,
   // On in every build: it is what makes Old 3DS playable (2DS: ~60 fps against ~25 with
@@ -52,6 +52,13 @@ static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
 static Modal g_modal;
 static int g_dirty = 2;             // frames left to redraw (bottom is double buffered)
+// A part of the screen changed without a full redraw (the STATUS tab's clock, the MAP tab's blinking marker): only that
+// rectangle is converted and presented, for two frames like g_dirty (P2.7).
+static int g_part;
+static Rect g_part_rect;
+static bool g_present_part;         // what the last BottomUi_Frame asked for is g_present_rect only
+static Rect g_present_rect;
+static uint32_t g_live_key;         // what the open live tab shows (LiveKey) at its last full redraw
 static uint32_t g_last_redraw;
 static bool g_is_new3ds;
 static char g_toast[64];   // UTF-8
@@ -183,16 +190,56 @@ static void DrawSystemStatus(Surface s) {
   UiDrawText(s, wx - 4 - UiTextWidth(buf, 1), cy - 3, 1, RGB(210, 220, 235), buf);
 }
 
-static void DrawTabBar(Surface s) {
+// Low energy (P1.10, as mzm's RenderTabBar): in gameplay the tab buttons blink yellow below 60 energy and red below 30,
+// 8 frames bright and 8 dim. Only the buttons change, so a blink is a partial update (TabBlinkUpdate), not a redraw.
+static uint32_t g_ui_frames;        // UiPerf.frames of the frame being drawn
+static int g_tab_warn_drawn;        // 0 none, 1 yellow, 2 red: what the buttons show
+static bool g_tab_bright_drawn;
+
+static int TabWarn(void) {
+  if (!SmWide_Gameplay()) return 0;
+  return samus_health < 30 ? 2 : samus_health < 60 ? 1 : 0;
+}
+
+static bool TabBright(void) { return (g_ui_frames & 15) < 8; }
+
+// The tab buttons only; returns the rectangle they cover (and how many there are in *count, if asked).
+static Rect DrawTabButtons(Surface s, int *count) {
   Tab tabs[TAB_COUNT];
   const int n = VisibleTabs(tabs);
+  const int warn = TabWarn();
+  const bool bright = TabBright();
   for (int i = 0; i < n; i++) {
     const bool on = tabs[i] == g_tab;
     const Rect r = TabRect(i);
-    UiFillRect(s, r.x, r.y, r.w, r.h, on ? RGB(45, 150, 240) : RGB(50, 56, 75));
-    UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, on ? RGB(18, 70, 130) : RGB(26, 30, 42));
-    DrawTabIcon(s, tabs[i], r.x + r.w / 2, r.y + r.h / 2, on ? RGB(255, 255, 255) : RGB(140, 150, 175));
+    uint32_t edge, body, icon;
+    if (warn == 2) {
+      edge = bright ? (on ? RGB(230, 55, 40) : RGB(100, 30, 24)) : (on ? RGB(160, 38, 30) : RGB(65, 22, 18));
+      body = bright ? (on ? RGB(140, 28, 22) : RGB(60, 18, 16)) : (on ? RGB(80, 18, 18) : RGB(35, 12, 12));
+      icon = on ? RGB(255, 200, 190) : RGB(200, 120, 110);
+    } else if (warn == 1) {
+      edge = bright ? (on ? RGB(230, 180, 45) : RGB(100, 80, 28)) : (on ? RGB(170, 130, 35) : RGB(70, 58, 22));
+      body = bright ? (on ? RGB(130, 100, 24) : RGB(55, 44, 16)) : (on ? RGB(90, 70, 18) : RGB(38, 32, 12));
+      icon = on ? RGB(255, 245, 200) : RGB(200, 175, 110);
+    } else {
+      edge = on ? RGB(45, 150, 240) : RGB(50, 56, 75);
+      body = on ? RGB(18, 70, 130) : RGB(26, 30, 42);
+      icon = on ? RGB(255, 255, 255) : RGB(140, 150, 175);
+    }
+    UiFillRect(s, r.x, r.y, r.w, r.h, edge);
+    UiFillRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, body);
+    DrawTabIcon(s, tabs[i], r.x + r.w / 2, r.y + r.h / 2, icon);
   }
+  g_tab_warn_drawn = warn;
+  g_tab_bright_drawn = bright;
+  if (count) *count = n;
+  const Rect a = TabRect(0), b = TabRect(n - 1);
+  return (Rect){ a.x, a.y, b.x + b.w - a.x, a.h };
+}
+
+static void DrawTabBar(Surface s) {
+  int n;
+  DrawTabButtons(s, &n);
   // Things that are on whatever tab is shown.
   int x = TabRect(n).x;
   if (SceneRec_Active()) { UiDrawText(s, x, 9, 1, COL_BAD, "REC"); x += 24; }
@@ -463,6 +510,36 @@ static void DrawDoorMark(Surface s, const SmWarpDoorMark *d) {
 }
 #endif
 
+// Samus's mark on the MAP tab blinks every 15 frames: the pixels under it are kept, so a blink rewrites only the cell
+// (LiveUpdate) instead of the whole screen.
+enum { kMarkMax = 16 };
+static struct {
+  Rect r;          // clipped to the screen and the map's rows
+  bool valid, on;
+  uint32_t under[kMarkMax * kMarkMax];
+} g_mark;
+
+static void MarkSet(Surface s, bool on) {
+  const Rect r = g_mark.r;
+  for (int x = 0; x < r.w; x++)
+    for (int y = 0; y < r.h; y++)
+      s.px[(r.x + x) * s.h + (s.h - 1 - (r.y + y))] = on ? RGB(255, 255, 255) : g_mark.under[x * kMarkMax + y];
+  g_mark.on = on;
+}
+
+static void MarkInit(Surface s, Rect r, bool on) {
+  if (r.x < 0) r.w += r.x, r.x = 0;
+  if (r.y < MAP_Y0) r.h -= MAP_Y0 - r.y, r.y = MAP_Y0;
+  if (r.x + r.w > SCREEN_W) r.w = SCREEN_W - r.x;
+  if (r.y + r.h > MAP_VIEW_Y1) r.h = MAP_VIEW_Y1 - r.y;
+  if (r.w <= 0 || r.h <= 0 || r.w > kMarkMax || r.h > kMarkMax) return;
+  g_mark.r = r;
+  for (int x = 0; x < r.w; x++)
+    for (int y = 0; y < r.h; y++) g_mark.under[x * kMarkMax + y] = s.px[(r.x + x) * s.h + (s.h - 1 - (r.y + y))];
+  g_mark.valid = true;
+  MarkSet(s, on);
+}
+
 static void DrawMap(Surface s, const UiPerf *p) {
   const int area = ShownMapArea();
   const bool station = SmMap_HasMapStation(area);
@@ -514,12 +591,9 @@ static void DrawMap(Surface s, const UiPerf *p) {
   const int icon_count = SmMap_Icons(area, icons, kSmMapMaxIcons);
   for (int i = icon_count - 1; i >= 0; i--) DrawMapSprite(s, &icons[i]);
 
-  // Outline the room Samus is in, and mark Samus (blinking).
-  if (samus_here) {
-    DrawRoomOutline(s, SmMap_CurrentRoom(), MAP_COL_ROOM);
-    if ((p->frames / 15) & 1)
-      UiFillRect(s, MapPxX(sc) + 1, MapPxY(sr) + 1, MAP_CELL - 2, MAP_CELL - 2, RGB(255, 255, 255));
-  }
+  // Outline the room Samus is in; Samus's blinking mark goes on last (below).
+  g_mark.valid = false;
+  if (samus_here) DrawRoomOutline(s, SmMap_CurrentRoom(), MAP_COL_ROOM);
 #if DEBUG_TOOLS
   {
     // The room picked for a warp, and the door the warp will use.
@@ -533,6 +607,7 @@ static void DrawMap(Surface s, const UiPerf *p) {
     }
   }
 #endif
+  if (samus_here) MarkInit(s, (Rect){ MapPxX(sc) + 1, MapPxY(sr) + 1, MAP_CELL - 2, MAP_CELL - 2 }, (p->frames / 15) & 1);
   UiNoClip();
 
   for (int i = 0; i < kSmAreaCount; i++)
@@ -587,6 +662,22 @@ static void DrawCheatButton(Surface s, Rect r, bool on, const char *label) {
                  on ? RGB(255, 220, 90) : RGB(150, 190, 230), Pressed(r), label);
 }
 #endif
+
+// The game time, the only thing on the STATUS tab that changes every second: redrawn on its own (LiveUpdate).
+static const Rect kStatusTimeRect = { 224, 210, 96, 9 };
+static uint32_t g_time_drawn;
+
+static uint32_t GameTimeKey(void) {
+  return (uint32_t)game_time_hours << 16 | (uint32_t)game_time_minutes << 8 | (uint32_t)game_time_seconds;
+}
+
+static void DrawStatusTime(Surface s) {
+  const Rect r = kStatusTimeRect;
+  UiFillRect(s, r.x, r.y, r.w, r.h, COL_BG);
+  UiDrawTextf(s, 224, 211, COL_DIM, "%02u:%02u:%02u", (unsigned)game_time_hours, (unsigned)game_time_minutes,
+              (unsigned)game_time_seconds);
+  g_time_drawn = GameTimeKey();
+}
 
 static void DrawStatus(Surface s) {
   const unsigned health = samus_health, max_health = samus_max_health;
@@ -684,8 +775,7 @@ static void DrawStatus(Surface s) {
   // Where and how long.
   const unsigned area = area_index < 8 ? area_index : 7;
   UiDrawTextf(s, 8, 211, COL_TEXT, "%s  %s %02X", TrArea(area), Tr(kStrRoom), (unsigned)room_index);
-  UiDrawTextf(s, 224, 211, COL_DIM, "%02u:%02u:%02u", (unsigned)game_time_hours, (unsigned)game_time_minutes,
-              (unsigned)game_time_seconds);
+  DrawStatusTime(s);
 }
 
 static void StatusTouch(int x, int y) {
@@ -1530,6 +1620,7 @@ static void ReportDone(const char *reason) {
   case REPORT_DUMP: g_ui.req_dump = true; break;
   case REPORT_FRAME_DUMP: g_ui.req_frame_dump = true; break;
   case REPORT_SCENE_REC:
+    BottomUi_Busy();
     SceneRec_Toggle();   // stopping writes the file: a few seconds with the game frozen
     Toast(Debug_LastMessage());
     g_ui.paused = g_report_was_paused;
@@ -1562,9 +1653,13 @@ static void ReportTouch(int x, int y) {
 }
 
 typedef enum {
-  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_SPREAD_TILES,
+  TOOL_DUMP, TOOL_FRAME_DUMP, TOOL_LOG, TOOL_MARK, TOOL_SCENE_REC, TOOL_PERF, TOOL_RENDERER, TOOL_GPU_CHECK, TOOL_PLANE_TINT, TOOL_FORCE_3D, TOOL_GPU_TEST,
   TOOL_COUNT
 } Tool;
+
+// GPU TEST's states, in the order of kGpuTest* (gpu_ppu_3ds.h).
+static const char *const kGpuTestName[] = { "OFF", "BG NOT TEXTURED", "NO BG", "NO SPRITES", "NO TOP PASS", "NO COLOUR MATH", "NO CLEARS", "NO STRIP RUNS" };
+enum { kGpuTestModes = sizeof(kGpuTestName) / sizeof(kGpuTestName[0]) };
 
 static Rect ToolRect(int i) { return (Rect){ 16 + (i % 2) * 148, 42 + (i / 2) * 25, 140, 23 }; }
 static Rect CloseRect(void) { return (Rect){ 116, 212, 88, 20 }; }
@@ -1628,9 +1723,8 @@ static void DrawToolsModal(Surface s) {
                !g_ui.gpu_render ? COL_FAINT : g_ui.plane_tint ? COL_GOOD : act);
   DrawToolCell(s, TOOL_FORCE_3D, "FORCE 3D", !g_ui.gpu_render ? "RENDERER IS CPU" : g_ui.force_3d ? "ON: 2 EYES" : "OFF",
                !g_ui.gpu_render ? COL_FAINT : g_ui.force_3d ? COL_WARN : COL_DIM);
-  static const char *const kSpread[] = { "OFF", "CHARS: 224 A FRAME", "CHARS + COLOURS" };
-  DrawToolCell(s, TOOL_SPREAD_TILES, "SPREAD TILES", !g_ui.gpu_render ? "RENDERER IS CPU" : kSpread[g_ui.defer_tiles % 3],
-               !g_ui.gpu_render ? COL_FAINT : g_ui.defer_tiles ? COL_GOOD : COL_DIM);
+  DrawToolCell(s, TOOL_GPU_TEST, "GPU TEST", !g_ui.gpu_render ? "RENDERER IS CPU" : kGpuTestName[g_ui.gpu_test % kGpuTestModes],
+               !g_ui.gpu_render ? COL_FAINT : g_ui.gpu_test ? COL_WARN : COL_DIM);
   if (g_ui.plane_tint >= 2 && g_ui.gpu_render) {   // legend of the ramps: back dark .. front bright
     UiDrawText(s, 16, 195, 1, COL_DIM, "BACK");
     for (int i = 0; i < 160; i++) {
@@ -1664,6 +1758,7 @@ static void ToolsModalTouch(int x, int y) {
     case TOOL_FRAME_DUMP: OpenReport(REPORT_FRAME_DUMP); break;
     case TOOL_LOG:
       if (side) {
+        if (Debug_LogEnabled()) BottomUi_Busy();   // stopping writes what is buffered
         Debug_LogSetEnabled(!Debug_LogEnabled());
         Toast(Debug_LastMessage());
       } else {
@@ -1689,7 +1784,11 @@ static void ToolsModalTouch(int x, int y) {
         SceneRec_CycleRate();
       }
       break;
-    case TOOL_PERF: Debug_PerfToggle(); Toast(Debug_LastMessage()); break;
+    case TOOL_PERF:
+      if (Debug_PerfRecording()) BottomUi_Busy();   // stopping writes the CSV
+      Debug_PerfToggle();
+      Toast(Debug_LastMessage());
+      break;
     case TOOL_RENDERER: g_ui.gpu_render = !g_ui.gpu_render; break;
     case TOOL_GPU_CHECK:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
@@ -1703,9 +1802,9 @@ static void ToolsModalTouch(int x, int y) {
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
       else g_ui.force_3d = !g_ui.force_3d;
       break;
-    case TOOL_SPREAD_TILES:
+    case TOOL_GPU_TEST:
       if (!g_ui.gpu_render) Toast("Switch the renderer to GPU first");
-      else g_ui.defer_tiles = (g_ui.defer_tiles + 1) % 3;
+      else g_ui.gpu_test = (g_ui.gpu_test + 1) % kGpuTestModes;
       break;
     default: break;
     }
@@ -2318,7 +2417,12 @@ static void DrawBottom(const UiPerf *p) {
 static bool UiIsLive(void) {
   switch (g_modal) {
   case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: break;
-  default: return true;   // the debug windows and a state's detail (its two-tap confirm times out)
+#if DEBUG_TOOLS
+  // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
+  case MODAL_TOOLS: return SceneRec_Active();
+  case MODAL_REPORT: return false;   // the game is paused under it
+#endif
+  default: return true;   // a state's detail (its two-tap confirm times out)
   }
   if (RetroAch_Toast()) return true;
   switch (g_tab) {
@@ -2344,8 +2448,78 @@ static bool ChromeChanged(void) {
   return true;
 }
 
+// The STATUS and MAP tabs show game values that change by themselves (P2.7). With nothing over them they are redrawn
+// whole only when one of those values changes (LiveKey), and their clock or blinking mark rewrite only their own
+// rectangle (LiveUpdate); otherwise (a window, a notice, the update prompt) every REFRESH_FRAMES as before.
+static bool LiveOk(void) {
+  return (g_tab == TAB_STATUS || g_tab == TAB_MAP) && g_modal == MODAL_NONE && !RetroAch_Toast() &&
+         Updater_Prompt() == UPD_PROMPT_NONE;
+}
+
+static uint32_t LiveKey(void) {
+  uint32_t h = 2166136261u;
+#define MIX(v) (h = (h ^ (uint32_t)(v)) * 16777619u)
+  MIX(g_tab);
+  if (g_tab == TAB_STATUS) {
+    MIX(samus_health), MIX(samus_max_health), MIX(samus_reserve_health), MIX(samus_max_reserve_health), MIX(reserve_health_mode);
+    MIX(samus_missiles), MIX(samus_max_missiles), MIX(samus_super_missiles), MIX(samus_max_super_missiles);
+    MIX(samus_power_bombs), MIX(samus_max_power_bombs), MIX(hud_item_index);
+    MIX(collected_items), MIX(equipped_items), MIX(collected_beams), MIX(equipped_beams);
+    for (int i = 0; i < 6; i++) MIX(SmMap_HasMapStation(i)), MIX(SmMap_DebugState(i));
+    MIX(area_index), MIX(room_index);
+#if DEBUG_TOOLS
+    MIX(g_cheats.invincible), MIX(g_cheats.max_mode);
+#endif
+  } else if (g_tab == TAB_MAP) {
+    const int area = ShownMapArea();
+    int sa = -1, sc = 0, sr = 0;
+    MIX(area), MIX(SmMap_SamusCell(&sa, &sc, &sr)), MIX(sa), MIX(sc), MIX(sr);
+    MIX((uintptr_t)SmMap_CurrentRoom()), MIX(SmMap_AreaKey(area));
+  }
+#undef MIX
+  return h;
+}
+
+static void PartAdd(Rect r) {
+  if (g_part) {
+    const int x1 = g_part_rect.x + g_part_rect.w > r.x + r.w ? g_part_rect.x + g_part_rect.w : r.x + r.w;
+    const int y1 = g_part_rect.y + g_part_rect.h > r.y + r.h ? g_part_rect.y + g_part_rect.h : r.y + r.h;
+    if (r.x > g_part_rect.x) r.x = g_part_rect.x;
+    if (r.y > g_part_rect.y) r.y = g_part_rect.y;
+    r.w = x1 - r.x, r.h = y1 - r.y;
+  }
+  g_part_rect = r;
+  g_part = 2;
+}
+
+// The low-energy blink and its start or end: the tab buttons alone. The unlock notice sits over them: they wait for it.
+static void TabBlinkUpdate(void) {
+  const int warn = TabWarn();
+  if (warn == g_tab_warn_drawn && (!warn || TabBright() == g_tab_bright_drawn)) return;
+  if (RetroAch_Toast()) return;
+  PartAdd(DrawTabButtons(UiDraw_Screen(GFX_BOTTOM), NULL));
+}
+
+static void LiveUpdate(const UiPerf *p) {
+  Surface s = UiDraw_Screen(GFX_BOTTOM);
+  if (g_tab == TAB_STATUS && GameTimeKey() != g_time_drawn) {
+    DrawStatusTime(s);
+    PartAdd(kStatusTimeRect);
+  } else if (g_tab == TAB_MAP && g_mark.valid && (bool)((p->frames / 15) & 1) != g_mark.on) {
+    MarkSet(s, !g_mark.on);
+    PartAdd(g_mark.r);
+  }
+}
+
+bool BottomUi_PresentRect(Rect *r) {
+  if (!g_present_part) return false;
+  *r = g_present_rect;
+  return true;
+}
+
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
+  g_ui_frames = p->frames;
   const char *why = NULL;   // what asked for a redraw this frame, for the debug log
   if (g_toast[0] && now > g_toast_until) {
     g_toast[0] = 0;
@@ -2372,13 +2546,25 @@ bool BottomUi_Frame(const UiPerf *p) {
   // The bottom screen costs ~15 ms to redraw and present on an Old 3DS, so it is redrawn only
   // when something it shows has changed: on a tab or window whose content moves by itself every
   // REFRESH_FRAMES, elsewhere when the clock, battery or Wi-Fi bars change.
-  if (p->frames - g_last_redraw >= REFRESH_FRAMES && UiIsLive()) {
-    g_last_redraw = p->frames;
-    g_dirty = 2;
+  if (UiIsLive()) {
+    if (LiveOk()) {
+      const uint32_t key = LiveKey();
+      if (key != g_live_key) g_live_key = key, g_dirty = 2, why = "tab values changed";
+    } else if (p->frames - g_last_redraw >= REFRESH_FRAMES) {
+      g_last_redraw = p->frames;
+      g_dirty = 2;
+    }
   }
   if (ChromeChanged()) g_dirty = 2, why = "clock, wifi or battery changed";
   const bool notice = RetroAch_Toast() != NULL;   // the unlock notice times out on its own
   static bool notice_seen;
+#if DEBUG_TOOLS
+  static bool perf_seen;   // the perf recorder stops by itself when its buffer is full: the tools window shows it
+  if (Debug_PerfRecording() != perf_seen) {
+    perf_seen = !perf_seen;
+    g_dirty = 2;
+  }
+#endif
   if (notice != notice_seen) {
     notice_seen = notice;
     g_dirty = 2;
@@ -2393,11 +2579,21 @@ bool BottomUi_Frame(const UiPerf *p) {
     if (g_battery > 5) g_battery = 5;
   }
   if (why && !UiIsLive() && g_dirty == 2) Debug_Log("bottom UI: redraw, %s", why);   // not the live tabs: they redraw every 15 frames
+  g_present_part = false;
+  // A change needs two frames (the screen is double buffered): the first draws it, the second
+  // only presents the same picture to the other buffer.
+  if (g_dirty == 2) DrawBottom(p), g_live_key = LiveOk() ? LiveKey() : 0;
+  if (LiveOk()) LiveUpdate(p);
+  TabBlinkUpdate();
   if (g_dirty > 0) {
-    // A change needs two frames (the screen is double buffered): the first draws it, the second
-    // only presents the same picture to the other buffer.
-    if (g_dirty == 2) DrawBottom(p);
     g_dirty--;
+    if (g_part) g_part--;   // a full present carries the part too
+    return true;
+  }
+  if (g_part > 0) {
+    g_part--;
+    g_present_part = true;
+    g_present_rect = g_part_rect;
     return true;
   }
   return false;

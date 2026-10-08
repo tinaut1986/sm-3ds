@@ -1427,6 +1427,48 @@ uint8_t ppu_read(Ppu* ppu, uint8_t adr) {
   }
 }
 
+// $2118 (low) / $2119 (high): one byte into the word at the VRAM pointer.
+static inline void ppu_writeVramByte(Ppu* ppu, uint8_t val, bool high) {
+  uint16_t vramAdr = ppu_getVramRemap(ppu) & 0x7fff;
+  uint16_t old = g_ppu_vram_shadow ? g_ppu_vram_shadow[vramAdr] : ppu->vram[vramAdr];
+  uint16_t word = high ? (old & 0x00ff) | (val << 8) : (old & 0xff00) | val;
+  if (g_ppu_vram_shadow) g_ppu_vram_shadow[vramAdr] = word;
+  if (word != ppu->vram[vramAdr]) {
+    ppu->vram[vramAdr] = word;
+    if (g_ppu_vram_dirty) g_ppu_vram_dirty[vramAdr >> 3] = 1;
+  }
+  if(ppu->vramIncrementOnHigh == high) ppu->vramPointer += ppu->vramIncrement;
+}
+
+// $2104: one byte into OAM.
+static inline void ppu_writeOamByte(Ppu* ppu, uint8_t val) {
+  if(ppu->oamInHigh) {
+    ppu->highOam[((ppu->oamAdr & 0xf) << 1) | ppu->oamSecondWrite] = val;
+    if(ppu->oamSecondWrite) {
+      ppu->oamAdr++;
+      if(ppu->oamAdr == 0) ppu->oamInHigh = false;
+    }
+  } else {
+    if(!ppu->oamSecondWrite) {
+      ppu->oamBuffer = val;
+    } else {
+      ppu->oam[ppu->oamAdr++] = (val << 8) | ppu->oamBuffer;
+      if(ppu->oamAdr == 0) ppu->oamInHigh = true;
+    }
+  }
+  ppu->oamSecondWrite = !ppu->oamSecondWrite;
+}
+
+// $2122: one byte into CGRAM.
+static inline void ppu_writeCgramByte(Ppu* ppu, uint8_t val) {
+  if(!ppu->cgramSecondWrite) {
+    ppu->cgramBuffer = val;
+  } else {
+    ppu->cgram[ppu->cgramPointer++] = (val << 8) | ppu->cgramBuffer;
+  }
+  ppu->cgramSecondWrite = !ppu->cgramSecondWrite;
+}
+
 // 3DS port: set by the frontend's frame capture to see every register write.
 void (*g_ppu_write_hook)(uint8_t adr, uint8_t val);
 
@@ -1466,21 +1508,7 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
       break;
     }
     case 0x04: {
-      if(ppu->oamInHigh) {
-        ppu->highOam[((ppu->oamAdr & 0xf) << 1) | ppu->oamSecondWrite] = val;
-        if(ppu->oamSecondWrite) {
-          ppu->oamAdr++;
-          if(ppu->oamAdr == 0) ppu->oamInHigh = false;
-        }
-      } else {
-        if(!ppu->oamSecondWrite) {
-          ppu->oamBuffer = val;
-        } else {
-          ppu->oam[ppu->oamAdr++] = (val << 8) | ppu->oamBuffer;
-          if(ppu->oamAdr == 0) ppu->oamInHigh = true;
-        }
-      }
-      ppu->oamSecondWrite = !ppu->oamSecondWrite;
+      ppu_writeOamByte(ppu, val);
       break;
     }
     case 0x05: {
@@ -1570,25 +1598,11 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
     }
     case 0x18: {
       // TODO: vram access during rendering (also cgram and oam)
-      uint16_t vramAdr = ppu_getVramRemap(ppu) & 0x7fff;
-      uint16_t word = ((g_ppu_vram_shadow ? g_ppu_vram_shadow[vramAdr] : ppu->vram[vramAdr]) & 0xff00) | val;
-      if (g_ppu_vram_shadow) g_ppu_vram_shadow[vramAdr] = word;
-      if (word != ppu->vram[vramAdr]) {
-        ppu->vram[vramAdr] = word;
-        if (g_ppu_vram_dirty) g_ppu_vram_dirty[vramAdr >> 3] = 1;
-      }
-      if(!ppu->vramIncrementOnHigh) ppu->vramPointer += ppu->vramIncrement;
+      ppu_writeVramByte(ppu, val, false);
       break;
     }
     case 0x19: {
-      uint16_t vramAdr = ppu_getVramRemap(ppu) & 0x7fff;
-      uint16_t word = ((g_ppu_vram_shadow ? g_ppu_vram_shadow[vramAdr] : ppu->vram[vramAdr]) & 0x00ff) | (val << 8);
-      if (g_ppu_vram_shadow) g_ppu_vram_shadow[vramAdr] = word;
-      if (word != ppu->vram[vramAdr]) {
-        ppu->vram[vramAdr] = word;
-        if (g_ppu_vram_dirty) g_ppu_vram_dirty[vramAdr >> 3] = 1;
-      }
-      if(ppu->vramIncrementOnHigh) ppu->vramPointer += ppu->vramIncrement;
+      ppu_writeVramByte(ppu, val, true);
       break;
     }
     case 0x1a: {
@@ -1618,12 +1632,7 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
       break;
     }
     case 0x22: {
-      if(!ppu->cgramSecondWrite) {
-        ppu->cgramBuffer = val;
-      } else {
-        ppu->cgram[ppu->cgramPointer++] = (val << 8) | ppu->cgramBuffer;
-      }
-      ppu->cgramSecondWrite = !ppu->cgramSecondWrite;
+      ppu_writeCgramByte(ppu, val);
       break;
     }
     case 0x23:
@@ -1748,4 +1757,30 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
 
 int PpuGetCurrentRenderScale(Ppu *ppu, uint32_t render_flags) {
   return 1;
+}
+
+// 3DS port: a whole DMA from plain memory into the B-bus (dma_runAll), the same as
+// ppu_write per byte. The uploads the game makes every frame (VRAM in mode 1 to
+// $2118/9, OAM to $2104, CGRAM to $2122) skip the register switch; anything else
+// goes through ppu_write.
+void ppu_dmaWrite(Ppu* ppu, uint8_t bAdr, const int* offsets, const uint8_t* src, uint32_t n) {
+  bool one = offsets[1] == 0 && offsets[2] == 0 && offsets[3] == 0;   // modes 0, 2, 6
+  bool vram = bAdr == 0x18 && offsets[1] == 1 && offsets[2] == 0 && offsets[3] == 1;
+  if (g_ppu_write_hook || !(vram || (one && (bAdr == 0x04 || bAdr == 0x22)))) {
+    for (uint32_t k = 0; k < n; k++)
+      ppu_write(ppu, bAdr + offsets[k & 3], src[k]);
+    return;
+  }
+  if (g_ppu_line_capture && !ppu->snes->inVblank)
+    g_ppu_line_capture->midframe_data_writes += n;
+  if (vram) {
+    for (uint32_t k = 0; k < n; k++)
+      ppu_writeVramByte(ppu, src[k], k & 1);
+  } else if (bAdr == 0x04) {
+    for (uint32_t k = 0; k < n; k++)
+      ppu_writeOamByte(ppu, src[k]);
+  } else {
+    for (uint32_t k = 0; k < n; k++)
+      ppu_writeCgramByte(ppu, src[k]);
+  }
 }

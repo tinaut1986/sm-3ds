@@ -377,7 +377,7 @@ static void snes_writeReg(Snes* snes, uint16_t adr, uint8_t val) {
                snes->ppu->vramPointer, snes->dma->channel[1].size, data);
       }
       dma_startDma(snes->dma, val, false);
-      while (dma_cycle(snes->dma)) {}
+      dma_runAll(snes->dma);
       break;
     }
     case 0x420c: {

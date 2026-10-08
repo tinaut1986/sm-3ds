@@ -54,6 +54,8 @@ Surface UiDraw_Screen(gfxScreen_t screen);
 // so this first waits for that vblank (see UiDraw_Swapped). `both_eyes`: the top screen is in
 // 3D and shows the same image to both.
 void UiDraw_Present(gfxScreen_t screen, bool both_eyes);
+// The same for the rectangle `r` only (one screen, left eye).
+void UiDraw_PresentRect(gfxScreen_t screen, Rect r);
 
 // Call after every gfxSwapBuffers / gfxScreenSwapBuffers, and UiDraw_VBlankSeen after
 // waiting for a vblank. UiDraw_WaitSwapShown blocks until the last swap is on screen.
