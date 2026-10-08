@@ -954,6 +954,7 @@ int main(int argc, char** argv) {
           GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
           px.draw_present_ms = TicksToMs(svcGetSystemTick() - t_dp);
           px.eyes = GpuPpu3ds_LastEyes(), px.slider = osGet3DSliderState();
+          GpuPpu3ds_LastSubmitParts(&px.submit_tex_ms, &px.submit_eyes_ms, &px.submit_end_ms);
           GpuPpu3ds_LastGpuTimes(&px.gpu_draw_ms, &px.gpu_proc_ms, &px.cmdbuf);
           float wait_ms, submit_ms;
           GpuPpu3ds_LastTimes(&wait_ms, &submit_ms);

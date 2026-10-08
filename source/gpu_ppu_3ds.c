@@ -872,6 +872,13 @@ void GpuPpu3ds_SetToast(const uint32_t *px) {
 }
 
 static u64 g_wait_ticks, g_submit_ticks;
+static u64 g_submit_part_ticks[3];   // of the submit: texture upload, the eyes' commands, EndFrame
+
+void GpuPpu3ds_LastSubmitParts(float *tex_ms, float *eyes_ms, float *end_ms) {
+  *tex_ms = (float)((double)g_submit_part_ticks[0] * 1000.0 / SYSCLOCK_ARM11);
+  *eyes_ms = (float)((double)g_submit_part_ticks[1] * 1000.0 / SYSCLOCK_ARM11);
+  *end_ms = (float)((double)g_submit_part_ticks[2] * 1000.0 / SYSCLOCK_ARM11);
+}
 
 void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
   *wait_ms = (float)((double)g_wait_ticks * 1000.0 / SYSCLOCK_ARM11);
@@ -882,28 +889,32 @@ void GpuPpu3ds_LastTimes(float *wait_ms, float *submit_ms) {
 // then onto that eye's top-screen target.
 static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_top, bool second_eye) {
   BlendOff();
-  bool any_sub = false, sub_flat = true;
+  bool any_sub = false, sub_flat = true, any_flat = false;
   for (int i = 0; i < f->band_count; i++) {
     const GpuBand *b = &f->bands[i];
     if (b->black || !b->math || !b->add_subscreen) continue;
     any_sub = true;
-    sub_flat &= SubIsEffect(f, b) && !SubByHand(f, b);
+    const bool flat = SubIsEffect(f, b) && !SubByHand(f, b);
+    sub_flat &= flat;
+    any_flat |= flat;
   }
+  // Each band's backdrop writes colour, depth and stencil over all of its rows from x0 to x1 (DrawBandMain, DrawBandSub):
+  // with the bands covering the frame's rows, a target only read inside those needs no clear.
+  bool covered = f->band_count > 0;
+  for (int i = 1; i < f->band_count; i++) covered &= f->bands[i].y0 == f->bands[i - 1].y1;
   if (g_gpu_test == kGpuTestNoMath) any_sub = false;
   // A subscreen that holds only an effect (rain, fog) is drawn with no eye's shift (g_flat_sub): the first eye's is the
   // second's too. MathAdd moves it per eye when it adds it.
   if (any_sub && !(second_eye && sub_flat)) {
-    if (g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(g_rt_sub, C3D_CLEAR_ALL, 0, 0);
+    // A flat effect is added moved by the eye's shift (MathAdd), so it reads columns past x0..x1: cleared. A scene on the
+    // subscreen is added where it is.
+    if ((any_flat || !covered) && g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(g_rt_sub, C3D_CLEAR_ALL, 0, 0);
     SetTarget(g_rt_sub, &g_proj_tex);
     for (int i = 0; i < f->band_count; i++) {
       const GpuBand *b = &f->bands[i];
       if (!b->black && b->math && b->add_subscreen) DrawBandSub(f, b);
     }
   }
-  // Each band's backdrop writes colour, depth and stencil over all of its rows from x0 to x1, and the top pass reads only
-  // those: with the bands covering the frame's rows the clear is not needed.
-  bool covered = f->band_count > 0;
-  for (int i = 1; i < f->band_count; i++) covered &= f->bands[i].y0 == f->bands[i - 1].y1;
   if (!covered && g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(g_rt_main, C3D_CLEAR_ALL, 0, 0);
   SetTarget(g_rt_main, &g_proj_tex);
   for (int i = 0; i < f->band_count; i++) DrawBandMain(f, &f->bands[i]);
@@ -922,13 +933,6 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
 
   // Top screen: the 256x224 picture centred, scaled to 274x240 or 1:1, like the CPU path
   // (DrawPpuFrame); WIDE margins at the same scale on each side, cut by the screen edge.
-  if (g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(rt_top, C3D_CLEAR_COLOR, 0, 0);   // the top pass uses no depth
-  SetTarget(rt_top, &g_proj_top);
-  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
-  C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
-  C3D_AlphaTest(false, GPU_ALWAYS, 0);
-  BlendOff();
-  C3D_TexBind(0, &g_main_tex);
   // The frame's columns centred on the screen (uneven margins: not the 256 px view).
   const float x_scale = pixel_perfect ? 1.0f : 274.0f / 256.0f, mid = (f->show_x0 + f->show_x1) * 0.5f;
   const float x0 = 200 + (f->show_x0 - mid) * x_scale, x1 = 200 + (f->show_x1 - mid) * x_scale;
@@ -936,6 +940,16 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
   // PIXEL PERFECT: the frame's rows centred (the extra rows may lean to one side).
   const float y_scale = pixel_perfect ? 1.0f : 240.0f / 224.0f,
               y_off = pixel_perfect ? (240 - (f->y1 - f->y0)) / 2 - f->y0 : 0;
+  // No clear when the picture covers the whole screen (WIDE with its rows): the top pass uses no depth either.
+  const bool fills = covered && x0 <= 0 && x1 >= 400 && y_off + f->bands[0].y0 * y_scale <= 0 &&
+                     y_off + f->bands[f->band_count - 1].y1 * y_scale >= 240;
+  if (!fills && g_gpu_test != kGpuTestNoClears) C3D_RenderTargetClear(rt_top, C3D_CLEAR_COLOR, 0, 0);
+  SetTarget(rt_top, &g_proj_top);
+  C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_COLOR);
+  C3D_StencilTest(false, GPU_ALWAYS, 0, 0, 0);
+  C3D_AlphaTest(false, GPU_ALWAYS, 0);
+  BlendOff();
+  C3D_TexBind(0, &g_main_tex);
   for (int i = 0; i < f->band_count && g_gpu_test != kGpuTestNoTop; i++) {
     const GpuBand *b = &f->bands[i];
     const int bright = b->black ? 0 : b->brightness * 255 / 15;
@@ -977,6 +991,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
   C3D_FrameBegin(0);   // waits for the GPU to finish the previous frame
   const u64 t1 = svcGetSystemTick();
   FlushTextures();   // the GPU is idle now: the texels the renderer decoded this frame go in
+  const u64 t2 = svcGetSystemTick();
   g_wait_ticks = t1 - t0 + g_tex_wait_ticks;
   g_tex_wait_ticks = 0;
   g_nverts = 0;
@@ -1001,8 +1016,11 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
       g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
     DrawEye(f, pixel_perfect, e ? (forced ? g_rt_top_dummy : g_rt_top_right) : g_rt_top, e > 0);
   }
+  const u64 t3 = svcGetSystemTick();
   EndFrame();
-  g_submit_ticks = svcGetSystemTick() - t1;
+  const u64 t4 = svcGetSystemTick();
+  g_submit_ticks = t4 - t1;
+  g_submit_part_ticks[0] = t2 - t1, g_submit_part_ticks[1] = t3 - t2, g_submit_part_ticks[2] = t4 - t3;
   g_any_frame = true;
 }
 

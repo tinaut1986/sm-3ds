@@ -58,13 +58,16 @@ def report(fn):
                 state = (int(fl(r, 'eyes')), int(fl(r, 'gpu_test')))
             groups.setdefault(state, []).append(r)
         if len(groups) > 1 or any(k[1] for k in groups):
-            print('   by state (eyes, GPU TEST): frames | fps shown | GPU own draw median | draw | work median:')
+            print('   by state (eyes, GPU TEST): frames | fps shown | GPU own draw median | draw | work median | wait | submit (tex+eyes+end):')
             for (eyes, test), g in sorted(groups.items()):
                 d = [fl(r, 'gpu_draw_ms') for r in g if fl(r, 'draw_ms') > 0]
-                print('     %d eyes %-16s n=%4d | %4.1f | %5.2f | %5.2f | %5.2f' % (
+                dr = [r for r in g if fl(r, 'draw_ms') > 0] or g
+                med = lambda k: st.median(fl(r, k) for r in dr)
+                print('     %d eyes %-16s n=%4d | %4.1f | %5.2f | %5.2f | %5.2f | %4.2f | %4.2f (%4.2f+%4.2f+%4.2f)' % (
                     eyes, names[test] if test < len(names) else test, len(g), sum(int(r['shown']) for r in g) / (len(g) / 60),
                     st.median(d) if d else 0, mean(fl(r, 'draw_ms') for r in g if fl(r, 'draw_ms') > 0),
-                    st.median(fl(r, 'work_ms') for r in g)))
+                    st.median(fl(r, 'work_ms') for r in g), med('gpu_wait_ms'), med('gpu_submit_ms'),
+                    med('submit_tex_ms'), med('submit_eyes_ms'), med('submit_end_ms')))
     if 'tiles' in rows[0]:
         print('   tile decodes by size (tiles | reused | deferred | why: map pal char | draw build bg submit | upload copy+flush KB):')
         for lo, hi in ((2, 100), (100, 300), (300, 700), (700, 1700), (1700, 99999)):
