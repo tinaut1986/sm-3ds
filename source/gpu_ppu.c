@@ -605,6 +605,17 @@ static uint16_t CharColours(const Surface *s, int c, const Ppu *ppu) {
 // Does this frame's palette change touch a colour the tile (entry `e`) draws with? A palette row that
 // changed two colours leaves most tiles of that row exactly as they are: their texels hold the same
 // colours, so they are not decoded again (the heat rooms' cycling lava, a fade of a few colours).
+// A palette change of at most this many colours in a row may be spread over frames (a cycle: the heat rooms' lava turns 5
+// colours of each row every few frames). A bigger one (the Landing Site's lightning, a flash, a fade) is a picture-wide
+// event that must land in one frame: spread, it reached the screen a band of rows at a time.
+enum { kPalSpreadMaxColours = 6 };
+
+static bool PalSmall(const Surface *s, uint16_t e) {
+  const int pal = (e >> 10) & 7;
+  const uint16_t changed = (uint16_t)((s->bpp == 4 ? g_pal4_changed[pal] : g_pal2_changed[pal]) & ~1u);
+  return __builtin_popcount(changed) <= kPalSpreadMaxColours;
+}
+
 static bool PalAffects(Surface *s, const Ppu *ppu, uint16_t e) {
   const int pal = (e >> 10) & 7, c = e & 0x3ff;
   const uint16_t changed = (uint16_t)((s->bpp == 4 ? g_pal4_changed[pal] : g_pal2_changed[pal]) & ~1u);   // index 0 is never drawn
@@ -710,8 +721,8 @@ static void SyncSurface(Surface *s, const Ppu *ppu, int layer) {
       const bool cd = !s->fresh && CharDirty(s, e), pd = !s->fresh && PalDirty(s, e) && PalAffects(s, ppu, e);
       const bool moved = s->fresh || e != *m || pl != s->slot_plane[ti];
       if (!moved && !cd && !pd && !s->pend[ti]) continue;
-      // Only the char data (an animated tile) or, if asked for, the palette changed: it may wait for a later frame.
-      if (!moved && (!pd || g_defer_pal) && g_defer_cap > 0) {
+      // Only the char data (an animated tile) or, if asked for, a small palette cycle changed: it may wait for a later frame.
+      if (!moved && (!pd || (g_defer_pal && PalSmall(s, e))) && g_defer_cap > 0) {
         if (g_defer_left <= 0) {
           if (!s->pend[ti]) s->pend[ti] = 1, s->pend_count++;
           g_stats.tiles_deferred++;
