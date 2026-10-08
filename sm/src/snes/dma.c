@@ -227,6 +227,62 @@ void dma_doDma(Dma* dma) {
   }
 }
 
+// 3DS port: plain memory a DMA can read through a pointer for n bytes, or NULL
+// (I/O, open bus, a run that crosses a mapping boundary).
+static const uint8_t* dma_sourcePtr(Dma* dma, uint8_t bank, uint16_t adr, uint32_t n) {
+  Snes* snes = dma->snes;
+  if(bank == 0x7e || bank == 0x7f) {
+    return adr + n <= 0x10000 ? &snes->ram[((bank & 1) << 16) | adr] : NULL;
+  }
+  if((bank < 0x40 || (bank >= 0x80 && bank < 0xc0)) && adr < 0x2000) {
+    return adr + n <= 0x2000 ? &snes->ram[adr] : NULL;
+  }
+  Cart* cart = snes->cart;
+  if(cart->type == 1 && adr >= 0x8000 && adr + n <= 0x10000 && cart->romSize >= 0x8000) {
+    return &cart->rom[(((bank & 0x7f) << 15) | (adr & 0x7fff)) & (cart->romSize - 1)];
+  }
+  return NULL;
+}
+
+// 3DS port: what `while (dma_cycle(dma)) {}` does after a $420B write, without
+// stepping the timers a cycle at a time: every active channel to the end, in order,
+// the bytes from plain memory into the PPU in one go (ppu_dmaWrite). Same end state.
+void dma_runAll(Dma* dma) {
+  while(dma->hdmaTimer > 0) dma->hdmaTimer -= 2;
+  if(dma->dmaTimer & 1) {   // never seen: keep the exact countdown
+    while(dma_cycle(dma)) {}
+    return;
+  }
+  for(int i = 0; i < 8; i++) {
+    DmaChannel* c = &dma->channel[i];
+    if(!c->dmaActive) continue;
+    if (!c->fromB && (c->aBank & 0x80) && !(c->aAdr & 0x8000) && !g_fail) {
+      printf("Warning! DMA from addr 0x%x\n", c->aBank << 16 | c->aAdr);
+      g_fail = true;
+    }
+    uint32_t n = c->size ? c->size : 0x10000;
+    const uint8_t* src = !c->fromB && !c->fixed && !c->decrement && c->offIndex == 0 && c->bAdr < 0x40 ?
+        dma_sourcePtr(dma, c->aBank, c->aAdr, n) : NULL;
+    if(src) {
+      ppu_dmaWrite(dma->snes->ppu, c->bAdr, bAdrOffsets[c->mode], src, n);
+      c->aAdr += n;
+    } else {
+      do {
+        dma_transferByte(dma, c->aAdr, c->aBank, c->bAdr + bAdrOffsets[c->mode][c->offIndex++], c->fromB);
+        c->offIndex &= 3;
+        if(!c->fixed) {
+          c->aAdr += c->decrement ? -1 : 1;
+        }
+      } while(--n);
+    }
+    c->size = 0;
+    c->offIndex = 0;
+    c->dmaActive = false;
+  }
+  dma->dmaTimer = 0;
+  dma->dmaBusy = false;
+}
+
 void dma_initHdma(Dma* dma) {
   dma->hdmaTimer = 0;
   bool hdmaHappened = false;
