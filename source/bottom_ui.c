@@ -739,6 +739,7 @@ static void DrawMap(Surface s, const UiPerf *p) {
 // it instead; ALL (the free item cell) gives every item and beam, GOD and MAX sit next to the
 // energy, and the map-station boxes unlock an area's map (so any room can be picked for a warp).
 
+static Rect ReserveModeRect(void) { return (Rect){ 254, 29, 54, 14 }; }   // AUTO / MANUAL
 static Rect AmmoRect(int i) { return (Rect){ 8 + i * 103, 73, 98, 26 }; }
 static Rect ItemRect(int i) { return (Rect){ 8 + (i % 4) * 77, 111 + (i / 4) * 14, 74, 13 }; }
 static Rect BeamRect(int i) { return (Rect){ 8 + i * 61, 165, 58, 13 }; }
@@ -796,10 +797,56 @@ static void DrawHudActiveFrame(Surface s, Rect r) {
   UiFrameRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_WARN);
 }
 
+// The HUD's own icons: 2bpp BG3 tiles at $9AB200 laid out as the game puts them in its HUD
+// (kHudTilemaps_Missiles, sm_80.c: rows of `w` tiles, flip bits included), coloured with the HUD's
+// palettes (BG3 palette 5, 4 when highlighted) from the game's palette buffer. Outside of gameplay
+// that buffer holds other screens' colours, so the last ones seen in a room are kept.
+enum { kHudIconMissiles, kHudIconSupers, kHudIconPowerBombs, kHudIconGrapple, kHudIconXray };
+static const struct { int w, h; uint16_t t[6]; } kHudIcons[] = {
+  { 3, 2, { 0x344B, 0x3449, 0x744B, 0x344C, 0x344A, 0x744C } },
+  { 2, 2, { 0x3434, 0x7434, 0x3435, 0x7435 } },
+  { 2, 2, { 0x3436, 0x7436, 0x3437, 0x7437 } },
+  { 2, 2, { 0x3438, 0x7438, 0x3439, 0x7439 } },
+  { 2, 2, { 0x343A, 0x743A, 0x343B, 0x743B } },
+};
+
+static void DrawHudIcon(Surface s, int x, int y, int icon, bool highlight, bool dim) {
+  static uint16_t pal[2][4] = { { 0, 0x7FFF, 0x4A52, 0x2108 }, { 0, 0x6318, 0x3DEF, 0x18C6 } };
+  if (game_state == 0x08 && (palette_buffer[4 * 4 + 1] | palette_buffer[5 * 4 + 1])) {
+    memcpy(pal[0], &palette_buffer[4 * 4], sizeof(pal[0]));
+    memcpy(pal[1], &palette_buffer[5 * 4], sizeof(pal[1]));
+  }
+  const uint16_t *p = pal[highlight ? 0 : 1];
+  for (int ty = 0; ty < kHudIcons[icon].h; ty++) {
+    for (int tx = 0; tx < kHudIcons[icon].w; tx++) {
+      const uint16_t t = kHudIcons[icon].t[ty * kHudIcons[icon].w + tx];
+      const uint8_t *gfx = RomPtr(0x9AB200 + (t & 0x3FF) * 16);
+      for (int py = 0; py < 8; py++) {
+        const uint8_t *row = gfx + ((t & 0x8000) ? 7 - py : py) * 2;
+        for (int px = 0; px < 8; px++) {
+          const int bit = (t & 0x4000) ? px : 7 - px;
+          const int c = (row[0] >> bit & 1) | (row[1] >> bit & 1) << 1;
+          if (!c) continue;
+          const uint16_t v = p[c];
+          UiFillRect(s, x + tx * 8 + px, y + ty * 8 + py, 1, 1,
+                     dim ? COL_FAINT : RGB((v & 31) << 3, (v >> 5 & 31) << 3, (v >> 10 & 31) << 3));
+        }
+      }
+    }
+  }
+}
+
 static void DrawStatus(Surface s) {
   const unsigned health = samus_health, max_health = samus_max_health;
 
-  // Energy panel: number, tanks, current-tank bar, reserve.
+  // Energy panel, three rows: a label on the left, its picture on the right.
+  //   ENERGY      energy tanks (yellow)          [AUTO]
+  //   247/499     the current tank's bar          GOD MAX
+  //   RESERVE     reserve tanks (grey) 160/300
+  // The reserve row only once Samus has a reserve tank. Those hold 100 each, filled by the energy
+  // picked up beyond the maximum, so one can be part full: each fills from the left in proportion
+  // (9 px = 100). AUTO pours them in when the energy runs out, MANUAL from the pause menu; the
+  // button switches it as the pause menu does (Hud_ToggleReserveMode).
   UiFillRect(s, 8, 26, 304, 44, COL_PANEL);
   UiFrameRect(s, 8, 26, 304, 44, COL_BORDER);
   UiDrawText(s, 14, 30, 1, COL_DIM, Tr(kStrEnergy));
@@ -807,19 +854,31 @@ static void DrawStatus(Surface s) {
     char big[8];
     snprintf(big, sizeof(big), "%u", health);
     UiDrawText(s, 14, 40, 2, COL_ENERGY, big);
+    UiDrawTextf(s, 14 + UiTextWidth(big, 2) + 1, 47, COL_DIM, "/%u", max_health);
   }
   const unsigned tanks = max_health >= 199 ? (max_health - 99) / 100 : 0;
   const unsigned full = health >= 100 ? health / 100 : 0;
   for (unsigned i = 0; i < tanks && i < 14; i++) {
-    const int x = 70 + (int)i * 12;
-    if (i < full) UiFillRect(s, x, 30, 10, 10, COL_ENERGY);
-    else UiFrameRect(s, x, 30, 10, 10, COL_FAINT);
+    const int x = 96 + (int)i * 11;
+    if (i < full) UiFillRect(s, x, 30, 9, 9, COL_ENERGY);
+    else UiFrameRect(s, x, 30, 9, 9, COL_FAINT);
   }
-  UiDrawBar(s, 70, 44, 168, 7, (int)(health % 100), 99, COL_ENERGY);
-  UiDrawTextf(s, 244, 30, COL_DIM, "%s %u", Tr(kStrMax), max_health);
-  UiDrawTextf(s, 70, 56, COL_RESERVE, "%s %u/%u", Tr(kStrReserve), (unsigned)samus_reserve_health,
-              (unsigned)samus_max_reserve_health);
-  UiDrawTextf(s, 196, 56, COL_DIM, "%s", reserve_health_mode == 1 ? Tr(kStrAuto) : reserve_health_mode == 2 ? Tr(kStrManual) : "");
+  UiDrawBar(s, 96, 43, 152, 7, (int)(health % 100), 99, COL_ENERGY);
+  if (samus_max_reserve_health) {
+    UiDrawText(s, 14, 57, 1, COL_DIM, Tr(kStrReserve));
+    const unsigned rtanks = samus_max_reserve_health / 100, rhealth = samus_reserve_health;
+    unsigned i = 0;
+    for (; i < rtanks && i < 4; i++) {
+      const int x = 96 + (int)i * 11;
+      const unsigned in = rhealth >= (i + 1) * 100 ? 100 : rhealth > i * 100 ? rhealth - i * 100 : 0;
+      UiFrameRect(s, x, 56, 9, 9, COL_FAINT);
+      if (in) UiFillRect(s, x, 56, ((int)in * 9 + 50) / 100 > 0 ? ((int)in * 9 + 50) / 100 : 1, 9, RGB(190, 196, 212));
+    }
+    UiDrawTextf(s, 96 + (int)i * 11 + 4, 57, COL_TEXT, "%u/%u", rhealth, (unsigned)samus_max_reserve_health);
+    const Rect mr = ReserveModeRect();
+    const bool manual = reserve_health_mode == 2;
+    UiDrawBoxLabel(s, mr, COL_BOX, COL_BOX_EDGE, manual ? COL_TEXT : COL_RESERVE, Pressed(mr), Tr(manual ? kStrManual : kStrAuto));
+  }
 #if DEBUG_TOOLS
   DrawCheatButton(s, GodRect(), g_cheats.invincible, "GOD");
   DrawCheatButton(s, MaxRect(), g_cheats.max_mode, "MAX");
@@ -837,9 +896,12 @@ static void DrawStatus(Surface s) {
     UiFillRect(s, x, 73, 98, 26, StatusHudMarked(kSmHudMissiles + i) ? COL_HUD_MARKED : COL_PANEL);
     UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
     if (StatusHudActive(kSmHudMissiles + i)) DrawHudActiveFrame(s, ar);
-    UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], max[i] || g_show_spoilers ? TrAmmo(i) : "---");
-    UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
-    UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
+    // The HUD's icon on the left (grey while Samus has none), the count and its bar beside it.
+    if (max[i] || g_show_spoilers)
+      DrawHudIcon(s, x + 4 + (24 - kHudIcons[i].w * 8) / 2, 78, kHudIconMissiles + i, StatusHudActive(kSmHudMissiles + i), !max[i]);
+    if (max[i] || g_show_spoilers) UiDrawTextf(s, x + 32, 77, max[i] ? COL_TEXT : COL_FAINT, "%u/%u", cur[i], max[i]);
+    else UiDrawText(s, x + 32, 77, 1, COL_FAINT, "---");
+    UiDrawBar(s, x + 32, 88, 60, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
     if (max[i]) DrawTapMark(s, ar, cur[i] > 0);
   }
 
@@ -948,6 +1010,10 @@ static void StatusTouch(int x, int y) {
     return;
   }
 #endif
+  if (samus_max_reserve_health && UiIn(ReserveModeRect(), x, y)) {
+    Hud_ToggleReserveMode();
+    return;
+  }
   const int item = StatusHudItemAt(x, y);
   if (item >= 0) Hud_RequestSelect(hud_item_index == item ? kSmHudNone : item);
 }

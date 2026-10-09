@@ -56,3 +56,7 @@ bool Cheats_GiveAll(void);
 // False outside of a room.
 enum { kSmHudNone, kSmHudMissiles, kSmHudSupers, kSmHudPowerBombs, kSmHudGrapple, kSmHudXray };
 bool Hud_RequestSelect(int item);
+
+// The reserve tanks' mode, AUTO <-> MANUAL, as the pause menu's tanks screen switches it (the HUD's
+// AUTO mark goes with it). False outside of a room or without reserve tanks.
+bool Hud_ToggleReserveMode(void);
