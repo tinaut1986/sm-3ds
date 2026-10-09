@@ -18,6 +18,7 @@ Each fact lives in one place; keep that place current in the same change that al
 | A branch opened, handed to the owner for testing, confirmed or merged | the branch table in PLAN's Status |
 | A bug found or fixed | its GitHub issue (what, which commit, what to check); never a copy in PLAN |
 | A tool, option, file format or workflow added or changed | its doc (`docs/debug-tools.md`, `tools/*/README.md`, this file's Build section) |
+| A player-facing English string added or changed | its line in every `romfs/lang/*.txt` and `docs/lang-template.txt` (`docs/translations.md`, "For the code") |
 
 PLAN's Status section holds only what no other place records: open branches, what
 waits for the owner's check, and the priority order. Do not grow it into a summary of
@@ -38,7 +39,7 @@ issues or specs.
 | `sm/` (vendored, plain directory) | CharlesAverill/sm-3ds-lib @ `d4e4f42` = snesrev/sm `main` + 4 commits | The game: C reimplementation of the whole ROM plus an SNES emulator (`sm/src/snes/`) used as reference/fallback. Edited in place, committed in this repo. MIT (snesrev, elzo_d) + Opus BSD: keep `sm/LICENSE.txt`. It still builds as the original PC version on Linux (`make -C sm`, needs `libsdl2-dev`), including the native-vs-ROM frame comparison. |
 | `third_party/rcheevos/` (vendored) | RetroAchievements/rcheevos, mzm's copy (`VERSION.txt`) | RetroAchievements library, MIT. No local changes: updates are a straight re-copy. |
 | `third_party/sdl_keys/` (vendored) | SDL 2.32 `SDL_keycode.h` / `SDL_scancode.h` (zlib) | The only trace of SDL in the 3DS build: `sm/src/config.c` names keys the SDL way. The `SDL/` submodule is gone. |
-| `romfs/` | | Only a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
+| `romfs/` | | The port's language files (`lang/*.txt`, `docs/translations.md`) and a `blank` placeholder. Never put a ROM here: the ROM is read from `sdmc:/3ds/Super Metroid 3DS/` at runtime (PLAN P1.1). |
 
 Other local checkouts:
 

@@ -1,0 +1,502 @@
+# Super Metroid 3DS: a new language. Written by tools/lang-check (do not edit: regenerate it).
+# Copy it to <code>.txt (the language's code: de.txt, it.txt...), fill in the values and put it in
+# the SD card's /3ds/Super Metroid 3DS/lang/. A value left empty keeps the English. How to write and
+# check one: docs/translations.md.
+
+[language]
+# the language in itself, as the menus show it
+name =
+
+[ui]
+ON =
+OFF =
+FOLLOW =
+CELLS =
+MAP =
+ENERGY =
+MAX =
+RESERVE =
+AUTO =
+MANUAL =
+ITEMS =
+BEAMS =
+MAP STATIONS =
+ROOM =
+SAVE STATES =
+SAVED (NO DETAILS) =
+Saved to slot %d =
+Could not save slot %d =
+Loaded slot %d =
+Slot %d: cannot load =
+Game reset =
+FRAMES =
+AUDIO =
+DISPLAY =
+PIXEL P. =
+SCALED =
+VIEW =
+LANGUAGE =
+RESET GAME =
+FRAME SKIP OFF: heavy rooms may slow down =
+RESET THE GAME? =
+PROGRESS SINCE THE LAST SAVE =
+IS LOST =
+RESET =
+CANCEL =
+ACHIEVEMENTS =
+LOG IN =
+LOG OUT =
+SWITCHED OFF =
+NOT LOGGED IN =
+CONNECTING... =
+ONLINE AS %s =
+OFFLINE (UNLOCKS WAIT) =
+LOGIN REJECTED =
+%d/%d  %u/%u PTS =
+LOADING THE ACHIEVEMENT LIST... =
+LOG IN TO SEE THE ACHIEVEMENTS =
+ACHIEVEMENT UNLOCKED! =
+NOTICE =
+TOP =
+BOTTOM =
+SOUND =
+LOCKED FIRST =
+NAME =
+POINTS =
+RECENT =
+%u POINTS =
+LOCKED =
+UNLOCKED =
+MISSABLE =
+PROGRESSION =
+WIN CONDITION =
+CLOSE =
+UPDATE =
+UPDATES =
+TAP TO CHECK =
+CHECKING... =
+UP TO DATE =
+NEW: %s =
+RESTART TO USE =
+ERROR: TAP TO RETRY =
+NEW VERSION %s =
+INSTALL IT NOW? =
+INSTALLING... =
+UPDATED. RESTART NOW? =
+THE UPDATE FAILED =
+CIA KEPT IN UPDATE/ FOR FBI =
+YES =
+NO =
+OK =
++ NEW =
+NO STATES YET: TAP + NEW =
+NO IMAGE =
+MARK =
+TIME =
+LOAD =
+SAVE OVER =
+DELETE =
+STATE %d DELETED =
+PLEASE WAIT... =
+LOCK 30 =
+NO SKIP =
+ORIGINAL =
+WIDE =
+CHANNEL =
+STABLE =
++ BETAS =
+HUD =
+HIDDEN WITH ITS TAB =
+ALWAYS SHOWN =
+WHAT'S NEW =
+NOTHING YET. CHECK NOW FIRST. =
+%s > %s =
+UPDATES (short) =
+CHECK =
+CHECKING =
+NEW =
+INSTALLING =
+RESTART =
+ERROR =
+SPOILERS =
+AREA =
+ITEM =
+TOT =
+UNIQUE ITEMS =
+NONE =
+
+[items]
+# 11 characters at most
+VARIA =
+# 11 characters at most
+GRAV =
+# 11 characters at most
+MORPH =
+# 11 characters at most
+BOMB =
+# 11 characters at most
+HIJUMP =
+# 11 characters at most
+SPACE =
+# 11 characters at most
+SPEED =
+# 11 characters at most
+SCREW =
+# 11 characters at most
+SPRING =
+# 11 characters at most
+GRAPPL =
+# 11 characters at most
+XRAY =
+
+[beams]
+# 8 characters at most
+CHARGE =
+# 8 characters at most
+ICE =
+# 8 characters at most
+WAVE =
+# 8 characters at most
+SPAZER =
+# 8 characters at most
+PLASMA =
+
+[ammo]
+# 7 characters at most
+MSL =
+# 7 characters at most
+SUPER =
+# 7 characters at most
+PB =
+
+[areas]
+Crateria =
+Brinstar =
+Norfair =
+Wrecked Ship =
+Maridia =
+Tourian =
+Ceres =
+Debug =
+
+[areas short]
+# 3 characters at most
+CRA =
+# 3 characters at most
+BRI =
+# 3 characters at most
+NOR =
+# 3 characters at most
+WRE =
+# 3 characters at most
+MAR =
+# 3 characters at most
+TOU =
+# 3 characters at most
+CER =
+# 3 characters at most
+DBG =
+
+[message boxes]
+# up to three rows split by |
+ENERGY TANK =
+# up to three rows split by |
+MISSILE =
+# lowercase, a {} for each picture of the English line
+MISSILE (line) =
+# up to three rows split by |
+SUPER MISSILE =
+# lowercase, a {} for each picture of the English line
+SUPER MISSILE (line) =
+# up to three rows split by |
+POWER BOMB =
+# lowercase, a {} for each picture of the English line
+POWER BOMB (line) =
+# up to three rows split by |
+GRAPPLING BEAM =
+# lowercase, a {} for each picture of the English line
+GRAPPLING BEAM (line) =
+# up to three rows split by |
+X-RAY SCOPE =
+# lowercase, a {} for each picture of the English line
+X-RAY SCOPE (line) =
+# up to three rows split by |
+VARIA SUIT =
+# up to three rows split by |
+SPRING BALL =
+# up to three rows split by |
+MORPHING BALL =
+# up to three rows split by |
+SCREW ATTACK =
+# up to three rows split by |
+HI-JUMP BOOTS =
+# up to three rows split by |
+SPACE JUMP =
+# up to three rows split by |
+SPEED BOOSTER =
+# lowercase, a {} for each picture of the English line
+SPEED BOOSTER (line) =
+# up to three rows split by |
+CHARGE BEAM =
+# up to three rows split by |
+ICE BEAM =
+# up to three rows split by |
+WAVE BEAM =
+# up to three rows split by |
+SPAZER =
+# up to three rows split by |
+PLASMA BEAM =
+# up to three rows split by |
+BOMB =
+# lowercase, a {} for each picture of the English line
+BOMB (line) =
+# up to three rows split by |
+MAP DATA ACCESS COMPLETED. =
+# up to three rows split by |
+ENERGY RECHARGE COMPLETED. =
+# up to three rows split by |
+MISSILE RELOAD COMPLETED. =
+# up to three rows split by |
+WOULD YOU LIKE TO SAVE? =
+# 3 letters at most
+WOULD YOU LIKE TO SAVE? (yes) =
+# 3 letters at most
+WOULD YOU LIKE TO SAVE? (no) =
+# up to three rows split by |
+SAVE COMPLETED. =
+# up to three rows split by |
+RESERVE TANK =
+# up to three rows split by |
+GRAVITY SUIT =
+
+[options]
+# in the game's capitals, in about the English one's room
+OPTION MODE =
+# in the game's capitals, in about the English one's room
+START GAME =
+# in the game's capitals, in about the English one's room
+CONTROLLER SETTING MODE =
+# in the game's capitals, in about the English one's room
+SPECIAL SETTING MODE =
+# in the game's capitals, in about the English one's room
+SHOT =
+# in the game's capitals, in about the English one's room
+JUMP =
+# in the game's capitals, in about the English one's room
+DASH =
+# in the game's capitals, in about the English one's room
+ITEM SELECT =
+# in the game's capitals, in about the English one's room
+ITEM CANCEL =
+# in the game's capitals, in about the English one's room
+ANGLE UP =
+# in the game's capitals, in about the English one's room
+ANGLE DOWN =
+# in the game's capitals, in about the English one's room
+RESET TO DEFAULT =
+# in the game's capitals, in about the English one's room
+END =
+# in the game's capitals, in about the English one's room
+ICON CANCEL =
+# in the game's capitals, in about the English one's room
+AUTO =
+# in the game's capitals, in about the English one's room
+MANUAL =
+# in the game's capitals, in about the English one's room
+MOON WALK =
+# in the game's capitals, in about the English one's room
+ON =
+# in the game's capitals, in about the English one's room
+OFF =
+# in the game's capitals, in about the English one's room
+SHOT HOLD =
+# in the game's capitals, in about the English one's room
+SELECT =
+# in the game's capitals, in about the English one's room
+CANCEL =
+# in the game's capitals, in about the English one's room
+CURSOR =
+# in the game's capitals, in about the English one's room
+OR =
+# in the game's capitals, in about the English one's room
+MODE =
+# in the game's capitals, in about the English one's room
+CHANGE =
+# the title of the language list and its entry in OPTION MODE
+LANGUAGE =
+
+[file select]
+# in the game's capitals, in about the English one's room
+SAMUS DATA =
+# in the game's capitals, in about the English one's room
+DATA COPY MODE =
+# in the game's capitals, in about the English one's room
+DATA CLEAR MODE =
+# in the game's capitals, in about the English one's room
+YES =
+# in the game's capitals, in about the English one's room
+NO =
+# in the game's capitals, in about the English one's room
+NO DATA =
+# in the game's capitals, in about the English one's room
+DATA COPY =
+# in the game's capitals, in about the English one's room
+DATA CLEAR =
+# in the game's capitals, in about the English one's room
+EXIT =
+# in the game's capitals, in about the English one's room
+COPY WHICH DATA? =
+# in the game's capitals, in about the English one's room
+COPY (SAMUS #) TO WHERE? =
+# in the game's capitals, in about the English one's room
+COPY (SAMUS #) TO (SAMUS #). =
+# in the game's capitals, in about the English one's room
+IS THIS OK? =
+# in the game's capitals, in about the English one's room
+COPY COMPLETED. =
+# in the game's capitals, in about the English one's room
+CLEAR WHICH DATA? =
+# in the game's capitals, in about the English one's room
+CLEAR (SAMUS #). =
+# in the game's capitals, in about the English one's room
+DATA CLEARED... =
+# a picture redrawn with a small font in the English one's room
+ENERGY =
+# a picture redrawn with a small font in the English one's room
+TIME =
+
+[intro]
+# the whole page, wrapped by the port
+THE LAST METROID IS IN CAPTIVITY. THE GALAXY IS AT PEACE... =
+# the whole page, wrapped by the port
+I FIRST BATTLED THE METROIDS ON PLANET ZEBES. IT WAS THERE THAT I FOILED THE PLANS OF THE SPACE PIRATE LEADER MOTHER BRAIN TO USE THE CREATURES TO ATTACK GALACTIC CIVILIZATION... =
+# the whole page, wrapped by the port
+I NEXT FOUGHT THE METROIDS ON THEIR HOMEWORLD, SR388. I COMPLETELY ERADICATED THEM EXCEPT FOR A LARVA, WHICH AFTER HATCHING FOLLOWED ME LIKE A CONFUSED CHILD... =
+# the whole page, wrapped by the port
+I PERSONALLY DELIVERED IT TO THE GALACTIC RESEARCH STATION AT CERES SO SCIENTISTS COULD STUDY ITS ENERGY PRODUCING QUALITIES... =
+# the whole page, wrapped by the port
+THE SCIENTISTS' FINDINGS WERE ASTOUNDING! THEY DISCOVERED THAT THE POWERS OF THE METROID MIGHT BE HARNESSED FOR THE GOOD OF CIVILIZATION! =
+# the whole page, wrapped by the port
+SATISFIED THAT ALL WAS WELL, I LEFT THE STATION TO SEEK A NEW BOUNTY TO HUNT. BUT, I HAD HARDLY GONE BEYOND THE ASTEROID BELT WHEN I PICKED UP A DISTRESS SIGNAL! =
+# the whole page, wrapped by the port
+CERES STATION WAS UNDER ATTACK!! =
+
+[pause]
+# a picture redrawn with a small font in the English one's room
+VARIA SUIT =
+# a picture redrawn with a small font in the English one's room
+GRAVITY SUIT =
+# a picture redrawn with a small font in the English one's room
+MORPHING BALL =
+# a picture redrawn with a small font in the English one's room
+BOMBS =
+# a picture redrawn with a small font in the English one's room
+SPRING BALL =
+# a picture redrawn with a small font in the English one's room
+SCREW ATTACK =
+# a picture redrawn with a small font in the English one's room
+HI-JUMP BOOTS =
+# a picture redrawn with a small font in the English one's room
+SPACE JUMP =
+# a picture redrawn with a small font in the English one's room
+SPEED BOOSTER =
+# a picture redrawn with a small font in the English one's room
+CHARGE =
+# a picture redrawn with a small font in the English one's room
+ICE =
+# a picture redrawn with a small font in the English one's room
+WAVE =
+# a picture redrawn with a small font in the English one's room
+SPAZER =
+# a picture redrawn with a small font in the English one's room
+PLASMA =
+# a picture redrawn with a small font in the English one's room
+HYPER =
+# a picture redrawn with a small font in the English one's room
+RESERVE TANK =
+# a picture redrawn with a small font in the English one's room
+BEAM =
+# a picture redrawn with a small font in the English one's room
+SUIT =
+# a picture redrawn with a small font in the English one's room
+MISC. =
+# a picture redrawn with a small font in the English one's room
+BOOTS =
+# inside the button's box
+MAP =
+# inside the button's box
+EXIT =
+# in the game's capitals, in about the English one's room
+WRECKED SHIP =
+
+[game over]
+# in the game's capitals, in about the English one's room
+YES =
+# in the game's capitals, in about the English one's room
+N O =
+# in the game's capitals, in about the English one's room
+FIND THE METROID LARVA! =
+# in the game's capitals, in about the English one's room
+TRY AGAIN ? =
+# in the game's capitals, in about the English one's room
+(RETURN TO GAME) =
+# in the game's capitals, in about the English one's room
+(GO TO TITLE) =
+
+[ending]
+# in the game's capitals, in about the English one's room
+SUPER METROID STAFF =
+# in the game's capitals, in about the English one's room
+EXECUTIVE PRODUCER =
+# in the game's capitals, in about the English one's room
+PRODUCER =
+# in the game's capitals, in about the English one's room
+DIRECTOR =
+# in the game's capitals, in about the English one's room
+BACK GROUND DESIGNERS =
+# in the game's capitals, in about the English one's room
+OBJECT DESIGNERS =
+# in the game's capitals, in about the English one's room
+SAMUS ORIGINAL DESIGNER =
+# in the game's capitals, in about the English one's room
+SAMUS DESIGNER =
+# in the game's capitals, in about the English one's room
+PROGRAM DIRECTOR =
+# in the game's capitals, in about the English one's room
+SPECIAL THANKS TO =
+# in the game's capitals, in about the English one's room
+SYSTEM COORDINATOR =
+# in the game's capitals, in about the English one's room
+SYSTEM PROGRAMMER =
+# in the game's capitals, in about the English one's room
+SAMUS PROGRAMMER =
+# in the game's capitals, in about the English one's room
+EVENT PROGRAMMER =
+# in the game's capitals, in about the English one's room
+ENEMY PROGRAMMER =
+# in the game's capitals, in about the English one's room
+MAP PROGRAMMER =
+# in the game's capitals, in about the English one's room
+ASSISTANT PROGRAMMER =
+# in the game's capitals, in about the English one's room
+COORDINATORS =
+# in the game's capitals, in about the English one's room
+PRINTED ART WORK =
+# in the game's capitals, in about the English one's room
+SOUND PROGRAM =
+# in the game's capitals, in about the English one's room
+AND SOUND EFFECTS =
+# in the game's capitals, in about the English one's room
+MUSIC COMPOSERS =
+# in the game's capitals, in about the English one's room
+GENERAL MANAGER =
+# in the game's capitals, in about the English one's room
+YOUR RATE FOR =
+# in the game's capitals, in about the English one's room
+COLLECTING ITEMS IS =
+# in the game's capitals, in about the English one's room
+SEE YOU NEXT MISSION =
+
+[hud]
+# a picture redrawn with a small font, about 6 letters
+ENERGY =

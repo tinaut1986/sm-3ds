@@ -467,7 +467,7 @@ static int g_cursor_frames, g_cursor_bad, g_cursor_blink;
 
 static void CheckIntroCursor(const char *label) {
   const Ppu *ppu = g_snes->ppu;
-  if (game_state != 0x1e || UiLang_Text() == kLangEn) return;
+  if (game_state != 0x1e || !UiLang_Translated()) return;
   const BgLayer *bg = &ppu->bgLayer[2];
   int last_row = -1, last_col = -1, first_col = 99, letters = 0;
   for (int r = 4; r <= 23; r++)
@@ -960,7 +960,7 @@ int main(int argc, char **argv) {
   PpuBeginDrawing(snes->snes_ppu, g_px, kPitch, 0);
   // GAME_LANG=n: the game's message boxes in UI language n (ui_lang.h), as on the console.
   if (getenv("GAME_LANG")) {
-    g_ui_lang = (UiLang)atoi(getenv("GAME_LANG"));
+    UiLang_Set(atoi(getenv("GAME_LANG")));
     GameText_Init();
   }
   GpuPpu_SetMessageBoxMap(kSmWideMessageBoxMap);   // as the console in gameplay: message boxes on the HUD plane

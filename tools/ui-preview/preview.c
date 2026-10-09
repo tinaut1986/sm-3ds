@@ -323,10 +323,10 @@ int main(int argc, char **argv) {
   g_preview_upd_state = UPD_IDLE;
   // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
   // last option cell (left column, fourth row) and cycles.
-  for (int lang = 1; lang < kLangCount; lang++) {
+  for (int lang = 1; lang < UiLang_Count(); lang++) {
     TapTab(kOptions);
     Tap(162 + 5, 64 + 5);            // LANGUAGE
-    if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
+    if (g_ui_lang != lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
     Tap(8 + 5, 30 + 5), Tap(8 + 5, 30 + 5);   // FRAMES: LOCK 30, then NO SKIP: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
@@ -357,11 +357,11 @@ int main(int argc, char **argv) {
   }
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;
-  for (int lang = 0; lang < kLangCount; lang++) {
+  for (int lang = 0; lang < UiLang_Count(); lang++) {
     for (int id = 0; id < kStrCount; id++) {
-      g_ui_lang = kLangEn;
+      UiLang_Set(kLangEn);
       const char *en = Tr((UiStr)id);
-      g_ui_lang = (UiLang)lang;
+      UiLang_Set(lang);
       const char *t = Tr((UiStr)id), *a = en, *b = t;
       for (;;) {
         a = strchr(a, '%'), b = strchr(b, '%');

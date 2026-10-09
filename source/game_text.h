@@ -26,3 +26,10 @@ void GameTextScreens_PutBack(void);
 
 // VRAM was replaced wholesale (a loaded state, a reset): forget the characters to put back.
 void GameText_Forget(void);
+
+// Every key of the language files these texts look up (tools/lang-check writes the template from
+// them and checks a file against them): `fn` is called with the section, the key (the English)
+// and, for some, a note on its limits (NULL: none).
+typedef void LangKeyFn(const char *section, const char *key, const char *note);
+void GameText_ForEachKey(LangKeyFn *fn);
+void GameTextScreens_ForEachKey(LangKeyFn *fn);

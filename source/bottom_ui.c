@@ -1496,7 +1496,7 @@ static void OptionsTouch(int x, int y) {
       break;
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
-    case OPT_LANGUAGE: g_ui_lang = (UiLang)((g_ui_lang + 1) % kLangCount); break;
+    case OPT_LANGUAGE: UiLang_Set((g_ui_lang + 1) % UiLang_Count()); break;
     case OPT_AUTO_UPDATE: g_ui.auto_update = !g_ui.auto_update; break;
     case OPT_CHANNEL:
       g_ui.update_beta = !g_ui.update_beta;
@@ -2565,8 +2565,8 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers);
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers);
   fclose(f);
 }
 
@@ -2585,6 +2585,18 @@ static void LoadConfig(void) {
   while (fgets(line, sizeof(line), f)) {
     char key[32];
     int v;
+    char code[16];
+    // The language by its code ("language=es"); builds before the language files stored an index.
+    static const char *const kOldLangs[] = { "en", "es", "ca", "fr", "pt", "ja" };
+    if (sscanf(line, "language=%d", &v) == 1) {
+      if (v >= 0 && v < (int)(sizeof(kOldLangs) / sizeof(kOldLangs[0])) && UiLang_FromCode(kOldLangs[v]) >= 0)
+        UiLang_Set(UiLang_FromCode(kOldLangs[v]));
+      continue;
+    }
+    if (sscanf(line, "language=%15[^\r\n]", code) == 1) {
+      if (UiLang_FromCode(code) >= 0) UiLang_Set(UiLang_FromCode(code));
+      continue;
+    }
     if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
     if (!strcmp(key, "tab") && v >= 0 && v < TAB_COUNT && TabVisible((Tab)v)) g_tab = (Tab)v;
     else if (!strcmp(key, "pacing") && v >= 0 && v < kPaceCount) g_ui.pacing = (int)v;
@@ -2599,7 +2611,6 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "hud_auto_hide")) g_ui.hud_auto_hide = v != 0;
     else if (!strcmp(key, "spoilers")) g_show_spoilers = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
-    else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
   fclose(f);
 }
@@ -3039,7 +3050,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   SmWarp_Init();
   APT_CheckNew3DS(&g_is_new3ds);
   g_ui.new3ds_speedup = g_is_new3ds;
-  g_ui_lang = UiLang_FromSystem();   // until config.ini says otherwise
+  UiLang_Set(UiLang_FromSystem());   // until config.ini says otherwise
   LoadConfig();
   g_ui_lang_on_change = OnGameLanguage;
   if (!g_is_new3ds) g_ui.new3ds_speedup = false;
