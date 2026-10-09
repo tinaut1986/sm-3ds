@@ -329,7 +329,6 @@ enum {
 typedef struct {
   const char *en;                   // capitals, single spaces; '#' is any letter, put back
                                     // where the translation has '#' ("SAMUS #")
-  const char *tr[kTextLangCount - 1];   // Spanish, Catalan, French, Portuguese (UTF-8); NULL: as English
   uint8_t flags;
 } Phrase;
 
@@ -453,9 +452,11 @@ static bool IsLetter(unsigned c) { return c > ' '; }
 // A phrase is found only between non-letters ("END" is not in "LEGEND"; "(SHOT" has SHOT).
 static bool IsAlpha(unsigned c) { return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c >= 0xC0; }
 
-static void TranslateLayer(const TextLayer *L, const Phrase *phrases, int count) {
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+static void TranslateLayer(const TextLayer *L, const char *section, const Phrase *phrases, int count) {
+  if (!UiLang_Translated()) return;
+  if (count > 64) count = 64;
+  const char *trs[64];   // looked up once, not per row
+  for (int i = 0; i < count; i++) trs[i] = UiLang_Get(section, phrases[i].en);
   const int rows = LayerRows(L) - (L->font->h - 1);
   for (int r = 0; r < rows; r++) {
     unsigned line[32];
@@ -463,13 +464,13 @@ static void TranslateLayer(const TextLayer *L, const Phrase *phrases, int count)
     for (int x = 0; x < 32; x++) any |= IsLetter(line[x] = DecodeCell(L, r, x));
     if (!any) continue;
     bool done[64] = { false };
-    for (int pass = 0; pass < count && pass < 64; pass++) {
+    for (int pass = 0; pass < count; pass++) {
       int i = -1;   // the longest phrase not tried yet: "SHOT HOLD" before "SHOT"
-      for (int j = 0; j < count && j < 64; j++)
+      for (int j = 0; j < count; j++)
         if (!done[j] && (i < 0 || strlen(phrases[j].en) > strlen(phrases[i].en))) i = j;
       done[i] = true;
       const Phrase *p = &phrases[i];
-      const char *tr = p->tr[lang - 1];
+      const char *tr = trs[i];
       if (!tr) continue;
       const int n = (int)strlen(p->en);
       for (int x = 0; x + n <= 32; x++) {
@@ -535,9 +536,9 @@ static void PutLabel(uint16_t base, int bpp, const uint16_t *chars, int n, const
     unsigned base_code;
     const Mark m = MarkOf(NextCode(&s), &base_code);
     const TinyGlyph *g = base_code == ' ' ? NULL : TinyFind(base_code);
-    if (!g) { w += 2; continue; }
-    const int gw = (int)strlen(g->rows[0]);
+    const int gw = g ? (int)strlen(g->rows[0]) : 2;
     if (w + gw > kMaxW) break;
+    if (!g) { w += 2; continue; }
     for (int y = 0; y < 6; y++)
       for (int x = 0; x < gw; x++)
         if (g->rows[y][x] == '#') px[1 + y][w + x] = pen;
@@ -571,9 +572,9 @@ static void PutLabel(uint16_t base, int bpp, const uint16_t *chars, int n, const
 }
 
 typedef struct {
+  const char *en;           // the key of its translation (the English of the picture)
   uint16_t chars[4];
   int n;
-  const char *tr[kTextLangCount - 1];
 } Label;
 
 // ---- Words as pictures, redrawn into chars of their own -----------------------------------------
@@ -583,9 +584,9 @@ typedef struct {
 // ones after it) pointed at them.
 
 typedef struct {
+  const char *en;           // the key of its translation (the English of the picture)
   uint16_t chars[10];       // the English run
   int n;
-  const char *tr[kTextLangCount - 1];
 } WordRun;
 
 typedef struct {
@@ -608,9 +609,9 @@ static int TinyText(const char *text, int rows, uint8_t px[8][128], int y0, uint
     unsigned base_code;
     const Mark m = MarkOf(NextCode(&s), &base_code);
     const TinyGlyph *g = base_code == ' ' ? NULL : TinyFind(base_code);
+    const int gw = g ? (int)strlen(g->rows[0]) : 2;
+    if (w + gw > 128) break;   // the width returned stays within px
     if (!g) { w += 2; continue; }
-    const int gw = (int)strlen(g->rows[0]);
-    if (w + gw > 128) break;
     for (int y = 0, oy = 0; y < 6; y++) {
       if (rows == 5 && y == 4) continue;
       for (int x = 0; x < gw; x++)
@@ -630,13 +631,12 @@ static int TinyText(const char *text, int rows, uint8_t px[8][128], int y0, uint
   return w > 0 ? w - 1 : 0;
 }
 
-static void TranslateWordRuns(const WordStyle *st, const WordRun *runs, int count, uint8_t pen) {
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+static void TranslateWordRuns(const WordStyle *st, const char *section, const WordRun *runs, int count, uint8_t pen) {
+  if (!UiLang_Translated()) return;
   const int cells_total = 0x400 * st->pages;
   for (int i = 0; i < count; i++) {
     const WordRun *wr = &runs[i];
-    const char *tr = wr->tr[lang - 1];
+    const char *tr = UiLang_Get(section, wr->en);
     if (!tr) continue;
     Tile first;
     ReadTile(st->base, wr->chars[0], st->bpp, &first);
@@ -648,16 +648,17 @@ static void TranslateWordRuns(const WordStyle *st, const WordRun *runs, int coun
       // The run, and the blank cells after it on the same row.
       int n = wr->n;
       while ((c % 32) + n < 32 && (g_shadow[(st->map + c + n) & 0x7fff] & 0x3ff) == st->filler) n++;
+      const int cells = n < 16 ? n : 16;   // what px holds (128 px)
       uint8_t px[8][128];
       memset(px, bg, sizeof(px));
       uint8_t ink[8][128];
       memset(ink, 0, sizeof(ink));
       const int w = TinyText(tr, st->rows, ink, st->y0, 1);
-      const int x0 = st->x0 >= 0 ? st->x0 : (n * 8 - w) / 2 > 0 ? (n * 8 - w) / 2 : 0;
+      const int x0 = st->x0 >= 0 ? st->x0 : (cells * 8 - w) / 2 > 0 ? (cells * 8 - w) / 2 : 0;
       for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 128 && x0 + x < n * 8; x++)
+        for (int x = 0; x < 128 && x0 + x < cells * 8; x++)
           if (ink[y][x]) px[y][x0 + x] = pen;
-      for (int j = 0; j < n; j++) {
+      for (int j = 0; j < cells; j++) {
         Tile t;
         for (int y = 0; y < 8; y++) memcpy(t.px[y], &px[y][j * 8], 8);
         const int ch = PoolChar(st->pool, st->lo, st->hi, &t);
@@ -671,19 +672,20 @@ static void TranslateWordRuns(const WordStyle *st, const WordRun *runs, int coun
 }
 
 // The labels found on the layer's page (their chars side by side) are redrawn.
-static void TranslateLabels(uint16_t map, uint16_t base, int bpp, const Label *labels, int count, uint8_t pen,
+static void TranslateLabels(uint16_t map, uint16_t base, int bpp, const char *section, const Label *labels, int count, uint8_t pen,
                             uint8_t shade) {
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+  if (!UiLang_Translated()) return;
   for (int i = 0; i < count; i++) {
     const Label *l = &labels[i];
+    const char *tr = UiLang_Get(section, l->en);
+    if (!tr) continue;
     bool found = false;
     for (int c = 0; c + l->n <= 1024 && !found; c++) {
       int k = 0;
       while (k < l->n && (g_shadow[(map + c + k) & 0x7fff] & 0x3ff) == l->chars[k]) k++;
       found = k == l->n;
     }
-    if (found && l->tr[lang - 1]) PutLabel(base, bpp, l->chars, l->n, l->tr[lang - 1], pen, shade);
+    if (found) PutLabel(base, bpp, l->chars, l->n, tr, pen, shade);
   }
 }
 
@@ -737,45 +739,38 @@ static const Font *MenuSmall(void) {
 // ---- Option menus (game state 2) ------------------------------------------------------------
 
 static const Phrase kOptionsBig[] = {
-  { "OPTION MODE", { "OPCIONES", "OPCIONS", "OPTIONS", "OPÇÕES" }, kCentre },
-  { "START GAME", { "EMPEZAR PARTIDA", "COMENÇAR PARTIDA", "COMMENCER", "INICIAR JOGO" } },
-  { "CONTROLLER SETTING MODE", { "CONFIGURAR MANDO", "CONFIGURAR CONTROLS", "CONFIGURER LA MANETTE",
-                                 "CONFIGURAR CONTROLE" }, kCentre },
-  { "SPECIAL SETTING MODE", { "AJUSTES ESPECIALES", "OPCIONS ESPECIALS", "OPTIONS SPÉCIALES", "AJUSTES ESPECIAIS" },
-    kCentre },
+  { "OPTION MODE", kCentre },
+  { "START GAME" },
+  { "CONTROLLER SETTING MODE", kCentre },
+  { "SPECIAL SETTING MODE", kCentre },
   // CONTROLLER SETTING MODE
-  { "SHOT", { "DISPARO", "TRET", "TIR", "TIRO" } },
-  { "JUMP", { "SALTO", "SALT", "SAUT", "SALTO" } },
-  { "DASH", { "CORRER", "CÓRRER", "COURIR", "CORRER" } },
-  { "ITEM SELECT", { "CAMBIAR ARMA", "CANVIAR ARMA", "CHOIX ARME", "TROCAR ARMA" } },
-  { "ITEM CANCEL", { "QUITAR ARMA", "TREURE ARMA", "RETIRER ARME", "TIRAR ARMA" } },
-  { "ANGLE UP", { "APUNTAR ARRIBA", "APUNTAR AMUNT", "VISER EN HAUT", "MIRAR ACIMA" } },
-  { "ANGLE DOWN", { "APUNTAR ABAJO", "APUNTAR AVALL", "VISER EN BAS", "MIRAR ABAIXO" } },
-  { "RESET TO DEFAULT", { "VALORES INICIALES", "VALORS INICIALS", "PAR DÉFAUT", "RESTAURAR PADRÃO" } },
-  { "END", { "SALIR", "SORTIR", "QUITTER", "SAIR" } },
+  { "SHOT" },
+  { "JUMP" },
+  { "DASH" },
+  { "ITEM SELECT" },
+  { "ITEM CANCEL" },
+  { "ANGLE UP" },
+  { "ANGLE DOWN" },
+  { "RESET TO DEFAULT" },
+  { "END" },
   // SPECIAL SETTING MODE
-  { "ICON CANCEL", { "ANULAR ARMA", "TREURE ARMA", "ANNULER ARME", "ANULAR ARMA" } },
-  { "AUTO", { "AUTO", "AUTO", "AUTO", "AUTO" } },
-  { "MANUAL", { "MANUAL", "MANUAL", "MANUEL", "MANUAL" } },
-  { "MOON WALK", { "PASO LUNAR", "PAS LUNAR", "MARCHE LUNAIRE", "PASSO LUNAR" } },
-  { "ON", { "SÍ", "SÍ", "OUI", "SIM" } },
-  { "OFF", { "NO", "NO", "NON", "NÃO" } },
-  { "SHOT HOLD", { "DISPARO", "TRET", "TIR", "TIRO" } },
+  { "ICON CANCEL" },
+  { "AUTO" },
+  { "MANUAL" },
+  { "MOON WALK" },
+  { "ON" },
+  { "OFF" },
+  { "SHOT HOLD" },
 };
 
-// The game's language rows, when the port's LANGUAGE entry does not replace them (LanguageScreens).
-static const Phrase kOptionsTextRows[] = {
-  { "ENGLISH TEXT", { "TEXTO EN ESPAÑOL", "TEXT EN CATALÀ", "TEXTE EN FRANÇAIS", "TEXTO EM PORTUGUÊS" } },
-  { "JAPANESE TEXT", { "TEXTO EN JAPONÉS", "TEXT EN JAPONÈS", "TEXTE EN JAPONAIS", "TEXTO EM JAPONÊS" }, kClearRight },
-};
 
 static const Phrase kOptionsSmall[] = {
-  { "SELECT", { "ELEGIR", "TRIAR", "CHOISIR", "ESCOLHER" } },
-  { "CANCEL", { "VOLVER", "TORNAR", "RETOUR", "VOLTAR" } },
-  { "CURSOR", { "MOVER", "MOURE", "CURSEUR", "MOVER" } },
-  { "OR", { "O", "O", "OU", "OU" } },
-  { "MODE", { "CAMBIAR", "CANVIAR", "CHANGER", "MUDAR" } },
-  { "CHANGE", { "OPCIÓN", "OPCIÓ", "OPTION", "OPÇÃO" } },
+  { "SELECT" },
+  { "CANCEL" },
+  { "CURSOR" },
+  { "OR" },
+  { "MODE" },
+  { "CHANGE" },
 };
 
 // ---- One language for the game and the port (docs/PLAN.md P4.9, sm_rtl.h) ----------------------
@@ -786,10 +781,14 @@ static const Phrase kOptionsSmall[] = {
 
 enum { kPalBright = 0x0000, kPalDim = 0x0400, kPalMask = 0x1c00 };
 
-static const char *const kLanguageTitle[kTextLangCount] = { "LANGUAGE", "IDIOMA", "IDIOMA", "LANGUE", "IDIOMA" };
+// The title of the list and of OPTION MODE's entry: [options] LANGUAGE in the language files.
+static const char *LanguageTitle(void) {
+  const char *t = UiLang_Get("options", "LANGUAGE");
+  return t ? t : "LANGUAGE";
+}
 
 // A language in itself; Japanese with the game's own letters.
-static const char *LanguageName(int lang) { return lang == kLangJa ? "日本語" : UiLang_Name((UiLang)lang); }
+static const char *LanguageName(int lang) { return UiLang_IsJapanese(lang) ? "日本語" : UiLang_Name(lang); }
 
 static void ClearCells(const TextLayer *L, int row, int col0, int col1) {
   for (int x = col0; x < col1; x++)
@@ -815,12 +814,11 @@ static bool ShowsText(const TextLayer *L, int row, int col, const char *en) {
 
 static void LanguageScreens(const TextLayer *big) {
   const RtlLanguageMenu *m = g_rtl_language_menu;
-  const int lang = UiLang_Text();
   // OPTION MODE: the rows of ENGLISH TEXT (10) and JAPANESE TEXT (13), at column 4.
   if (ShowsText(big, 10, 4, "ENGLISH TEXT")) {
     ClearCells(big, 10, 4, 32);
     ClearCells(big, 13, 4, 32);
-    PutText(big, 10, 4, kLanguageTitle[lang], kPalBright);
+    PutText(big, 10, 4, LanguageTitle(), kPalBright);
     PutText(big, 13, 6, LanguageName(m->current()), kPalBright);
     return;
   }
@@ -829,8 +827,8 @@ static void LanguageScreens(const TextLayer *big) {
   for (int r = 4; r < 25; r++)
     for (int x = 0; x < 32; x++)
       if ((Cell(big, r, x) & 0x3ff) != big->font->fill) return;
-  static const Phrase kTitle = { "OPTION MODE", { NULL }, kCentre };
-  PutPhrase(big, 1, 10, 11, &kTitle, kLanguageTitle[lang], (const unsigned[]){ 0 });
+  static const Phrase kTitle = { "OPTION MODE", kCentre };
+  PutPhrase(big, 1, 10, 11, &kTitle, LanguageTitle(), (const unsigned[]){ 0 });
   int n = m->count();
   if (n > kRtlLanguageMaxShown) n = kRtlLanguageMaxShown;
   const int cur = m->current();
@@ -838,14 +836,14 @@ static void LanguageScreens(const TextLayer *big) {
     PutText(big, RtlLanguageMenuRow(i, n), 4, LanguageName(i), i == cur ? kPalBright : kPalDim);
 }
 
-static int LanguageMenuCount(void) { return kLangCount; }
-static int LanguageMenuCurrent(void) { return (int)g_ui_lang; }
+static int LanguageMenuCount(void) { return UiLang_Count(); }
+static int LanguageMenuCurrent(void) { return g_ui_lang; }
 static void LanguageMenuChoose(int i) {
-  if ((unsigned)i >= kLangCount || (UiLang)i == g_ui_lang) return;
-  g_ui_lang = (UiLang)i;
+  if (i < 0 || i >= UiLang_Count() || i == g_ui_lang) return;
+  UiLang_Set(i);
   if (g_ui_lang_on_change) g_ui_lang_on_change();
 }
-static bool LanguageMenuIsJapanese(int i) { return i == kLangJa; }
+static bool LanguageMenuIsJapanese(int i) { return UiLang_IsJapanese(i); }
 
 static const RtlLanguageMenu kLanguageMenu = {
   LanguageMenuCount, LanguageMenuCurrent, LanguageMenuChoose, LanguageMenuIsJapanese,
@@ -859,11 +857,9 @@ static void OptionsScreen(void) {
   PoolReserve(&pool, &kMenuBig);
   TextLayer small = { MenuSmall(), ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, &pool };
   PoolReserve(&pool, MenuSmall());
-  if (UiLang_Text() != kLangEn) {
-    TranslateLayer(&big, kOptionsBig, sizeof(kOptionsBig) / sizeof(kOptionsBig[0]));
-    if (!g_rtl_language_menu)
-      TranslateLayer(&big, kOptionsTextRows, sizeof(kOptionsTextRows) / sizeof(kOptionsTextRows[0]));
-    TranslateLayer(&small, kOptionsSmall, sizeof(kOptionsSmall) / sizeof(kOptionsSmall[0]));
+  if (UiLang_Translated()) {
+    TranslateLayer(&big, "options", kOptionsBig, sizeof(kOptionsBig) / sizeof(kOptionsBig[0]));
+    TranslateLayer(&small, "options", kOptionsSmall, sizeof(kOptionsSmall) / sizeof(kOptionsSmall[0]));
   }
   if (g_rtl_language_menu) LanguageScreens(&big);
 }
@@ -871,37 +867,31 @@ static void OptionsScreen(void) {
 // ---- File select (game state 4) ----------------------------------------------------------------
 
 static const Phrase kFileSelectBig[] = {
-  { "SAMUS DATA", { "PARTIDAS", "PARTIDES", "PARTIES", "ARQUIVOS" }, kCentre },
-  { "DATA COPY MODE", { "COPIAR PARTIDA", "COPIAR PARTIDA", "COPIER", "COPIAR JOGO" }, kCentre },
-  { "DATA CLEAR MODE", { "BORRAR PARTIDA", "ESBORRAR DADES", "EFFACER", "APAGAR JOGO" }, kCentre },
-  { "YES", { "SÍ", "SÍ", "OUI", "SIM" } },
-  { "NO", { "NO", "NO", "NON", "NÃO" } },
+  { "SAMUS DATA", kCentre },
+  { "DATA COPY MODE", kCentre },
+  { "DATA CLEAR MODE", kCentre },
+  { "YES" },
+  { "NO" },
 };
 
 static const Phrase kFileSelectSmall[] = {
-  { "NO DATA", { "VACÍA", "BUIDA", "VIDE", "VAZIO" } },
-  { "DATA COPY", { "COPIAR PARTIDA", "COPIAR PARTIDA", "COPIER UNE PARTIE", "COPIAR JOGO" } },
-  { "DATA CLEAR", { "BORRAR PARTIDA", "ESBORRAR PARTIDA", "EFFACER UNE PARTIE", "APAGAR JOGO" } },
-  { "EXIT", { "SALIR", "SORTIR", "QUITTER", "SAIR" } },
-  { "COPY WHICH DATA?", { "¿QUÉ PARTIDA COPIAR?", "QUINA PARTIDA COPIO?", "COPIER QUELLE PARTIE ?",
-                          "COPIAR QUAL JOGO?" }, kMiddle },
-  { "COPY (SAMUS #) TO WHERE?", { "¿COPIAR (SAMUS #) ADÓNDE?", "ON COPIO (SAMUS #)?", "COPIER (SAMUS #) OÙ ?",
-                                  "COPIAR (SAMUS #) PARA ONDE?" }, kMiddle },
-  { "COPY (SAMUS #) TO (SAMUS #).", { "COPIAR (SAMUS #) EN (SAMUS #).", "COPIAR (SAMUS #) A (SAMUS #).",
-                                      "COPIER (SAMUS #) EN (SAMUS #).", "COPIAR (SAMUS #) EM (SAMUS #)." }, kMiddle },
-  { "IS THIS OK?", { "¿DE ACUERDO?", "D'ACORD?", "CONFIRMER ?", "ESTÁ CERTO?" }, kMiddle },
-  { "COPY COMPLETED.", { "COPIA TERMINADA.", "CÒPIA FETA.", "COPIE TERMINÉE.", "CÓPIA CONCLUÍDA." }, kMiddle },
-  { "CLEAR WHICH DATA?", { "¿QUÉ PARTIDA BORRAR?", "QUINA PARTIDA ESBORRO?", "EFFACER QUELLE PARTIE ?",
-                           "APAGAR QUAL JOGO?" }, kMiddle },
-  { "CLEAR (SAMUS #).", { "BORRAR (SAMUS #).", "ESBORRAR (SAMUS #).", "EFFACER (SAMUS #).", "APAGAR (SAMUS #)." },
-    kMiddle },
-  { "DATA CLEARED...", { "PARTIDA BORRADA...", "PARTIDA ESBORRADA...", "PARTIE EFFACÉE...", "JOGO APAGADO..." },
-    kMiddle },
+  { "NO DATA" },
+  { "DATA COPY" },
+  { "DATA CLEAR" },
+  { "EXIT" },
+  { "COPY WHICH DATA?", kMiddle },
+  { "COPY (SAMUS #) TO WHERE?", kMiddle },
+  { "COPY (SAMUS #) TO (SAMUS #).", kMiddle },
+  { "IS THIS OK?", kMiddle },
+  { "COPY COMPLETED.", kMiddle },
+  { "CLEAR WHICH DATA?", kMiddle },
+  { "CLEAR (SAMUS #).", kMiddle },
+  { "DATA CLEARED...", kMiddle },
 };
 
 static const Label kFileSelectLabels[] = {
-  { { 0x9d, 0x9e, 0x9f, 0xcc }, 4, { "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" } },
-  { { 0xad, 0xae, 0xaf }, 3, { "TIEMPO", "TEMPS", "TEMPS", "TEMPO" } },
+  { "ENERGY", { 0x9d, 0x9e, 0x9f, 0xcc }, 4 },
+  { "TIME", { 0xad, 0xae, 0xaf }, 3 },
 };
 
 static void FileSelectScreen(void) {
@@ -912,9 +902,9 @@ static void FileSelectScreen(void) {
   PoolReserve(&pool, &kMenuBig);
   TextLayer small = { MenuSmall(), ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, &pool };
   PoolReserve(&pool, MenuSmall());
-  TranslateLayer(&big, kFileSelectBig, sizeof(kFileSelectBig) / sizeof(kFileSelectBig[0]));
-  TranslateLayer(&small, kFileSelectSmall, sizeof(kFileSelectSmall) / sizeof(kFileSelectSmall[0]));
-  TranslateLabels(ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, 4, kFileSelectLabels,
+  TranslateLayer(&big, "file select", kFileSelectBig, sizeof(kFileSelectBig) / sizeof(kFileSelectBig[0]));
+  TranslateLayer(&small, "file select", kFileSelectSmall, sizeof(kFileSelectSmall) / sizeof(kFileSelectSmall[0]));
+  TranslateLabels(ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, 4, "file select", kFileSelectLabels,
                   sizeof(kFileSelectLabels) / sizeof(kFileSelectLabels[0]), 0xe, 0xd);
 }
 
@@ -926,7 +916,6 @@ static void FileSelectScreen(void) {
 
 typedef struct {
   const char *en;                   // the page's words, single spaces
-  const char *tr[kTextLangCount - 1];
   int width;                        // letters per line
 } Page;
 
@@ -1003,9 +992,8 @@ static void MoveCursorSprite(const TextLayer *L, int row_lo, int row_hi, int to_
   }
 }
 
-static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *pages, int count) {
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+static void TranslatePages(const TextLayer *L, int row0, int row1, const char *section, const Page *pages, int count) {
+  if (!UiLang_Translated()) return;
   const Font *f = L->font;
   // The English letters, in reading order.
   static int16_t cell_row[kMaxPageCells], cell_col[kMaxPageCells];
@@ -1046,7 +1034,8 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
   const Page *page = NULL;
   for (int i = 0; i < count && !page; i++)
     if (PageMatch(typed, pages[i].en)) page = &pages[i];
-  if (!page || !page->tr[lang - 1]) return;
+  const char *tr = page ? UiLang_Get(section, page->en) : NULL;
+  if (!tr) return;
   // Clear the English letters.
   for (int i = 0; i < cells; i++)
     for (int k = 0; k < f->h; k++) {
@@ -1056,7 +1045,6 @@ static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *p
   // How much of the translation: the share of the English page typed.
   int en_letters = 0;
   for (const char *e = page->en; *e; e++) en_letters += *e != ' ';
-  const char *tr = page->tr[lang - 1];
   int tr_letters = 0;
   for (const char *q = tr; *q;) tr_letters += NextCode(&q) != ' ';
   const int shown = cells >= en_letters ? tr_letters : cells * tr_letters / en_letters;
@@ -1141,70 +1129,21 @@ static const Font *IntroBigFont(void) {
 }
 
 static const Page kIntroBigPages[] = {
-  { "THE LAST METROID IS IN CAPTIVITY. THE GALAXY IS AT PEACE...",
-    { "EL ÚLTIMO METROID ESTÁ CAUTIVO. LA GALAXIA ESTÁ EN PAZ...",
-      "EL DARRER METROID ÉS CAPTIU. LA GALÀXIA ESTÀ EN PAU...",
-      "LE DERNIER METROID EST CAPTIF. LA GALAXIE EST EN PAIX...",
-      "O ÚLTIMO METROID ESTÁ CATIVO. A GALÁXIA ESTÁ EM PAZ..." }, 22 },
+  { "THE LAST METROID IS IN CAPTIVITY. THE GALAXY IS AT PEACE...", 22 },
 };
 
 static const Page kStoryPages[] = {
   { "I FIRST BATTLED THE METROIDS ON PLANET ZEBES. IT WAS THERE THAT I FOILED THE PLANS OF THE SPACE "
-    "PIRATE LEADER MOTHER BRAIN TO USE THE CREATURES TO ATTACK GALACTIC CIVILIZATION...",
-    { "LUCHÉ CONTRA LOS METROIDS POR PRIMERA VEZ EN EL PLANETA ZEBES. ALLÍ FRUSTRÉ LOS PLANES DE MOTHER "
-      "BRAIN, LÍDER DE LOS PIRATAS ESPACIALES, DE USAR A ESAS CRIATURAS PARA ATACAR A LA CIVILIZACIÓN "
-      "GALÁCTICA...",
-      "VAIG LLUITAR CONTRA ELS METROIDS PER PRIMER COP AL PLANETA ZEBES. ALLÀ VAIG FRUSTRAR ELS PLANS DE "
-      "MOTHER BRAIN, LÍDER DELS PIRATES ESPACIALS, D'USAR AQUELLES CRIATURES PER ATACAR LA CIVILITZACIÓ "
-      "GALÀCTICA...",
-      "J'AI COMBATTU LES METROIDS POUR LA PREMIÈRE FOIS SUR LA PLANÈTE ZEBES. C'EST LÀ QUE J'AI DÉJOUÉ LES "
-      "PLANS DE MOTHER BRAIN, CHEF DES PIRATES DE L'ESPACE, QUI VOULAIT SE SERVIR DE CES CRÉATURES POUR "
-      "ATTAQUER LA CIVILISATION GALACTIQUE...",
-      "ENFRENTEI OS METROIDS PELA PRIMEIRA VEZ NO PLANETA ZEBES. LÁ, FRUSTREI OS PLANOS DE MOTHER BRAIN, "
-      "LÍDER DOS PIRATAS ESPACIAIS, DE USAR ESSAS CRIATURAS PARA ATACAR A CIVILIZAÇÃO GALÁCTICA..." }, 30 },
+    "PIRATE LEADER MOTHER BRAIN TO USE THE CREATURES TO ATTACK GALACTIC CIVILIZATION...", 30 },
   { "I NEXT FOUGHT THE METROIDS ON THEIR HOMEWORLD, SR388. I COMPLETELY ERADICATED THEM EXCEPT FOR A LARVA, "
-    "WHICH AFTER HATCHING FOLLOWED ME LIKE A CONFUSED CHILD...",
-    { "DESPUÉS LUCHÉ CONTRA LOS METROIDS EN SU PLANETA NATAL, SR388. LOS ERRADIQUÉ POR COMPLETO, SALVO A UNA "
-      "LARVA QUE, AL NACER, ME SIGUIÓ COMO UN NIÑO DESORIENTADO...",
-      "DESPRÉS VAIG LLUITAR CONTRA ELS METROIDS AL SEU PLANETA NATAL, SR388. ELS VAIG ERRADICAR DEL TOT, "
-      "LLEVAT D'UNA LARVA QUE, EN NÉIXER, EM VA SEGUIR COM UN NEN DESORIENTAT...",
-      "PUIS J'AI COMBATTU LES METROIDS SUR LEUR PLANÈTE D'ORIGINE, SR388. JE LES AI TOUS EXTERMINÉS, SAUF UNE "
-      "LARVE QUI, À SA NAISSANCE, M'A SUIVIE COMME UN ENFANT PERDU...",
-      "DEPOIS, ENFRENTEI OS METROIDS EM SEU PLANETA NATAL, SR388. ERRADIQUEI TODOS, EXCETO UMA LARVA QUE, AO "
-      "NASCER, ME SEGUIU COMO UMA CRIANÇA PERDIDA..." }, 30 },
+    "WHICH AFTER HATCHING FOLLOWED ME LIKE A CONFUSED CHILD...", 30 },
   { "I PERSONALLY DELIVERED IT TO THE GALACTIC RESEARCH STATION AT CERES SO SCIENTISTS COULD STUDY ITS "
-    "ENERGY PRODUCING QUALITIES...",
-    { "LA LLEVÉ EN PERSONA A LA ESTACIÓN DE INVESTIGACIÓN GALÁCTICA DE CERES PARA QUE LOS CIENTÍFICOS "
-      "ESTUDIARAN SU CAPACIDAD DE PRODUCIR ENERGÍA...",
-      "LA VAIG PORTAR JO MATEIXA A L'ESTACIÓ D'INVESTIGACIÓ GALÀCTICA DE CERES PERQUÈ ELS CIENTÍFICS "
-      "ESTUDIESSIN LA SEVA CAPACITAT DE PRODUIR ENERGIA...",
-      "JE L'AI CONFIÉE EN PERSONNE À LA STATION DE RECHERCHE GALACTIQUE DE CERES POUR QUE LES SCIENTIFIQUES "
-      "ÉTUDIENT SA CAPACITÉ À PRODUIRE DE L'ÉNERGIE...",
-      "EU MESMA A LEVEI À ESTAÇÃO DE PESQUISA GALÁCTICA DE CERES PARA QUE OS CIENTISTAS ESTUDASSEM SUA "
-      "CAPACIDADE DE PRODUZIR ENERGIA..." }, 30 },
+    "ENERGY PRODUCING QUALITIES...", 30 },
   { "THE SCIENTISTS' FINDINGS WERE ASTOUNDING! THEY DISCOVERED THAT THE POWERS OF THE METROID MIGHT BE "
-    "HARNESSED FOR THE GOOD OF CIVILIZATION!",
-    { "¡LOS HALLAZGOS DE LOS CIENTÍFICOS FUERON ASOMBROSOS! ¡DESCUBRIERON QUE EL PODER DEL METROID PODRÍA "
-      "APROVECHARSE PARA EL BIEN DE LA CIVILIZACIÓN!",
-      "ELS DESCOBRIMENTS DELS CIENTÍFICS VAN SER SORPRENENTS! VAN VEURE QUE EL PODER DEL METROID ES PODIA "
-      "APROFITAR PER AL BÉ DE LA CIVILITZACIÓ!",
-      "LES DÉCOUVERTES DES SCIENTIFIQUES FURENT STUPÉFIANTES ! ILS COMPRIRENT QUE LE POUVOIR DU METROID "
-      "POUVAIT SERVIR LE BIEN DE LA CIVILISATION !",
-      "AS DESCOBERTAS DOS CIENTISTAS FORAM ESPANTOSAS! ELES PERCEBERAM QUE O PODER DO METROID PODERIA SER "
-      "USADO PARA O BEM DA CIVILIZAÇÃO!" }, 30 },
+    "HARNESSED FOR THE GOOD OF CIVILIZATION!", 30 },
   { "SATISFIED THAT ALL WAS WELL, I LEFT THE STATION TO SEEK A NEW BOUNTY TO HUNT. BUT, I HAD HARDLY GONE "
-    "BEYOND THE ASTEROID BELT WHEN I PICKED UP A DISTRESS SIGNAL!",
-    { "CONVENCIDA DE QUE TODO IBA BIEN, DEJÉ LA ESTACIÓN EN BUSCA DE UNA NUEVA RECOMPENSA. ¡PERO APENAS "
-      "HABÍA DEJADO ATRÁS EL CINTURÓN DE ASTEROIDES CUANDO RECIBÍ UNA SEÑAL DE SOCORRO!",
-      "CONVENÇUDA QUE TOT ANAVA BÉ, VAIG DEIXAR L'ESTACIÓ A LA RECERCA D'UNA NOVA RECOMPENSA. PERÒ AMB "
-      "PROU FEINES HAVIA DEIXAT ENRERE EL CINTURÓ D'ASTEROIDES QUAN VAIG REBRE UN SENYAL DE SOCORS!",
-      "RASSURÉE, J'AI QUITTÉ LA STATION POUR CHERCHER UNE NOUVELLE PRIME. MAIS J'AVAIS À PEINE DÉPASSÉ LA "
-      "CEINTURE D'ASTÉROÏDES QUAND J'AI CAPTÉ UN SIGNAL DE DÉTRESSE !",
-      "CERTA DE QUE ESTAVA TUDO BEM, DEIXEI A ESTAÇÃO EM BUSCA DE UMA NOVA RECOMPENSA. MAS MAL TINHA PASSADO "
-      "DO CINTURÃO DE ASTEROIDES QUANDO CAPTEI UM SINAL DE SOCORRO!" }, 30 },
-  { "CERES STATION WAS UNDER ATTACK!!",
-    { "¡¡LA ESTACIÓN CERES ESTABA SIENDO ATACADA!!", "L'ESTACIÓ CERES ESTAVA SENT ATACADA!!",
-      "LA STATION CERES ÉTAIT ATTAQUÉE !!", "A ESTAÇÃO CERES ESTAVA SOB ATAQUE!!" }, 30 },
+    "BEYOND THE ASTEROID BELT WHEN I PICKED UP A DISTRESS SIGNAL!", 30 },
+  { "CERES STATION WAS UNDER ATTACK!!", 30 },
 };
 
 static void IntroScreen(void) {
@@ -1216,67 +1155,62 @@ static void IntroScreen(void) {
   PoolReserve(&pool, IntroBigFont());
   TextLayer story = { StoryFont(), bg3->tilemapAdr, bg3->tileAdr, &pool };
   PoolReserve(&pool, StoryFont());
-  TranslatePages(&big, 0, 27, kIntroBigPages, sizeof(kIntroBigPages) / sizeof(kIntroBigPages[0]));
-  TranslatePages(&story, 4, 23, kStoryPages, sizeof(kStoryPages) / sizeof(kStoryPages[0]));
+  TranslatePages(&big, 0, 27, "intro", kIntroBigPages, sizeof(kIntroBigPages) / sizeof(kIntroBigPages[0]));
+  TranslatePages(&story, 4, 23, "intro", kStoryPages, sizeof(kStoryPages) / sizeof(kStoryPages[0]));
 }
 
 // ---- Pause screen (game states 12-18) -----------------------------------------------------------
 
 static const WordRun kPauseItems[] = {
-  { { 0x100, 0x101, 0x102, 0x103, 0x104, 0x105 }, 6, { "CLIMÁTICO", "CLIMÀTIC", "COSTUME VARIA", "TRAJE VARIA" } },
-  { { 0x0d0, 0x0d1, 0x0d2, 0x0d3, 0x103, 0x104, 0x105 }, 7,
-    { "GRAVITATORIO", "GRAVITATORI", "COSTUME GRAVITÉ", "GRAVITACIONAL" } },
-  { { 0x120, 0x121, 0x122, 0x123, 0x117, 0x118, 0x10f, 0x11f }, 8,
-    { "MORFOSFERA", "MORFOESFERA", "BOULE MORPHING", "MORFOSFERA" } },
-  { { 0x0d5, 0x0d6, 0x0d7 }, 3, { "BOMBAS", "BOMBES", "BOMBES", "BOMBAS" } },
-  { { 0x110, 0x111, 0x112, 0x113, 0x114, 0x115, 0x116 }, 7, { "ROTOSALTO", "ROTOSALT", "BOULE REBOND", "SALTO ESFERA" } },
-  { { 0x0e0, 0x0e1, 0x0e2, 0x0e3, 0x0e4, 0x0e5, 0x0e6 }, 7,
-    { "SALTO EN BARRENA", "SALT EN BARRINA", "ATTAQUE EN VRILLE", "ATAQUE GIRATÓRIO" } },
-  { { 0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136 }, 7, { "SUPERSALTO", "SUPERSALT", "MÉGA SAUT", "BOTAS DE SALTO" } },
-  { { 0x0f0, 0x0f1, 0x0f2, 0x0f3, 0x0f4, 0x0f5 }, 6, { "SALTO ESPACIAL", "SALT ESPACIAL", "SAUT SPATIAL", "SALTO ESPACIAL" } },
-  { { 0x124, 0x125, 0x126, 0x127, 0x128, 0x129, 0x12a, 0x12b }, 8,
-    { "ACELERACIÓN", "ACCELERACIÓ", "ACCÉLÉRATEUR", "ACELERADOR" } },
+  { "VARIA SUIT", { 0x100, 0x101, 0x102, 0x103, 0x104, 0x105 }, 6 },
+  { "GRAVITY SUIT", { 0x0d0, 0x0d1, 0x0d2, 0x0d3, 0x103, 0x104, 0x105 }, 7 },
+  { "MORPHING BALL", { 0x120, 0x121, 0x122, 0x123, 0x117, 0x118, 0x10f, 0x11f }, 8 },
+  { "BOMBS", { 0x0d5, 0x0d6, 0x0d7 }, 3 },
+  { "SPRING BALL", { 0x110, 0x111, 0x112, 0x113, 0x114, 0x115, 0x116 }, 7 },
+  { "SCREW ATTACK", { 0x0e0, 0x0e1, 0x0e2, 0x0e3, 0x0e4, 0x0e5, 0x0e6 }, 7 },
+  { "HI-JUMP BOOTS", { 0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136 }, 7 },
+  { "SPACE JUMP", { 0x0f0, 0x0f1, 0x0f2, 0x0f3, 0x0f4, 0x0f5 }, 6 },
+  { "SPEED BOOSTER", { 0x124, 0x125, 0x126, 0x127, 0x128, 0x129, 0x12a, 0x12b }, 8 },
   // Beams: 4 cells each.
-  { { 0x0d8, 0x0d9, 0x0da, 0x0e7 }, 4, { "RECARGA", "CÀRREGA", "CHARGE", "CARGA" } },
-  { { 0x0db, 0x0dc }, 2, { "HIELO", "GEL", "GLACE", "GELO" } },
-  { { 0x0dd, 0x0de, 0x0df }, 3, { "ONDAS", "ONES", "VAGUE", "ONDA" } },
-  { { 0x0e8, 0x0e9, 0x0ea, 0x0eb }, 4, { "MÚLTIPLE", "MÚLTIPLE", "SPAZER", "SPAZER" } },
-  { { 0x0ec, 0x0ed, 0x0ee, 0x0ef }, 4, { "PLASMA", "PLASMA", "PLASMA", "PLASMA" } },
-  { { 0x137, 0x138, 0x139, 0x12f }, 4, { "HIPER", "HIPER", "HYPER", "HIPER" } },
+  { "CHARGE", { 0x0d8, 0x0d9, 0x0da, 0x0e7 }, 4 },
+  { "ICE", { 0x0db, 0x0dc }, 2 },
+  { "WAVE", { 0x0dd, 0x0de, 0x0df }, 3 },
+  { "SPAZER", { 0x0e8, 0x0e9, 0x0ea, 0x0eb }, 4 },
+  { "PLASMA", { 0x0ec, 0x0ed, 0x0ee, 0x0ef }, 4 },
+  { "HYPER", { 0x137, 0x138, 0x139, 0x12f }, 4 },
 };
 
 static const WordRun kPauseHeaders[] = {
-  { { 0x107, 0x108, 0x109, 0x10a }, 4, { "RESERVA", "RESERVA", "RÉSERVE", "RESERVA" } },
-  { { 0x0f9, 0x0fa, 0x0fb }, 3, { "RAYO", "RAIG", "RAYON", "RAIO" } },
-  { { 0x0f6, 0x0f7, 0x0f8 }, 3, { "TRAJE", "VESTIT", "TENUE", "TRAJE" } },
-  { { 0x1b0, 0x1b1, 0x1b2 }, 3, { "VARIOS", "ALTRES", "DIVERS", "OUTROS" } },
-  { { 0x0a0, 0x0a1, 0x0a2 }, 3, { "BOTAS", "BOTES", "BOTTES", "BOTAS" } },
+  { "RESERVE TANK", { 0x107, 0x108, 0x109, 0x10a }, 4 },
+  { "BEAM", { 0x0f9, 0x0fa, 0x0fb }, 3 },
+  { "SUIT", { 0x0f6, 0x0f7, 0x0f8 }, 3 },
+  { "MISC.", { 0x1b0, 0x1b1, 0x1b2 }, 3 },
+  { "BOOTS", { 0x0a0, 0x0a1, 0x0a2 }, 3 },
 };
 
 // The buttons under the pause screen: a word inside a drawn box, two rows of chars. The box is
 // kept, its inside cleared and the translation drawn there (MAP: bold, twice as wide; EXIT: thin).
 typedef struct {
+  const char *en;           // the key of its translation (the English in the box)
   uint16_t top[6], bottom[6];
   int n;
   int x0, y0, x1, y1;       // the inside, in pixels of the n x 2 cells
   uint8_t pen, bg;
   bool bold;
-  const char *tr[kTextLangCount - 1];
 } BoxWord;
 
 static const BoxWord kPauseButtons[] = {
-  { { 0x99, 0x9a, 0x9b, 0x9c, 0x9d }, { 0xa9, 0xaa, 0xab, 0xac, 0xad }, 5, 1, 2, 37, 12, 0x4, 0xb, true,
-    { "MAPA", "MAPA", "CARTE", "MAPA" } },
-  { { 0xb8, 0xb9, 0xba, 0xbb }, { 0xc8, 0xc9, 0xca, 0xcb }, 4, 4, 5, 28, 11, 0x4, 0x7, false,
-    { "SALIR", "SORTIR", "QUITTER", "SAIR" } },
+  { "MAP", { 0x99, 0x9a, 0x9b, 0x9c, 0x9d }, { 0xa9, 0xaa, 0xab, 0xac, 0xad }, 5, 1, 2, 37, 12, 0x4, 0xb, true },
+  { "EXIT", { 0xb8, 0xb9, 0xba, 0xbb }, { 0xc8, 0xc9, 0xca, 0xcb }, 4, 4, 5, 28, 11, 0x4, 0x7, false },
 };
 
-static void TranslateBoxWords(uint16_t map, int pages, uint16_t base, CharPool *pool, const BoxWord *words, int count) {
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+static void TranslateBoxWords(uint16_t map, int pages, uint16_t base, CharPool *pool, const char *section, const BoxWord *words,
+                              int count) {
+  if (!UiLang_Translated()) return;
   for (int i = 0; i < count; i++) {
     const BoxWord *bw = &words[i];
-    const char *tr = bw->tr[lang - 1];
+    const char *tr = UiLang_Get(section, bw->en);
+    if (!tr) continue;
     for (int c = 0; c + bw->n <= 0x400 * pages - 32; c++) {
       int k = 0;
       while (k < bw->n && (g_shadow[(map + c + k) & 0x7fff] & 0x3ff) == bw->top[k] &&
@@ -1336,7 +1270,7 @@ static const Font *PauseTitleFont(void) {
 }
 
 static const Phrase kPauseTitles[] = {
-  { "WRECKED SHIP", { "NAVE HUNDIDA", "NAU NÀUFRAGA", "ÉPAVE", "NAU AFUNDADA" }, kMiddle },
+  { "WRECKED SHIP", kMiddle },
 };
 
 static void PauseScreen(void) {
@@ -1348,28 +1282,27 @@ static void PauseScreen(void) {
   const int pages = 1 + bg1->tilemapWider;
   // The names' chars carry palette 2 in the game's tables (0x900 is char 0x100).
   WordStyle items = { bg1->tilemapAdr, pages, bg1->tileAdr, 4, 0x0d4, 5, 2, 1, 0x000, 0x3ff, &pool };
-  TranslateWordRuns(&items, kPauseItems, sizeof(kPauseItems) / sizeof(kPauseItems[0]), 0xa);
+  TranslateWordRuns(&items, "pause", kPauseItems, sizeof(kPauseItems) / sizeof(kPauseItems[0]), 0xa);
   WordStyle headers = { bg1->tilemapAdr, pages, bg1->tileAdr, 4, 0xffff, 6, 1, -1, 0x000, 0x3ff, &pool };
-  TranslateWordRuns(&headers, kPauseHeaders, sizeof(kPauseHeaders) / sizeof(kPauseHeaders[0]), 0xd);
+  TranslateWordRuns(&headers, "pause", kPauseHeaders, sizeof(kPauseHeaders) / sizeof(kPauseHeaders[0]), 0xd);
   const BgLayer *bg2 = &ppu->bgLayer[1];
   TextLayer title = { PauseTitleFont(), bg2->tilemapAdr, bg2->tileAdr, &pool };
-  TranslateLayer(&title, kPauseTitles, sizeof(kPauseTitles) / sizeof(kPauseTitles[0]));
-  TranslateBoxWords(bg2->tilemapAdr, 1, bg2->tileAdr, &pool, kPauseButtons, sizeof(kPauseButtons) / sizeof(kPauseButtons[0]));
+  TranslateLayer(&title, "pause", kPauseTitles, sizeof(kPauseTitles) / sizeof(kPauseTitles[0]));
+  TranslateBoxWords(bg2->tilemapAdr, 1, bg2->tileAdr, &pool, "pause", kPauseButtons, sizeof(kPauseButtons) / sizeof(kPauseButtons[0]));
 }
 
 // ---- Game over (game state 26) -------------------------------------------------------------------
 
 static const Phrase kGameOverBig[] = {
-  { "YES", { "SÍ", "SÍ", "OUI", "SIM" } },
-  { "N O", { "NO", "NO", "NON", "NÃO" } },
+  { "YES" },
+  { "N O" },
 };
 
 static const Phrase kGameOverSmall[] = {
-  { "FIND THE METROID LARVA!", { "¡ENCUENTRA LA LARVA METROID!", "TROBA LA LARVA METROID!",
-                                 "TROUVE LA LARVE DE METROID !", "ENCONTRE A LARVA METROID!" }, kMiddle },
-  { "TRY AGAIN ?", { "¿REINTENTAR?", "HO TORNES A PROVAR?", "RÉESSAYER ?", "TENTAR DE NOVO?" }, kMiddle },
-  { "(RETURN TO GAME)", { "(VOLVER AL JUEGO)", "(TORNAR AL JOC)", "(RETOUR AU JEU)", "(VOLTAR AO JOGO)" } },
-  { "(GO TO TITLE)", { "(IR AL TÍTULO)", "(ANAR AL TÍTOL)", "(ÉCRAN TITRE)", "(IR AO TÍTULO)" } },
+  { "FIND THE METROID LARVA!", kMiddle },
+  { "TRY AGAIN ?", kMiddle },
+  { "(RETURN TO GAME)" },
+  { "(GO TO TITLE)" },
 };
 
 static void GameOverScreen(void) {
@@ -1380,8 +1313,8 @@ static void GameOverScreen(void) {
   PoolReserve(&pool, &kMenuBig);
   TextLayer small = { MenuSmall(), ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, &pool };
   PoolReserve(&pool, MenuSmall());
-  TranslateLayer(&big, kGameOverBig, sizeof(kGameOverBig) / sizeof(kGameOverBig[0]));
-  TranslateLayer(&small, kGameOverSmall, sizeof(kGameOverSmall) / sizeof(kGameOverSmall[0]));
+  TranslateLayer(&big, "game over", kGameOverBig, sizeof(kGameOverBig) / sizeof(kGameOverBig[0]));
+  TranslateLayer(&small, "game over", kGameOverSmall, sizeof(kGameOverSmall) / sizeof(kGameOverSmall[0]));
 }
 
 // ---- Ending and credits (game state 39) ----------------------------------------------------------
@@ -1444,51 +1377,35 @@ static const Font *CreditsBig(void) {
 }
 
 static const Phrase kCreditsSmall[] = {
-  { "SUPER METROID STAFF", { "EQUIPO DE SUPER METROID", "EQUIP DE SUPER METROID", "ÉQUIPE DE SUPER METROID",
-                             "EQUIPE DE SUPER METROID" }, kMiddle },
-  { "EXECUTIVE PRODUCER", { "PRODUCTOR EJECUTIVO", "PRODUCTOR EXECUTIU", "PRODUCTEUR EXÉCUTIF", "PRODUTOR EXECUTIVO" },
-    kMiddle },
-  { "PRODUCER", { "PRODUCTOR", "PRODUCTOR", "PRODUCTEUR", "PRODUTOR" }, kMiddle },
-  { "DIRECTOR", { "DIRECTOR", "DIRECTOR", "RÉALISATEUR", "DIRETOR" }, kMiddle },
-  { "BACK GROUND DESIGNERS", { "DISEÑO DE ESCENARIOS", "DISSENY DELS ESCENARIS", "CONCEPTION DES DÉCORS",
-                               "DESIGN DE CENÁRIOS" }, kMiddle },
-  { "OBJECT DESIGNERS", { "DISEÑO DE OBJETOS", "DISSENY DELS OBJECTES", "CONCEPTION DES OBJETS",
-                          "DESIGN DE OBJETOS" }, kMiddle },
-  { "SAMUS ORIGINAL DESIGNER", { "DISEÑO ORIGINAL DE SAMUS", "DISSENY ORIGINAL DE SAMUS", "CRÉATION DE SAMUS",
-                                 "DESIGN ORIGINAL DE SAMUS" }, kMiddle },
-  { "SAMUS DESIGNER", { "DISEÑO DE SAMUS", "DISSENY DE SAMUS", "DESIGN DE SAMUS", "DESIGN DE SAMUS" }, kMiddle },
-  { "PROGRAM DIRECTOR", { "DIRECTOR DE PROGRAMACIÓN", "DIRECTOR DE PROGRAMACIÓ", "DIRECTEUR DE LA PROGRAMMATION",
-                          "DIRETOR DE PROGRAMAÇÃO" }, kMiddle },
-  { "SPECIAL THANKS TO", { "AGRADECIMIENTOS ESPECIALES", "AGRAÏMENTS ESPECIALS", "REMERCIEMENTS",
-                           "AGRADECIMENTOS ESPECIAIS" }, kMiddle },
-  { "SYSTEM COORDINATOR", { "COORDINACIÓN DEL SISTEMA", "COORDINACIÓ DEL SISTEMA", "COORDINATION SYSTÈME",
-                            "COORDENAÇÃO DO SISTEMA" }, kMiddle },
-  { "SYSTEM PROGRAMMER", { "PROGRAMACIÓN DEL SISTEMA", "PROGRAMACIÓ DEL SISTEMA", "PROGRAMMATION SYSTÈME",
-                           "PROGRAMAÇÃO DO SISTEMA" }, kMiddle },
-  { "SAMUS PROGRAMMER", { "PROGRAMACIÓN DE SAMUS", "PROGRAMACIÓ DE SAMUS", "PROGRAMMATION DE SAMUS",
-                          "PROGRAMAÇÃO DE SAMUS" }, kMiddle },
-  { "EVENT PROGRAMMER", { "PROGRAMACIÓN DE EVENTOS", "PROGRAMACIÓ DELS ESDEVENIMENTS", "PROGRAMMATION DES ÉVÉNEMENTS",
-                          "PROGRAMAÇÃO DE EVENTOS" }, kMiddle },
-  { "ENEMY PROGRAMMER", { "PROGRAMACIÓN DE ENEMIGOS", "PROGRAMACIÓ DELS ENEMICS", "PROGRAMMATION DES ENNEMIS",
-                          "PROGRAMAÇÃO DE INIMIGOS" }, kMiddle },
-  { "MAP PROGRAMMER", { "PROGRAMACIÓN DE MAPAS", "PROGRAMACIÓ DELS MAPES", "PROGRAMMATION DES CARTES",
-                        "PROGRAMAÇÃO DE MAPAS" }, kMiddle },
-  { "ASSISTANT PROGRAMMER", { "AYUDANTE DE PROGRAMACIÓN", "AJUDANT DE PROGRAMACIÓ", "ASSISTANT PROGRAMMEUR",
-                              "ASSISTENTE DE PROGRAMAÇÃO" }, kMiddle },
-  { "COORDINATORS", { "COORDINACIÓN", "COORDINACIÓ", "COORDINATION", "COORDENAÇÃO" }, kMiddle },
-  { "PRINTED ART WORK", { "ILUSTRACIONES", "DIBUIXOS", "ILLUSTRATIONS", "ILUSTRAÇÕES" }, kMiddle },
-  { "SOUND PROGRAM", { "PROGRAMA DE SONIDO", "PROGRAMA DE SO", "PROGRAMME SONORE", "PROGRAMA DE SOM" } },
-  { "AND SOUND EFFECTS", { "Y EFECTOS DE SONIDO", "I EFECTES DE SO", "ET EFFETS SONORES", "E EFEITOS SONOROS" } },
-  { "MUSIC COMPOSERS", { "COMPOSICIÓN MUSICAL", "COMPOSICIÓ MUSICAL", "COMPOSITEURS", "COMPOSIÇÃO MUSICAL" }, kMiddle },
-  { "GENERAL MANAGER", { "DIRECTOR GENERAL", "DIRECTOR GENERAL", "DIRECTEUR GÉNÉRAL", "GERENTE GERAL" }, kMiddle },
-  { "YOUR RATE FOR", { "PORCENTAJE DE", "OBJECTES RECOLLITS,", "TAUX DE COLLECTE", "SUA TAXA DE" }, kMiddle },
-  { "COLLECTING ITEMS IS", { "OBJETOS RECOGIDOS", "EL TEU PERCENTATGE ÉS", "DES OBJETS", "COLETA DE ITENS É" },
-    kMiddle },
+  { "SUPER METROID STAFF", kMiddle },
+  { "EXECUTIVE PRODUCER", kMiddle },
+  { "PRODUCER", kMiddle },
+  { "DIRECTOR", kMiddle },
+  { "BACK GROUND DESIGNERS", kMiddle },
+  { "OBJECT DESIGNERS", kMiddle },
+  { "SAMUS ORIGINAL DESIGNER", kMiddle },
+  { "SAMUS DESIGNER", kMiddle },
+  { "PROGRAM DIRECTOR", kMiddle },
+  { "SPECIAL THANKS TO", kMiddle },
+  { "SYSTEM COORDINATOR", kMiddle },
+  { "SYSTEM PROGRAMMER", kMiddle },
+  { "SAMUS PROGRAMMER", kMiddle },
+  { "EVENT PROGRAMMER", kMiddle },
+  { "ENEMY PROGRAMMER", kMiddle },
+  { "MAP PROGRAMMER", kMiddle },
+  { "ASSISTANT PROGRAMMER", kMiddle },
+  { "COORDINATORS", kMiddle },
+  { "PRINTED ART WORK", kMiddle },
+  { "SOUND PROGRAM" },
+  { "AND SOUND EFFECTS" },
+  { "MUSIC COMPOSERS", kMiddle },
+  { "GENERAL MANAGER", kMiddle },
+  { "YOUR RATE FOR", kMiddle },
+  { "COLLECTING ITEMS IS", kMiddle },
 };
 
 static const Phrase kCreditsBig[] = {
-  { "SEE YOU NEXT MISSION", { "HASTA LA PRÓXIMA MISIÓN", "FINS A LA PROPERA MISSIÓ", "À LA PROCHAINE MISSION",
-                              "ATÉ A PRÓXIMA MISSÃO" }, kMiddle },
+  { "SEE YOU NEXT MISSION", kMiddle },
 };
 
 static void EndingScreen(void) {
@@ -1502,15 +1419,14 @@ static void EndingScreen(void) {
   PoolReserve(&pool, CreditsSmall());
   TextLayer big = { CreditsBig(), bg1->tilemapAdr, bg1->tileAdr, &pool, rows };
   PoolReserve(&pool, CreditsBig());
-  TranslateLayer(&small, kCreditsSmall, sizeof(kCreditsSmall) / sizeof(kCreditsSmall[0]));
-  TranslateLayer(&big, kCreditsBig, sizeof(kCreditsBig) / sizeof(kCreditsBig[0]));
+  TranslateLayer(&small, "ending", kCreditsSmall, sizeof(kCreditsSmall) / sizeof(kCreditsSmall[0]));
+  TranslateLayer(&big, "ending", kCreditsBig, sizeof(kCreditsBig) / sizeof(kCreditsBig[0]));
 }
 
 // ---- HUD (BG3 tilemap at 0x5800, chars at BG3's tile address) ------------------------------------------------
 // ENERGY is a picture over chars 0x0b-0x0d and 0x32: colour 2 letters outlined in 1 on 3.
 
 static void HudScreen(void) {
-  static const struct { const char *tr[kTextLangCount - 1]; } kEnergy = { { "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" } };
   static const uint16_t kChars[4] = { 0x0b, 0x0c, 0x0d, 0x32 };
   enum { kHudMap = 0x5800 };
   // BG3's chars are where the room says: 0x4000 in most, 0x2000 in Kraid's, whose BG2 tilemap is at 0x4000 (writing the
@@ -1518,8 +1434,8 @@ static void HudScreen(void) {
   const Ppu *hud_ppu = ThePpu();
   if (!hud_ppu) return;
   const uint16_t kHudChars = hud_ppu->bgLayer[2].tileAdr;
-  const int lang = UiLang_Text();
-  if (lang <= kLangEn) return;
+  const char *energy = UiLang_Get("hud", "ENERGY");
+  if (!energy) return;
   bool found = false;
   for (int c = 0; c + 4 <= 0x80 && !found; c++) {
     int k = 0;
@@ -1529,7 +1445,7 @@ static void HudScreen(void) {
   if (!found) return;
   uint8_t ink[8][128];
   memset(ink, 0, sizeof(ink));
-  const int w = TinyText(kEnergy.tr[lang - 1], 5, ink, 1, 1);
+  const int w = TinyText(energy, 5, ink, 1, 1);
   const int x0 = (32 - w) / 2 > 1 ? (32 - w) / 2 : 1;
   uint8_t px[8][32];
   for (int y = 0; y < 8; y++)
@@ -1564,8 +1480,8 @@ static void Hook(void) {
   else if (game_state != 5) menu_state = 0;
   // The option menus also in English when the port's LANGUAGE entry is on (LanguageScreens).
   const bool options = game_state == 2 || (game_state == 5 && menu_index < 2 && menu_state == 2);
-  if (options && (g_rtl_language_menu || UiLang_Text() != kLangEn)) OptionsScreen();
-  if (UiLang_Text() != kLangEn) {
+  if (options && (g_rtl_language_menu || UiLang_Translated())) OptionsScreen();
+  if (UiLang_Translated()) {
     switch (game_state) {
     case 4: FileSelectScreen(); break;
     case 5:
@@ -1580,6 +1496,30 @@ static void Hook(void) {
     }
   }
   Commit();
+}
+
+#define FOR_KEYS(fn, section, table, note) \
+  for (size_t i_ = 0; i_ < sizeof(table) / sizeof(table[0]); i_++) fn(section, table[i_].en, note)
+
+void GameTextScreens_ForEachKey(LangKeyFn *fn) {
+  static const char kRoom[] = "in the game's capitals, in about the English one's room";
+  FOR_KEYS(fn, "options", kOptionsBig, kRoom);
+  FOR_KEYS(fn, "options", kOptionsSmall, kRoom);
+  fn("options", "LANGUAGE", "the title of the language list and its entry in OPTION MODE");
+  FOR_KEYS(fn, "file select", kFileSelectBig, kRoom);
+  FOR_KEYS(fn, "file select", kFileSelectSmall, kRoom);
+  FOR_KEYS(fn, "file select", kFileSelectLabels, "a picture redrawn with a small font in the English one's room");
+  FOR_KEYS(fn, "intro", kIntroBigPages, "the whole page, wrapped by the port");
+  FOR_KEYS(fn, "intro", kStoryPages, "the whole page, wrapped by the port");
+  FOR_KEYS(fn, "pause", kPauseItems, "a picture redrawn with a small font in the English one's room");
+  FOR_KEYS(fn, "pause", kPauseHeaders, "a picture redrawn with a small font in the English one's room");
+  FOR_KEYS(fn, "pause", kPauseButtons, "inside the button's box");
+  FOR_KEYS(fn, "pause", kPauseTitles, kRoom);
+  FOR_KEYS(fn, "game over", kGameOverBig, kRoom);
+  FOR_KEYS(fn, "game over", kGameOverSmall, kRoom);
+  FOR_KEYS(fn, "ending", kCreditsSmall, kRoom);
+  FOR_KEYS(fn, "ending", kCreditsBig, kRoom);
+  fn("hud", "ENERGY", "a picture redrawn with a small font, about 6 letters");
 }
 
 void GameTextScreens_Init(void) {

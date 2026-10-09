@@ -1,6 +1,9 @@
 #include "ui_lang.h"
 
 #include <stddef.h>
+#include <string.h>
+
+#include "lang_file.h"
 
 #ifdef __3DS__
 #include <3ds.h>
@@ -8,253 +11,238 @@
 
 UiLang g_ui_lang = kLangEn;
 void (*g_ui_lang_on_change)(void);
+static bool g_translated;   // g_ui_lang has a file of strings (Lang_Load)
 
-UiLang UiLang_Text(void) { return (unsigned)g_ui_lang < kTextLangCount ? g_ui_lang : kLangEn; }
-
-// One row per string: English, Spanish, Catalan, French, Portuguese. Format strings keep
-// the English one's conversions in the same order.
-static const char *const kText[kStrCount][kTextLangCount] = {
-  [kStrOn] = { "ON", "SÍ", "SÍ", "OUI", "SIM" },
-  [kStrOff] = { "OFF", "NO", "NO", "NON", "NÃO" },
+// The English of each string, also its key in the [ui] section of the language files (but
+// kStrUpdsLabel, "UPDATES (short)": the same English as kStrUpdates, shorter there). The comments
+// go with the strings into romfs/lang/*.txt; a translation keeps the English one's conversions
+// (%d, %s) in the same order.
+static const char *const kText[kStrCount] = {
+  [kStrOn] = "ON",
+  [kStrOff] = "OFF",
   // Map tab: the follow button ("FOLLOW: ON"), the area line ("CRATERIA  12/80 CELLS  MAP").
-  [kStrFollow] = { "FOLLOW", "SEGUIR", "SEGUIR", "SUIVRE", "SEGUIR" },
-  [kStrCells] = { "CELLS", "CELDAS", "CEL·LES", "CASES", "CÉLULAS" },
-  [kStrMapMark] = { "MAP", "MAPA", "MAPA", "CARTE", "MAPA" },
+  [kStrFollow] = "FOLLOW",
+  [kStrCells] = "CELLS",
+  [kStrMapMark] = "MAP",
   // Status tab.
-  [kStrEnergy] = { "ENERGY", "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" },
-  [kStrMax] = { "MAX", "MÁX", "MÀX", "MAX", "MÁX" },
-  [kStrReserve] = { "RESERVE", "RESERVA", "RESERVA", "RÉSERVE", "RESERVA" },
-  [kStrAuto] = { "AUTO", "AUTO", "AUTO", "AUTO", "AUTO" },
-  [kStrManual] = { "MANUAL", "MANUAL", "MANUAL", "MANUEL", "MANUAL" },
-  [kStrItems] = { "ITEMS", "OBJETOS", "OBJECTES", "OBJETS", "ITENS" },
-  [kStrBeams] = { "BEAMS", "RAYOS", "RAIGS", "RAYONS", "RAIOS" },
-  [kStrMapStations] = { "MAP STATIONS", "ESTACIONES DE MAPA", "ESTACIONS DE MAPA", "STATIONS DE CARTE",
-                        "ESTAÇÕES DE MAPA" },
-  [kStrRoom] = { "ROOM", "SALA", "SALA", "SALLE", "SALA" },
+  [kStrEnergy] = "ENERGY",
+  [kStrMax] = "MAX",
+  [kStrReserve] = "RESERVE",
+  [kStrAuto] = "AUTO",
+  [kStrManual] = "MANUAL",
+  [kStrItems] = "ITEMS",
+  [kStrBeams] = "BEAMS",
+  [kStrMapStations] = "MAP STATIONS",
+  [kStrRoom] = "ROOM",
   // States tab.
-  [kStrSaveStates] = { "SAVE STATES", "ESTADOS GUARDADOS", "ESTATS DESATS", "ÉTATS SAUVEGARDÉS", "ESTADOS SALVOS" },
-  [kStrSavedNoDetails] = { "SAVED (NO DETAILS)", "GUARDADO (SIN DETALLES)", "DESAT (SENSE DETALLS)",
-                           "SAUVÉ (SANS DÉTAILS)", "SALVO (SEM DETALHES)" },
-  [kStrSavedSlot] = { "Saved to slot %d", "Guardado en la ranura %d", "Desat a la ranura %d",
-                      "Sauvé dans l'emplacement %d", "Salvo no espaço %d" },
-  [kStrSaveFailed] = { "Could not save slot %d", "No se pudo guardar la ranura %d", "No s'ha pogut desar la ranura %d",
-                       "Échec de la sauvegarde %d", "Não foi possível salvar o espaço %d" },
-  [kStrLoadedSlot] = { "Loaded slot %d", "Ranura %d cargada", "Ranura %d carregada", "Emplacement %d chargé",
-                       "Espaço %d carregado" },
-  [kStrLoadFailed] = { "Slot %d: cannot load", "Ranura %d: no se puede cargar", "Ranura %d: no es pot carregar",
-                       "Emplacement %d : chargement impossible", "Espaço %d: não foi possível carregar" },
-  [kStrGameReset] = { "Game reset", "Partida reiniciada", "Partida reiniciada", "Partie réinitialisée",
-                      "Jogo reiniciado" },
+  [kStrSaveStates] = "SAVE STATES",
+  [kStrSavedNoDetails] = "SAVED (NO DETAILS)",
+  [kStrSavedSlot] = "Saved to slot %d",
+  [kStrSaveFailed] = "Could not save slot %d",
+  [kStrLoadedSlot] = "Loaded slot %d",
+  [kStrLoadFailed] = "Slot %d: cannot load",
+  [kStrGameReset] = "Game reset",
   // Options tab (a cell's label fits 23 characters).
-  [kStrPacing] = { "FRAMES", "FOTOGRAMAS", "FOTOGRAMES", "IMAGES", "QUADROS" },
-  [kStrAudio] = { "AUDIO", "AUDIO", "ÀUDIO", "SON", "ÁUDIO" },
-  [kStrDisplay] = { "DISPLAY", "IMAGEN", "IMATGE", "IMAGE", "IMAGEM" },
-  [kStrPixelP] = { "PIXEL P.", "PÍXEL P.", "PÍXEL P.", "PIXEL P.", "PIXEL P." },
-  [kStrScaled] = { "SCALED", "ESCALADA", "ESCALADA", "ÉTIRÉE", "ESCALADA" },
-  [kStrView] = { "VIEW", "VISTA", "VISTA", "VUE", "VISTA" },
-  [kStrLanguage] = { "LANGUAGE", "IDIOMA", "IDIOMA", "LANGUE", "IDIOMA" },
-  [kStrResetGame] = { "RESET GAME", "REINICIAR PARTIDA", "REINICIAR PARTIDA", "RELANCER LA PARTIE", "REINICIAR JOGO" },
+  [kStrPacing] = "FRAMES",
+  [kStrAudio] = "AUDIO",
+  [kStrDisplay] = "DISPLAY",
+  [kStrPixelP] = "PIXEL P.",
+  [kStrScaled] = "SCALED",
+  [kStrView] = "VIEW",
+  [kStrLanguage] = "LANGUAGE",
+  [kStrResetGame] = "RESET GAME",
   // A toast: one line of at most 52 characters.
-  [kStrFrameSkipOffToast] = { "FRAME SKIP OFF: heavy rooms may slow down",
-                              "Sin salto de fotogramas: salas pesadas irán lentas",
-                              "Sense salt de fotogrames: sales pesades van lentes",
-                              "Sans saut d'images, les salles lourdes ralentissent",
-                              "Sem salto de quadros: salas pesadas ficam lentas" },
+  [kStrFrameSkipOffToast] = "FRAME SKIP OFF: heavy rooms may slow down",
   // The RESET GAME window.
-  [kStrResetQuestion] = { "RESET THE GAME?", "¿REINICIAR LA PARTIDA?", "REINICIAR LA PARTIDA?", "RELANCER LA PARTIE ?",
-                          "REINICIAR O JOGO?" },
-  [kStrResetLost1] = { "PROGRESS SINCE THE LAST SAVE", "SE PIERDE EL PROGRESO DESDE", "ES PERD EL PROGRÉS DES DE",
-                       "LA PROGRESSION DEPUIS LA", "O PROGRESSO DESDE O ÚLTIMO" },
-  [kStrResetLost2] = { "IS LOST", "EL ÚLTIMO GUARDADO", "L'ÚLTIM DESAT", "DERNIÈRE SAUVEGARDE EST PERDUE",
-                       "SAVE SERÁ PERDIDO" },
-  [kStrReset] = { "RESET", "REINICIAR", "REINICIAR", "RELANCER", "REINICIAR" },
-  [kStrCancel] = { "CANCEL", "CANCELAR", "CANCEL·LAR", "ANNULER", "CANCELAR" },
+  [kStrResetQuestion] = "RESET THE GAME?",
+  [kStrResetLost1] = "PROGRESS SINCE THE LAST SAVE",
+  [kStrResetLost2] = "IS LOST",
+  [kStrReset] = "RESET",
+  [kStrCancel] = "CANCEL",
   // The achievements tab (RetroAchievements; titles and descriptions come from its server).
-  [kStrRaAchievements] = { "ACHIEVEMENTS", "LOGROS", "ASSOLIMENTS", "SUCCÈS", "CONQUISTAS" },
-  [kStrRaLogin] = { "LOG IN", "INICIAR SESIÓN", "INICIA SESSIÓ", "CONNEXION", "ENTRAR" },
-  [kStrRaLogout] = { "LOG OUT", "CERRAR SESIÓN", "TANCA SESSIÓ", "DÉCONNEXION", "SAIR" },
-  [kStrRaDisabled] = { "SWITCHED OFF", "DESACTIVADOS", "DESACTIVATS", "DÉSACTIVÉS", "DESATIVADAS" },
-  [kStrRaNoAccount] = { "NOT LOGGED IN", "SIN INICIAR SESIÓN", "SENSE SESSIÓ", "NON CONNECTÉ", "SEM SESSÃO" },
-  [kStrRaConnecting] = { "CONNECTING...", "CONECTANDO...", "CONNECTANT...", "CONNEXION...", "CONECTANDO..." },
-  [kStrRaOnline] = { "ONLINE AS %s", "CONECTADO COMO %s", "CONNECTAT COM A %s", "CONNECTÉ : %s", "CONECTADO COMO %s" },
-  [kStrRaOffline] = { "OFFLINE (UNLOCKS WAIT)", "SIN CONEXIÓN (LOS LOGROS ESPERAN)", "SENSE CONNEXIÓ (ELS ASSOLIMENTS ESPEREN)",
-                      "HORS LIGNE (LES SUCCÈS ATTENDENT)", "OFFLINE (AS CONQUISTAS AGUARDAM)" },
-  [kStrRaLoginError] = { "LOGIN REJECTED", "INICIO DE SESIÓN RECHAZADO", "INICI DE SESSIÓ REBUTJAT", "CONNEXION REFUSÉE",
-                         "LOGIN RECUSADO" },
-  [kStrRaSummary] = { "%d/%d  %u/%u PTS", "%d/%d  %u/%u PTS", "%d/%d  %u/%u PTS", "%d/%d  %u/%u PTS",
-                      "%d/%d  %u/%u PTS" },
-  [kStrRaLoading] = { "LOADING THE ACHIEVEMENT LIST...", "CARGANDO LA LISTA DE LOGROS...", "CARREGANT LA LLISTA...",
-                      "CHARGEMENT DE LA LISTE...", "CARREGANDO A LISTA..." },
-  [kStrRaNoList] = { "LOG IN TO SEE THE ACHIEVEMENTS", "INICIA SESIÓN PARA VER LOS LOGROS",
-                     "INICIA SESSIÓ PER VEURE ELS ASSOLIMENTS", "CONNECTEZ-VOUS POUR VOIR LES SUCCÈS",
-                     "ENTRE PARA VER AS CONQUISTAS" },
-  [kStrRaUnlocked] = { "ACHIEVEMENT UNLOCKED!", "¡LOGRO DESBLOQUEADO!", "ASSOLIMENT DESBLOQUEJAT!", "SUCCÈS DÉBLOQUÉ !",
-                       "CONQUISTA DESBLOQUEADA!" },
-  [kStrRaNotify] = { "NOTICE", "AVISO", "AVÍS", "AVIS", "AVISO" },
-  [kStrRaTop] = { "TOP", "ARRIBA", "A DALT", "HAUT", "CIMA" },
-  [kStrRaBottom] = { "BOTTOM", "ABAJO", "A BAIX", "BAS", "BAIXO" },
-  [kStrRaSound] = { "SOUND", "SONIDO", "SO", "SON", "SOM" },
-  [kStrRaSortDefault] = { "LOCKED FIRST", "BLOQUEADOS PRIMERO", "BLOQUEJATS PRIMER", "VERROUILLÉS D'ABORD",
-                          "BLOQUEADAS PRIMEIRO" },
-  [kStrRaSortTitle] = { "NAME", "NOMBRE", "NOM", "NOM", "NOME" },
-  [kStrRaSortPoints] = { "POINTS", "PUNTOS", "PUNTS", "POINTS", "PONTOS" },
-  [kStrRaSortRecent] = { "RECENT", "RECIENTES", "RECENTS", "RÉCENTS", "RECENTES" },
-  [kStrRaPoints] = { "%u POINTS", "%u PUNTOS", "%u PUNTS", "%u POINTS", "%u PONTOS" },
-  [kStrRaLockedState] = { "LOCKED", "BLOQUEADO", "BLOQUEJAT", "VERROUILLÉ", "BLOQUEADA" },
-  [kStrRaUnlockedState] = { "UNLOCKED", "DESBLOQUEADO", "DESBLOQUEJAT", "DÉBLOQUÉ", "DESBLOQUEADA" },
-  [kStrRaMissable] = { "MISSABLE", "PERDIBLE", "PERDIBLE", "MANQUABLE", "PERDÍVEL" },
-  [kStrRaProgression] = { "PROGRESSION", "PROGRESIÓN", "PROGRESSIÓ", "PROGRESSION", "PROGRESSÃO" },
-  [kStrRaWin] = { "WIN CONDITION", "CONDICIÓN DE VICTORIA", "CONDICIÓ DE VICTÒRIA", "CONDITION DE VICTOIRE",
-                  "CONDIÇÃO DE VITÓRIA" },
-  [kStrClose] = { "CLOSE", "CERRAR", "TANCA", "FERMER", "FECHAR" },
-  [kStrUpdate] = { "UPDATE", "ACTUALIZAR", "ACTUALITZAR", "MISE À JOUR", "ATUALIZAR" },
-  [kStrUpdates] = { "UPDATES", "ACTUALIZACIONES", "ACTUALITZACIONS", "MISES À JOUR", "ATUALIZAÇÕES" },
-  [kStrUpdTap] = { "TAP TO CHECK", "TOCA PARA BUSCAR", "TOCA PER CERCAR", "TOUCHER: VÉRIFIER", "TOQUE PARA VERIFICAR" },
-  [kStrUpdChecking] = { "CHECKING...", "BUSCANDO...", "CERCANT...", "VÉRIFICATION...", "VERIFICANDO..." },
-  [kStrUpdUpToDate] = { "UP TO DATE", "AL DÍA", "AL DIA", "À JOUR", "ATUALIZADO" },
-  [kStrUpdNew] = { "NEW: %s", "NUEVA: %s", "NOVA: %s", "NOUVELLE: %s", "NOVA: %s" },
-  [kStrUpdInstalled] = { "RESTART TO USE", "REINICIA PARA USAR", "REINICIA PER USAR", "REDÉMARRER", "REINICIE PARA USAR" },
-  [kStrUpdError] = { "ERROR: TAP TO RETRY", "ERROR: TOCA PARA REINTENTAR", "ERROR: TOCA PER REINTENTAR", "ERREUR: RÉESSAYER", "ERRO: TENTAR DE NOVO" },
-  [kStrUpdAsk] = { "NEW VERSION %s", "NUEVA VERSIÓN %s", "NOVA VERSIÓ %s", "NOUVELLE VERSION %s", "NOVA VERSÃO %s" },
-  [kStrUpdAsk2] = { "INSTALL IT NOW?", "¿INSTALARLA AHORA?", "VOLS INSTAL·LAR-LA ARA?", "L'INSTALLER MAINTENANT ?", "INSTALAR AGORA?" },
-  [kStrUpdInstalling] = { "INSTALLING...", "INSTALANDO...", "INSTAL·LANT...", "INSTALLATION...", "INSTALANDO..." },
-  [kStrUpdRestart] = { "UPDATED. RESTART NOW?", "ACTUALIZADO. ¿REINICIAR?", "ACTUALITZAT. REINICIAR?", "MIS À JOUR. REDÉMARRER ?", "ATUALIZADO. REINICIAR?" },
-  [kStrUpdFailed] = { "THE UPDATE FAILED", "LA ACTUALIZACIÓN FALLÓ", "L'ACTUALITZACIÓ HA FALLAT", "LA MISE À JOUR A ÉCHOUÉ", "A ATUALIZAÇÃO FALHOU" },
-  [kStrUpdKept] = { "CIA KEPT IN UPDATE/ FOR FBI", "CIA EN UPDATE/ PARA FBI", "CIA A UPDATE/ PER A FBI", "CIA DANS UPDATE/ POUR FBI", "CIA EM UPDATE/ PARA O FBI" },
-  [kStrYes] = { "YES", "SÍ", "SÍ", "OUI", "SIM" },
-  [kStrNo] = { "NO", "NO", "NO", "NON", "NÃO" },
-  [kStrOk] = { "OK", "OK", "OK", "OK", "OK" },
-  [kStrNewState] = { "+ NEW", "+ NUEVO", "+ NOU", "+ NOUVEAU", "+ NOVO" },
-  [kStrStatesNone] = { "NO STATES YET: TAP + NEW", "SIN ESTADOS: TOCA + NUEVO", "SENSE ESTATS: TOCA + NOU", "AUCUN ÉTAT: TOUCHEZ + NOUVEAU", "SEM ESTADOS: TOQUE + NOVO" },
-  [kStrNoImage] = { "NO IMAGE", "SIN IMAGEN", "SENSE IMATGE", "PAS D'IMAGE", "SEM IMAGEM" },
-  [kStrMark] = { "MARK", "MARCA", "MARCA", "MARQUE", "MARCA" },
-  [kStrTime] = { "TIME", "TIEMPO", "TEMPS", "TEMPS", "TEMPO" },
-  [kStrLoad] = { "LOAD", "CARGAR", "CARREGAR", "CHARGER", "CARREGAR" },
-  [kStrSaveOver] = { "SAVE OVER", "GUARDAR", "DESAR", "ÉCRASER", "SOBREPOR" },
-  [kStrDelete] = { "DELETE", "BORRAR", "ESBORRAR", "SUPPRIMER", "APAGAR" },
-  [kStrStateDeleted] = { "STATE %d DELETED", "ESTADO %d BORRADO", "ESTAT %d ESBORRAT", "ÉTAT %d SUPPRIMÉ", "ESTADO %d APAGADO" },
-  [kStrWait] = { "PLEASE WAIT...", "ESPERA...", "ESPERA...", "PATIENTEZ...", "AGUARDE..." },
-  [kStrPaceLock] = { "LOCK 30", "30 FIJOS", "30 FIXOS", "30 FIXES", "30 FIXOS" },
-  [kStrPaceNoSkip] = { "NO SKIP", "SIN SALTO", "SENSE SALT", "SANS SAUT", "SEM SALTO" },
-  [kStrViewOriginal] = { "ORIGINAL", "ORIGINAL", "ORIGINAL", "ORIGINALE", "ORIGINAL" },
-  [kStrViewWide] = { "WIDE", "AMPLIADA", "AMPLIADA", "LARGE", "AMPLIADA" },
-  [kStrChannel] = { "CHANNEL", "CANAL", "CANAL", "CANAL", "CANAL" },
-  [kStrChanStable] = { "STABLE", "ESTABLES", "ESTABLES", "STABLES", "ESTÁVEIS" },
-  [kStrChanBeta] = { "+ BETAS", "+ BETAS", "+ BETES", "+ BÊTAS", "+ BETAS" },
-  [kStrHud] = { "HUD", "HUD", "HUD", "HUD", "HUD" },
-  [kStrHudHidden] = { "HIDDEN WITH ITS TAB", "OCULTO CON SU PESTAÑA", "AMAGAT AMB LA PESTANYA", "MASQUÉ AVEC SON ONGLET", "OCULTO COM A ABA" },
-  [kStrHudShown] = { "ALWAYS SHOWN", "SIEMPRE VISIBLE", "SEMPRE VISIBLE", "TOUJOURS VISIBLE", "SEMPRE VISÍVEL" },
-  [kStrWhatsNew] = { "WHAT'S NEW", "NOVEDADES", "NOVETATS", "NOUVEAUTÉS", "NOVIDADES" },
-  [kStrNotesEmpty] = { "NOTHING YET. CHECK NOW FIRST.", "AÚN SIN DATOS. BUSCA ACTUALIZACIÓN.",
-                       "ENCARA SENSE DADES. CERCA ACTUALITZACIÓ.", "RIEN POUR L'INSTANT. VÉRIFIEZ D'ABORD.",
-                       "SEM DADOS. VERIFIQUE PRIMEIRO." },
+  [kStrRaAchievements] = "ACHIEVEMENTS",
+  [kStrRaLogin] = "LOG IN",
+  [kStrRaLogout] = "LOG OUT",
+  [kStrRaDisabled] = "SWITCHED OFF",
+  [kStrRaNoAccount] = "NOT LOGGED IN",
+  [kStrRaConnecting] = "CONNECTING...",
+  [kStrRaOnline] = "ONLINE AS %s",
+  [kStrRaOffline] = "OFFLINE (UNLOCKS WAIT)",
+  [kStrRaLoginError] = "LOGIN REJECTED",
+  [kStrRaSummary] = "%d/%d  %u/%u PTS",
+  [kStrRaLoading] = "LOADING THE ACHIEVEMENT LIST...",
+  [kStrRaNoList] = "LOG IN TO SEE THE ACHIEVEMENTS",
+  [kStrRaUnlocked] = "ACHIEVEMENT UNLOCKED!",
+  [kStrRaNotify] = "NOTICE",
+  [kStrRaTop] = "TOP",
+  [kStrRaBottom] = "BOTTOM",
+  [kStrRaSound] = "SOUND",
+  [kStrRaSortDefault] = "LOCKED FIRST",
+  [kStrRaSortTitle] = "NAME",
+  [kStrRaSortPoints] = "POINTS",
+  [kStrRaSortRecent] = "RECENT",
+  [kStrRaPoints] = "%u POINTS",
+  [kStrRaLockedState] = "LOCKED",
+  [kStrRaUnlockedState] = "UNLOCKED",
+  [kStrRaMissable] = "MISSABLE",
+  [kStrRaProgression] = "PROGRESSION",
+  [kStrRaWin] = "WIN CONDITION",
+  [kStrClose] = "CLOSE",
+  [kStrUpdate] = "UPDATE",
+  [kStrUpdates] = "UPDATES",
+  [kStrUpdTap] = "TAP TO CHECK",
+  [kStrUpdChecking] = "CHECKING...",
+  [kStrUpdUpToDate] = "UP TO DATE",
+  [kStrUpdNew] = "NEW: %s",
+  [kStrUpdInstalled] = "RESTART TO USE",
+  [kStrUpdError] = "ERROR: TAP TO RETRY",
+  [kStrUpdAsk] = "NEW VERSION %s",
+  [kStrUpdAsk2] = "INSTALL IT NOW?",
+  [kStrUpdInstalling] = "INSTALLING...",
+  [kStrUpdRestart] = "UPDATED. RESTART NOW?",
+  [kStrUpdFailed] = "THE UPDATE FAILED",
+  [kStrUpdKept] = "CIA KEPT IN UPDATE/ FOR FBI",
+  [kStrYes] = "YES",
+  [kStrNo] = "NO",
+  [kStrOk] = "OK",
+  [kStrNewState] = "+ NEW",
+  [kStrStatesNone] = "NO STATES YET: TAP + NEW",
+  [kStrNoImage] = "NO IMAGE",
+  [kStrMark] = "MARK",
+  [kStrTime] = "TIME",
+  [kStrLoad] = "LOAD",
+  [kStrSaveOver] = "SAVE OVER",
+  [kStrDelete] = "DELETE",
+  [kStrStateDeleted] = "STATE %d DELETED",
+  [kStrWait] = "PLEASE WAIT...",
+  [kStrPaceLock] = "LOCK 30",
+  [kStrPaceNoSkip] = "NO SKIP",
+  [kStrViewOriginal] = "ORIGINAL",
+  [kStrViewWide] = "WIDE",
+  [kStrChannel] = "CHANNEL",
+  [kStrChanStable] = "STABLE",
+  [kStrChanBeta] = "+ BETAS",
+  [kStrHud] = "HUD",
+  [kStrHudHidden] = "HIDDEN WITH ITS TAB",
+  [kStrHudShown] = "ALWAYS SHOWN",
+  [kStrWhatsNew] = "WHAT'S NEW",
+  [kStrNotesEmpty] = "NOTHING YET. CHECK NOW FIRST.",
   // Short forms for the OPTIONS half button (about 11 characters).
-  [kStrUpdsLabel] = { "UPDATES", "ACTUALIZ.", "ACTUALITZ.", "MAJ", "ATUALIZ." },
-  [kStrUpdsCheck] = { "CHECK", "BUSCAR", "CERCAR", "VÉRIFIER", "VERIFICAR" },
-  [kStrUpdsChecking] = { "CHECKING", "BUSCANDO", "CERCANT", "VÉRIF.", "VERIFIC." },
-  [kStrUpdsNew] = { "NEW", "NUEVA", "NOVA", "NOUVELLE", "NOVA" },
-  [kStrUpdsInstalling] = { "INSTALLING", "INSTALANDO", "INSTAL·LANT", "INSTALL.", "INSTALANDO" },
-  [kStrUpdsRestart] = { "RESTART", "REINICIA", "REINICIA", "REDÉMARRER", "REINICIE" },
-  [kStrUpdsError] = { "ERROR", "ERROR", "ERROR", "ERREUR", "ERRO" },
-  [kStrUpdFrom] = { "%s > %s", "%s > %s", "%s > %s", "%s > %s", "%s > %s" },
+  [kStrUpdsLabel] = "UPDATES",
+  [kStrUpdsCheck] = "CHECK",
+  [kStrUpdsChecking] = "CHECKING",
+  [kStrUpdsNew] = "NEW",
+  [kStrUpdsInstalling] = "INSTALLING",
+  [kStrUpdsRestart] = "RESTART",
+  [kStrUpdsError] = "ERROR",
+  [kStrUpdFrom] = "%s > %s",
   // OPTIONS -> SPOILERS (ON / OFF): off hides the names of what Samus has not found and the item totals.
-  [kStrSpoilers] = { "SPOILERS", "SPOILERS", "SPOILERS", "SPOILERS", "SPOILERS" },
+  [kStrSpoilers] = "SPOILERS",
   // The items window (map tab): column heads of its table (energy and reserve tanks are "E" and "R"),
   // and the unique items of the area picked under it.
-  [kStrArea] = { "AREA", "ZONA", "ZONA", "ZONE", "ÁREA" },
-  [kStrMajorShort] = { "ITEM", "OBJ", "OBJ", "OBJ", "ITEM" },
-  [kStrTotalShort] = { "TOT", "TOT", "TOT", "TOT", "TOT" },
-  [kStrUniqueItems] = { "UNIQUE ITEMS", "OBJETOS ÚNICOS", "OBJECTES ÚNICS", "OBJETS UNIQUES", "ITENS ÚNICOS" },
-  [kStrNone] = { "NONE", "NINGUNO", "CAP", "AUCUN", "NENHUM" },
+  [kStrArea] = "AREA",
+  [kStrMajorShort] = "ITEM",
+  [kStrTotalShort] = "TOT",
+  [kStrUniqueItems] = "UNIQUE ITEMS",
+  [kStrNone] = "NONE",
 };
 
-// The UI's font has no kana or kanji: Japanese is named in English here (the game's OPTION MODE
-// shows 日本語 with its own letters).
-static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS", "JAPANESE" };
+static const char *g_tr[kStrCount];   // the current language's, resolved by UiLang_Set
+
+static const char *UiKey(int id) { return id == kStrUpdsLabel ? "UPDATES (short)" : kText[id]; }
+
+// The same %-conversions in the same order: the strings go through snprintf, and a file from the
+// SD card with a %s where the English has %d would crash it.
+static bool SameConversions(const char *a, const char *b) {
+  for (;;) {
+    a = strchr(a, '%');
+    b = strchr(b, '%');
+    if (!a || !b) return !a && !b;
+    if (a[1] != b[1]) return false;
+    if (!a[1]) return true;
+    a += 2;
+    b += 2;
+  }
+}
 
 const char *Tr(UiStr id) {
   if ((unsigned)id >= kStrCount) return "";
-  const char *s = kText[id][UiLang_Text()];
-  return s ? s : kText[id][kLangEn];
+  return g_tr[id] ? g_tr[id] : kText[id];
 }
 
-const char *UiLang_Name(UiLang lang) { return (unsigned)lang < kLangCount ? kNames[lang] : kNames[kLangEn]; }
+const char *UiLang_Get(const char *section, const char *key) { return g_translated ? Lang_Get(section, key) : NULL; }
+
+int UiLang_Count(void) { return Lang_Count(); }
+
+void UiLang_Set(UiLang lang) {
+  if (lang < 0 || lang >= Lang_Count()) lang = kLangEn;
+  if (!Lang_Load(lang)) lang = kLangEn;   // unreadable: English (its strings are the code's)
+  g_ui_lang = lang;
+  const LangInfo *l = Lang_Info(lang);
+  g_translated = l->path[0] != 0;
+  for (int id = 0; id < kStrCount; id++) {
+    const char *t = g_translated ? Lang_Get("ui", UiKey(id)) : NULL;
+    g_tr[id] = t && SameConversions(kText[id], t) ? t : NULL;
+  }
+}
+
+bool UiLang_Translated(void) { return g_translated; }
+bool UiLang_IsJapanese(UiLang lang) { return lang >= 0 && lang < Lang_Count() && Lang_Info(lang)->japanese; }
+const char *UiLang_Code(UiLang lang) { return Lang_Info(lang)->code; }
+UiLang UiLang_FromCode(const char *code) { return Lang_Find(code); }
+
+// The UI's font has no kana or kanji: Japanese is named in English here (the game's OPTION MODE
+// shows 日本語 with its own letters).
+const char *UiLang_Name(UiLang lang) { return Lang_Info(lang)->name; }
 
 UiLang UiLang_FromSystem(void) {
 #ifdef __3DS__
+  static const char *const kCodes[] = {
+    [CFG_LANGUAGE_JP] = "ja", [CFG_LANGUAGE_EN] = "en", [CFG_LANGUAGE_FR] = "fr", [CFG_LANGUAGE_DE] = "de",
+    [CFG_LANGUAGE_IT] = "it", [CFG_LANGUAGE_ES] = "es", [CFG_LANGUAGE_ZH] = "zh", [CFG_LANGUAGE_KO] = "ko",
+    [CFG_LANGUAGE_NL] = "nl", [CFG_LANGUAGE_PT] = "pt", [CFG_LANGUAGE_RU] = "ru", [CFG_LANGUAGE_TW] = "tw",
+  };
   u8 lang = CFG_LANGUAGE_EN;
   if (R_SUCCEEDED(cfguInit())) {
     if (R_FAILED(CFGU_GetSystemLanguage(&lang))) lang = CFG_LANGUAGE_EN;
     cfguExit();
   }
-  switch (lang) {
-  case CFG_LANGUAGE_ES: return kLangEs;
-  case CFG_LANGUAGE_FR: return kLangFr;
-  case CFG_LANGUAGE_PT: return kLangPt;
-  case CFG_LANGUAGE_JP: return kLangJa;
-  default: return kLangEn;
-  }
+  const UiLang l = lang < sizeof(kCodes) / sizeof(kCodes[0]) && kCodes[lang] ? Lang_Find(kCodes[lang]) : -1;
+  return l >= 0 ? l : kLangEn;
 #else
   return kLangEn;
 #endif
 }
 
 // ---- The game's names -----------------------------------------------------------------
-// Spanish and French follow Nintendo's own translations: Zero Mission (Morfosfera,
-// Supersalto, Salto en barrena, Aceleración, Rayo recarga, Rayo de ondas, Traje climático,
-// Bomba de energía; Méga Saut, Attaque en Vrille, Rayon à Vague...), then the later games
-// (Rotosalto, Rayo enganche). Spazer has no official Spanish name: Rayo múltiple, as the
-// Spanish Metroid wiki. Catalan follows the Spanish choices. Portuguese: Morfosfera (the
-// Brazilian Metroid Prime 4 guides), Salto Esfera (the 2013 PT-BR fan translation).
+// The English, also their keys in the language files ([items], [beams], [ammo], [areas],
+// [areas short]).
 
-static const char *const kItems[kTextLangCount][11] = {
-  { "VARIA", "GRAV", "MORPH", "BOMB", "HIJUMP", "SPACE", "SPEED", "SCREW", "SPRING", "GRAPPL", "XRAY" },
-  { "CLIMÁTICO", "GRAVITAT.", "MORFOSFERA", "BOMBAS", "SUPERSALTO", "SALTO ESP.", "ACELERACIÓN", "BARRENA",
-    "ROTOSALTO", "ENGANCHE", "RAYOS X" },
-  { "CLIMÀTIC", "GRAVITAT.", "MORFOESFERA", "BOMBES", "SUPERSALT", "SALT ESP.", "ACCELERACIÓ", "BARRINA",
-    "ROTOSALT", "ENGANXADA", "RAIGS X" },
-  { "VARIA", "GRAVITÉ", "MORPHING", "BOMBES", "MÉGA SAUT", "SAUT SPAT.", "ACCÉLÉR.", "VRILLE", "REBOND",
-    "GRAPPIN", "RAYONS X" },
-  { "VARIA", "GRAVITAC.", "MORFOSFERA", "BOMBAS", "BOTAS SALTO", "SALTO ESP.", "ACELERADOR", "GIRATÓRIO",
-    "SALTO ESF.", "GANCHO", "RAIOS X" },
-};
+static const char *const kItems[11] = { "VARIA", "GRAV", "MORPH", "BOMB", "HIJUMP", "SPACE", "SPEED", "SCREW",
+                                        "SPRING", "GRAPPL", "XRAY" };
+static const char *const kBeams[5] = { "CHARGE", "ICE", "WAVE", "SPAZER", "PLASMA" };
+static const char *const kAmmo[3] = { "MSL", "SUPER", "PB" };
+static const char *const kAreas[8] = { "Crateria", "Brinstar", "Norfair", "Wrecked Ship", "Maridia", "Tourian", "Ceres",
+                                       "Debug" };
+static const char *const kAreasShort[8] = { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER", "DBG" };
 
-static const char *const kBeams[kTextLangCount][5] = {
-  { "CHARGE", "ICE", "WAVE", "SPAZER", "PLASMA" },
-  { "RECARGA", "HIELO", "ONDAS", "MÚLTIPLE", "PLASMA" },
-  { "CÀRREGA", "GEL", "ONES", "MÚLTIPLE", "PLASMA" },
-  { "CHARGE", "GLACE", "VAGUE", "SPAZER", "PLASMA" },
-  { "CARGA", "GELO", "ONDA", "SPAZER", "PLASMA" },
-};
+static const char *Name(const char *section, const char *en) {
+  const char *t = UiLang_Get(section, en);
+  return t ? t : en;
+}
 
-static const char *const kAmmo[kTextLangCount][3] = {
-  { "MSL", "SUPER", "PB" },
-  { "MISIL", "SUPER", "BOMBA" },
-  { "MÍSSIL", "SUPER", "BOMBA" },
-  { "MISSILE", "SUPER", "BOMBE" },
-  { "MÍSSIL", "SUPER", "BOMBA" },
-};
+const char *TrItem(int i) { return (unsigned)i < 11 ? Name("items", kItems[i]) : ""; }
+const char *TrBeam(int i) { return (unsigned)i < 5 ? Name("beams", kBeams[i]) : ""; }
+const char *TrAmmo(int i) { return (unsigned)i < 3 ? Name("ammo", kAmmo[i]) : ""; }
+const char *TrArea(int area) { return Name("areas", kAreas[(unsigned)area < 8 ? area : 7]); }
+const char *TrAreaShort(int area) { return Name("areas short", kAreasShort[(unsigned)area < 8 ? area : 7]); }
 
-static const char *const kAreas[kTextLangCount][8] = {
-  { "Crateria", "Brinstar", "Norfair", "Wrecked Ship", "Maridia", "Tourian", "Ceres", "Debug" },
-  { "Crateria", "Brinstar", "Norfair", "Nave Hundida", "Maridia", "Tourian", "Ceres", "Debug" },
-  { "Crateria", "Brinstar", "Norfair", "Nau Nàufraga", "Maridia", "Tourian", "Ceres", "Debug" },
-  { "Crateria", "Brinstar", "Norfair", "Épave", "Maridia", "Tourian", "Ceres", "Debug" },
-  { "Crateria", "Brinstar", "Norfair", "Nau Afundada", "Maridia", "Tourian", "Ceres", "Debug" },
-};
-
-static const char *const kAreasShort[kTextLangCount][8] = {
-  { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER", "DBG" },
-  { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
-  { "CRA", "BRI", "NOR", "NAU", "MAR", "TOU", "CER", "DBG" },
-  { "CRA", "BRI", "NOR", "ÉPA", "MAR", "TOU", "CER", "DBG" },
-  { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
-};
-
-static unsigned Lang(void) { return UiLang_Text(); }
-
-const char *TrItem(int i) { return (unsigned)i < 11 ? kItems[Lang()][i] : ""; }
-const char *TrBeam(int i) { return (unsigned)i < 5 ? kBeams[Lang()][i] : ""; }
-const char *TrAmmo(int i) { return (unsigned)i < 3 ? kAmmo[Lang()][i] : ""; }
-const char *TrArea(int area) { return kAreas[Lang()][(unsigned)area < 8 ? area : 7]; }
-const char *TrAreaShort(int area) { return kAreasShort[Lang()][(unsigned)area < 8 ? area : 7]; }
+void UiLang_ForEachKey(void (*fn)(const char *section, const char *key, const char *note)) {
+  fn("language", "name", "the language in itself, as the menus show it");
+  for (int id = 0; id < kStrCount; id++) fn("ui", UiKey(id), NULL);
+  for (int i = 0; i < 11; i++) fn("items", kItems[i], "11 characters at most");
+  for (int i = 0; i < 5; i++) fn("beams", kBeams[i], "8 characters at most");
+  for (int i = 0; i < 3; i++) fn("ammo", kAmmo[i], "7 characters at most");
+  for (int i = 0; i < 8; i++) fn("areas", kAreas[i], NULL);
+  for (int i = 0; i < 8; i++) fn("areas short", kAreasShort[i], "3 characters at most");
+}

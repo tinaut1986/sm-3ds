@@ -17,7 +17,7 @@ SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c
 gcc -O1 -fno-strict-aliasing -I"$OUT" -I"$ROOT/tools/ui-preview/fake" -I"$ROOT/source" -I"$S" \
     -I"$ROOT/third_party/sdl_keys" -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE \
     -w $SRCS \
-    "$ROOT/source/bottom_ui.c" "$ROOT/source/ui_draw.c" "$ROOT/source/ui_font.c" "$ROOT/source/ui_lang.c" "$ROOT/source/states_store.c" "$ROOT/tools/ui-preview/fake/retro_ach_stub.c" "$ROOT/tools/ui-preview/fake/updater_stub.c" "$ROOT/source/cheats.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/debug_tools.c" "$ROOT/source/scene_rec.c" "$ROOT/source/stereo_depth.c" \
+    "$ROOT/source/bottom_ui.c" "$ROOT/source/ui_draw.c" "$ROOT/source/ui_font.c" "$ROOT/source/ui_lang.c" "$ROOT/source/lang_file.c" -DLANG_DIR="\"$ROOT/romfs/lang\"" "$ROOT/source/states_store.c" "$ROOT/tools/ui-preview/fake/retro_ach_stub.c" "$ROOT/tools/ui-preview/fake/updater_stub.c" "$ROOT/source/cheats.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/debug_tools.c" "$ROOT/source/scene_rec.c" "$ROOT/source/stereo_depth.c" \
     "$ROOT/tools/ui-preview/preview.c" -o "$OUT/preview" -lm
 (cd "$OUT" && rm -f shot*.ppm shot*.png config.ini && ./preview "$SM_ROM" && python3 - <<'PY'
 from PIL import Image
