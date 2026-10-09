@@ -732,11 +732,14 @@ static void DrawMap(Surface s, const UiPerf *p) {
 }
 
 // ---- Status tab -----------------------------------------------------------------
-// In DEBUG_TOOLS builds it is also where the cheats live, as in mzm: tap an item or
-// beam to add or remove it, ALL (the free item cell) to get every item and beam, GOD
-// and MAX next to the energy, and the map-station boxes unlock an area's map (so any
-// room can be picked for a warp).
+// A tap on an ammo panel, the grapple or the X-ray selects it as SELECT would (Hud_RequestSelect);
+// a tap on what is selected drops it, like Y.
+// In DEBUG_TOOLS builds it is also where the cheats live, as in mzm: with FN on (the small
+// button beside ALL, it stays on until tapped again) a tap on an item or beam adds or removes
+// it instead; ALL (the free item cell) gives every item and beam, GOD and MAX sit next to the
+// energy, and the map-station boxes unlock an area's map (so any room can be picked for a warp).
 
+static Rect AmmoRect(int i) { return (Rect){ 8 + i * 103, 73, 98, 26 }; }
 static Rect ItemRect(int i) { return (Rect){ 8 + (i % 4) * 77, 111 + (i / 4) * 14, 74, 13 }; }
 static Rect BeamRect(int i) { return (Rect){ 8 + i * 61, 165, 58, 13 }; }
 static Rect StationRect(int i) { return (Rect){ 8 + i * 51, 191, 49, 14 }; }
@@ -744,8 +747,11 @@ static Rect StationRect(int i) { return (Rect){ 8 + i * 51, 191, 49, 14 }; }
 #if DEBUG_TOOLS
 static Rect GodRect(void) { return (Rect){ 254, 48, 26, 16 }; }
 static Rect MaxRect(void) { return (Rect){ 282, 48, 26, 16 }; }
-// The free cell after the last item.
-static Rect AllRect(void) { return ItemRect(kSmItemCount); }
+// The free cell after the last item: ALL, and FN at its right end.
+static Rect AllRect(void) { const Rect r = ItemRect(kSmItemCount); return (Rect){ r.x, r.y, r.w - 28, r.h }; }
+static Rect FnRect(void) { const Rect r = ItemRect(kSmItemCount); return (Rect){ r.x + r.w - 26, r.y, 26, r.h }; }
+static bool g_status_fn;   // FN: item and beam taps edit instead of selecting (not saved)
+#define COL_FN RGB(255, 140, 40)
 
 static void DrawCheatButton(Surface s, Rect r, bool on, const char *label) {
   UiDrawBoxLabel(s, r, on ? RGB(110, 85, 20) : RGB(24, 34, 52), on ? RGB(255, 220, 90) : RGB(60, 90, 140),
@@ -767,6 +773,27 @@ static void DrawStatusTime(Surface s) {
   UiDrawTextf(s, 224, 211, COL_DIM, "%02u:%02u:%02u", (unsigned)game_time_hours, (unsigned)game_time_minutes,
               (unsigned)game_time_seconds);
   g_time_drawn = GameTimeKey();
+}
+
+// The corner mark of what a stylus tap selects (an ammo panel, the grapple, the X-ray): a small
+// folded corner at the bottom right, bright when SELECT would take it now, dim when not (no ammo,
+// switched off). Nothing on what Samus does not have yet.
+static void DrawTapMark(Surface s, Rect r, bool ready) {
+  const uint32_t c = ready ? COL_ACCENT : COL_FAINT;
+  for (int i = 0; i < 6; i++) UiFillRect(s, r.x + r.w - 2 - i, r.y + r.h - 7 + i, i + 1, 1, c);
+}
+
+// A HUD item on STATUS has two looks: marked (a tinted body: the one chosen) and active (a double
+// yellow frame: the one the game uses now, its HUD highlight). With the original controls they are
+// the same item, SELECT's. A modern scheme (#32) keeps one choice per pair (missiles or supers,
+// bombs or power bombs...): several marked at once, one active at most. Only these two change then.
+#define COL_HUD_MARKED RGB(48, 44, 14)
+static bool StatusHudMarked(int item) { return hud_item_index == (uint16)item; }
+static bool StatusHudActive(int item) { return hud_item_index == (uint16)item; }
+
+static void DrawHudActiveFrame(Surface s, Rect r) {
+  UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
+  UiFrameRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_WARN);
 }
 
 static void DrawStatus(Surface s) {
@@ -803,16 +830,17 @@ static void DrawStatus(Surface s) {
   const unsigned cur[3] = { samus_missiles, samus_super_missiles, samus_power_bombs };
   const unsigned max[3] = { samus_max_missiles, samus_max_super_missiles, samus_max_power_bombs };
   for (int i = 0; i < 3; i++) {
-    const int x = 8 + i * 103;
-    // The weapon the SELECT button has chosen (the HUD's highlighted item): missiles 1, super missiles 2,
-    // power bombs 3. The top screen's HUD can be hidden while this tab is open, so it shows here.
-    const bool picked = hud_item_index == (uint16)(i + 1);
-    UiFillRect(s, x, 73, 98, 26, picked ? RGB(48, 44, 14) : COL_PANEL);
-    UiFrameRect(s, x, 73, 98, 26, picked ? COL_WARN : COL_BORDER);
-    if (picked) UiFrameRect(s, x + 1, 74, 96, 24, COL_WARN);
+    const Rect ar = AmmoRect(i);
+    const int x = ar.x;
+    // Missiles 1, super missiles 2, power bombs 3, marked and active as above. The top screen's HUD
+    // can be hidden while this tab is open, so it shows here.
+    UiFillRect(s, x, 73, 98, 26, StatusHudMarked(kSmHudMissiles + i) ? COL_HUD_MARKED : COL_PANEL);
+    UiFrameRect(s, x, 73, 98, 26, COL_BORDER);
+    if (StatusHudActive(kSmHudMissiles + i)) DrawHudActiveFrame(s, ar);
     UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], max[i] || g_show_spoilers ? TrAmmo(i) : "---");
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
     UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
+    if (max[i]) DrawTapMark(s, ar, cur[i] > 0);
   }
 
   // Items: green = equipped, yellow = collected but switched off, dim = missing.
@@ -821,13 +849,15 @@ static void DrawStatus(Surface s) {
     const Rect r = ItemRect(i);
     const bool have = (collected_items & kSmItems[i].mask) != 0;
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
-    UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
+    // The grapple beam (4) and the X-ray scope (5) are HUD items too.
+    const int hud = kSmItems[i].mask == 0x4000 ? kSmHudGrapple : kSmItems[i].mask == 0x8000 ? kSmHudXray : -1;
+    UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : hud >= 0 && StatusHudMarked(hud) ? COL_HUD_MARKED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, have || g_show_spoilers ? TrItem(i) : "---");
-    // The grapple beam (4) and the X-ray scope (5) are chosen with SELECT too.
-    if ((hud_item_index == 4 && kSmItems[i].mask == 0x4000) || (hud_item_index == 5 && kSmItems[i].mask == 0x8000)) {
-      UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
-      UiFrameRect(s, r.x + 1, r.y + 1, r.w - 2, r.h - 2, COL_WARN);
-    }
+#if DEBUG_TOOLS
+    if (g_status_fn) UiFrameRect(s, r.x, r.y, r.w, r.h, COL_FN);
+#endif
+    if (hud >= 0 && have) DrawTapMark(s, r, on);
+    if (hud >= 0 && StatusHudActive(hud)) DrawHudActiveFrame(s, r);
   }
 #if DEBUG_TOOLS
   {
@@ -835,6 +865,9 @@ static void DrawStatus(Surface s) {
     for (int i = 0; i < kSmItemCount; i++) all &= (collected_items & kSmItems[i].mask) != 0;
     for (int i = 0; i < kSmBeamCount; i++) all &= (collected_beams & kSmBeams[i].mask) != 0;
     DrawCheatButton(s, AllRect(), all, "ALL");
+    const Rect fr = FnRect();
+    UiDrawBoxLabel(s, fr, g_status_fn ? RGB(110, 55, 10) : RGB(24, 34, 52), g_status_fn ? COL_FN : RGB(60, 90, 140),
+                   g_status_fn ? COL_FN : RGB(150, 190, 230), Pressed(fr), "FN");
   }
 #endif
   UiDrawText(s, 8, 156, 1, COL_DIM, Tr(kStrBeams));
@@ -844,6 +877,9 @@ static void DrawStatus(Surface s) {
     const bool on = (equipped_beams & kSmBeams[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
     UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, have || g_show_spoilers ? TrBeam(i) : "---");
+#if DEBUG_TOOLS
+    if (g_status_fn) UiFrameRect(s, r.x, r.y, r.w, r.h, COL_FN);
+#endif
   }
 
   // Map stations (Ceres has none). Debug builds: grey none, green used, purple forced,
@@ -868,6 +904,17 @@ static void DrawStatus(Surface s) {
   DrawStatusTime(s);
 }
 
+// What a tap selects: the HUD item, or -1.
+static int StatusHudItemAt(int x, int y) {
+  for (int i = 0; i < 3; i++)
+    if (UiIn(AmmoRect(i), x, y)) return kSmHudMissiles + i;
+  for (int i = 0; i < kSmItemCount; i++) {
+    if (!UiIn(ItemRect(i), x, y)) continue;
+    return kSmItems[i].mask == 0x4000 ? kSmHudGrapple : kSmItems[i].mask == 0x8000 ? kSmHudXray : -1;
+  }
+  return -1;
+}
+
 static void StatusTouch(int x, int y) {
 #if DEBUG_TOOLS
   if (UiIn(GodRect(), x, y)) {
@@ -882,10 +929,16 @@ static void StatusTouch(int x, int y) {
     ReportGameplay(Cheats_GiveAll());
     return;
   }
-  for (int i = 0; i < kSmItemCount; i++)
-    if (UiIn(ItemRect(i), x, y)) { ReportGameplay(Cheats_ToggleItem(i)); return; }
-  for (int i = 0; i < kSmBeamCount; i++)
-    if (UiIn(BeamRect(i), x, y)) { ReportGameplay(Cheats_ToggleBeam(i)); return; }
+  if (UiIn(FnRect(), x, y)) {
+    g_status_fn = !g_status_fn;
+    return;
+  }
+  if (g_status_fn) {
+    for (int i = 0; i < kSmItemCount; i++)
+      if (UiIn(ItemRect(i), x, y)) { ReportGameplay(Cheats_ToggleItem(i)); return; }
+    for (int i = 0; i < kSmBeamCount; i++)
+      if (UiIn(BeamRect(i), x, y)) { ReportGameplay(Cheats_ToggleBeam(i)); return; }
+  }
   for (int i = 0; i < 6; i++) {
     if (!UiIn(StationRect(i), x, y)) continue;
     if (!Cheats_InGameplay()) { ReportGameplay(false); return; }
@@ -894,9 +947,9 @@ static void StatusTouch(int x, int y) {
     Toast(kMsg[SmMap_DebugState(i)]);
     return;
   }
-#else
-  (void)x; (void)y;
 #endif
+  const int item = StatusHudItemAt(x, y);
+  if (item >= 0) Hud_RequestSelect(hud_item_index == item ? kSmHudNone : item);
 }
 
 // ---- States tab -----------------------------------------------------------------

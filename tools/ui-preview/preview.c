@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
   samus_x_pos = 700; samus_y_pos = 300;
   samus_health = 247; samus_max_health = 499; samus_reserve_health = 60; samus_max_reserve_health = 100; reserve_health_mode = 1;
   samus_missiles = 45; samus_max_missiles = 75; samus_super_missiles = 5; samus_max_super_missiles = 10; samus_power_bombs = 0; samus_max_power_bombs = 10;
-  collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100; equipped_items = 0x0001 | 0x0004 | 0x1000;
+  collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100 | 0x4000 | 0x8000; equipped_items = 0x0001 | 0x0004 | 0x1000 | 0x4000;
   collected_beams = 0x1000 | 0x0002; equipped_beams = 0x1000;
   game_time_hours = 3; game_time_minutes = 27; game_time_seconds = 9;
   hud_item_index = 2;   // the super missiles selected with SELECT
@@ -157,12 +157,14 @@ int main(int argc, char **argv) {
 #if DEBUG_TOOLS
   Tap(260, 55);                      // GOD
   Tap(290, 55);                      // MAX
+  Tap(287 + 10, 139 + 5);            // FN on: item and beam taps edit
   Tap(8 + 1 * 77 + 5, 111 + 5);      // GRAV on
   Tap(8 + 4 * 61 + 5, 165 + 5);      // PLASMA on
   Tap(8 + 0 * 51 + 5, 191 + 5);      // Crateria: station
   Tap(8 + 2 * 51 + 5, 191 + 5);      // Norfair: station
   Tap(8 + 2 * 51 + 5, 191 + 5);      // Norfair: explored
-  Shot("status after debug taps (GOD, MAX, GRAV, PLASMA, CRA station, NOR explored)");
+  Shot("status after debug taps (FN, GOD, MAX, GRAV, PLASMA, CRA station, NOR explored)");
+  Tap(287 + 10, 139 + 5);            // FN off
   TapTab(kMap);
   Tap(2 + 2 * 45 + 5, 183 + 5);      // show Norfair
   Shot("map, Norfair all explored");
