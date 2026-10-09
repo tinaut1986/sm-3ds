@@ -7,10 +7,13 @@
 #endif
 
 UiLang g_ui_lang = kLangEn;
+void (*g_ui_lang_on_change)(void);
+
+UiLang UiLang_Text(void) { return (unsigned)g_ui_lang < kTextLangCount ? g_ui_lang : kLangEn; }
 
 // One row per string: English, Spanish, Catalan, French, Portuguese. Format strings keep
 // the English one's conversions in the same order.
-static const char *const kText[kStrCount][kLangCount] = {
+static const char *const kText[kStrCount][kTextLangCount] = {
   [kStrOn] = { "ON", "SÍ", "SÍ", "OUI", "SIM" },
   [kStrOff] = { "OFF", "NO", "NO", "NON", "NÃO" },
   // Map tab: the follow button ("FOLLOW: ON"), the area line ("CRATERIA  12/80 CELLS  MAP").
@@ -165,11 +168,13 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrNone] = { "NONE", "NINGUNO", "CAP", "AUCUN", "NENHUM" },
 };
 
-static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };
+// The UI's font has no kana or kanji: Japanese is named in English here (the game's OPTION MODE
+// shows 日本語 with its own letters).
+static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS", "JAPANESE" };
 
 const char *Tr(UiStr id) {
   if ((unsigned)id >= kStrCount) return "";
-  const char *s = kText[id][(unsigned)g_ui_lang < kLangCount ? g_ui_lang : kLangEn];
+  const char *s = kText[id][UiLang_Text()];
   return s ? s : kText[id][kLangEn];
 }
 
@@ -186,6 +191,7 @@ UiLang UiLang_FromSystem(void) {
   case CFG_LANGUAGE_ES: return kLangEs;
   case CFG_LANGUAGE_FR: return kLangFr;
   case CFG_LANGUAGE_PT: return kLangPt;
+  case CFG_LANGUAGE_JP: return kLangJa;
   default: return kLangEn;
   }
 #else
@@ -201,7 +207,7 @@ UiLang UiLang_FromSystem(void) {
 // Spanish Metroid wiki. Catalan follows the Spanish choices. Portuguese: Morfosfera (the
 // Brazilian Metroid Prime 4 guides), Salto Esfera (the 2013 PT-BR fan translation).
 
-static const char *const kItems[kLangCount][11] = {
+static const char *const kItems[kTextLangCount][11] = {
   { "VARIA", "GRAV", "MORPH", "BOMB", "HIJUMP", "SPACE", "SPEED", "SCREW", "SPRING", "GRAPPL", "XRAY" },
   { "CLIMÁTICO", "GRAVITAT.", "MORFOSFERA", "BOMBAS", "SUPERSALTO", "SALTO ESP.", "ACELERACIÓN", "BARRENA",
     "ROTOSALTO", "ENGANCHE", "RAYOS X" },
@@ -213,7 +219,7 @@ static const char *const kItems[kLangCount][11] = {
     "SALTO ESF.", "GANCHO", "RAIOS X" },
 };
 
-static const char *const kBeams[kLangCount][5] = {
+static const char *const kBeams[kTextLangCount][5] = {
   { "CHARGE", "ICE", "WAVE", "SPAZER", "PLASMA" },
   { "RECARGA", "HIELO", "ONDAS", "MÚLTIPLE", "PLASMA" },
   { "CÀRREGA", "GEL", "ONES", "MÚLTIPLE", "PLASMA" },
@@ -221,7 +227,7 @@ static const char *const kBeams[kLangCount][5] = {
   { "CARGA", "GELO", "ONDA", "SPAZER", "PLASMA" },
 };
 
-static const char *const kAmmo[kLangCount][3] = {
+static const char *const kAmmo[kTextLangCount][3] = {
   { "MSL", "SUPER", "PB" },
   { "MISIL", "SUPER", "BOMBA" },
   { "MÍSSIL", "SUPER", "BOMBA" },
@@ -229,7 +235,7 @@ static const char *const kAmmo[kLangCount][3] = {
   { "MÍSSIL", "SUPER", "BOMBA" },
 };
 
-static const char *const kAreas[kLangCount][8] = {
+static const char *const kAreas[kTextLangCount][8] = {
   { "Crateria", "Brinstar", "Norfair", "Wrecked Ship", "Maridia", "Tourian", "Ceres", "Debug" },
   { "Crateria", "Brinstar", "Norfair", "Nave Hundida", "Maridia", "Tourian", "Ceres", "Debug" },
   { "Crateria", "Brinstar", "Norfair", "Nau Nàufraga", "Maridia", "Tourian", "Ceres", "Debug" },
@@ -237,7 +243,7 @@ static const char *const kAreas[kLangCount][8] = {
   { "Crateria", "Brinstar", "Norfair", "Nau Afundada", "Maridia", "Tourian", "Ceres", "Debug" },
 };
 
-static const char *const kAreasShort[kLangCount][8] = {
+static const char *const kAreasShort[kTextLangCount][8] = {
   { "CRA", "BRI", "NOR", "WRE", "MAR", "TOU", "CER", "DBG" },
   { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
   { "CRA", "BRI", "NOR", "NAU", "MAR", "TOU", "CER", "DBG" },
@@ -245,7 +251,7 @@ static const char *const kAreasShort[kLangCount][8] = {
   { "CRA", "BRI", "NOR", "NAV", "MAR", "TOU", "CER", "DBG" },
 };
 
-static unsigned Lang(void) { return (unsigned)g_ui_lang < kLangCount ? (unsigned)g_ui_lang : kLangEn; }
+static unsigned Lang(void) { return UiLang_Text(); }
 
 const char *TrItem(int i) { return (unsigned)i < 11 ? kItems[Lang()][i] : ""; }
 const char *TrBeam(int i) { return (unsigned)i < 5 ? kBeams[Lang()][i] : ""; }

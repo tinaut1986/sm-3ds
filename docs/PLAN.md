@@ -17,7 +17,7 @@ boxes below. History: `git log` and the decisions log.
 
 **Release line:** `release/v0.5.1` (nothing yet). Last stable: **`v0.5.0`** (2026-10-08, on `main`; the owner chose the number, a minor bump: ~60 fps on Old 3DS / 2DS also with 3D in the rooms measured, the live tabs, the low-energy blink; first tagged as a beta, then promoted in place after the owner's check; the Ceres escape and the Ridley fight with 3D are still at 39-53 fps, next); before it `v0.4.0` (2026-10-08, on `main`; the owner chose the number: a minor bump for the 2DS / Old 3DS smoothness work, P2.5; first tagged as a beta, then promoted in place to stable after the owner's check; the map crash of #49 confirmed fixed on the console); before it `v0.3.2` (2026-10-07, on `main`: OPTIONS regrouped, the updater's settings, UPDATES and WHAT'S NEW in one row, RESET GAME alone at the bottom); before it `v0.3.1` (2026-10-07, first a beta and then promoted in place: the updater's release notes and the BETA marker (P4.13), OPTIONS -> HUD, half buttons, WIDE and Spore Spawn fixes (#46, #25, #23)); before it `v0.3.0` (2026-10-06, on `main`: a charging bolt on the bottom screen's battery, WIDE showing projectile and enemy pieces in the rows above the picture (#41), HOME showing the game and not freezing the console after closing it (#20), PAUSE and TURBO out of OPTIONS (#43), the self-updater (#42, its install still to be checked against a newer release), and any number of save states with a detail window (#44, #45); before it `v0.2.2` (2026-10-06: the map tab drawn like the game's with zoom, sprites and room outlines (#31), the lava under the HUD and enemies in the WIDE margins (#40, #39), libctru input and audio); before it betas `v0.2.1` (2026-10-05: block fixes and render priorities from the layer workbench, BG3 effects following what they cover, Kraid and the translated HUD, the 40 fps fix, the 19 achievements that never unlocked) and `v0.2.0` (2026-10-03: stereo 3D, circle pad as D-pad, translated screens and item names, achievements tab as cards); stable before: `v0.1.3` (2026-10-02: WIDE fixes, debug tools pass, Ceres escape fixes), `v0.1.2` (2026-10-01), betas `v0.1.0`, `v0.1.1`.
 
-**Branches:** `perf/2ds-periodic-spikes` is **kept on origin as an archive, never to be merged**: it holds the analysis, the owner's recordings (`docs/handoff/logs/`) and the day-by-day notes behind `v0.4.0` (`docs/handoff-2ds-perf.md`, sections 4.x); `v0.4.0` has its work squashed into three commits. `chore/crocomire-garbage-evidence` (#47, closed; kept because the issue's images link to its commit). What waits for the owner: nothing. (2026-10-09: `feat/status-tap-select` (STATUS tap-to-select, FN for the cheats) and `feat/status-layout`, cut from it (STATUS energy panel in three rows with the reserve tanks and an AUTO/MANUAL button, the HUD's icons on the ammo panels) seen by the owner on the console and merged into `release/v0.5.1`; `feat/item-tracker` (P4.1 item tracking: the map's item balls, the items window, SPOILERS) checked by the owner on the console and merged into `release/v0.5.1`.) (2026-10-08: `feat/low-energy-blink` (P1.10) and `perf/ceres` (the mode 7 upload) checked by the owner on the 2DS and merged into `release/v0.4.1`; `perf/live-tabs` (P2.7) checked by the owner on the 2DS and merged into `release/v0.4.1`; `perf/second-eye-reuse` (fewer clears, the submit split) checked by the owner on the 2DS and the New 3DS and merged into `release/v0.4.1`; `perf/ab64-scene-on-main` (per-line strips drawn once a frame with two eyes) checked by the owner and merged into `release/v0.4.1`; `perf/fast-dma` (P2.5: fast DMA, palette cycles spread, cheaper colour math on the GPU, GPU TEST) was checked by the owner on the 2DS and merged into `release/v0.4.1`, squashed by content; `fix/map-level-buffer` and the perf work went into `release/v0.4.0`, published as `v0.4.0`; #47 (the teleport leaves stale VRAM, a debug-tool artefact) and #49 were closed. 2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
+**Branches:** `perf/2ds-periodic-spikes` is **kept on origin as an archive, never to be merged**: it holds the analysis, the owner's recordings (`docs/handoff/logs/`) and the day-by-day notes behind `v0.4.0` (`docs/handoff-2ds-perf.md`, sections 4.x); `v0.4.0` has its work squashed into three commits. `chore/crocomire-garbage-evidence` (#47, closed; kept because the issue's images link to its commit). What waits for the owner: nothing. (2026-10-09: `feat/game-language-menu` (P4.9: the LANGUAGE entry and list in the game's OPTION MODE, JAPANESE in OPTIONS -> LANGUAGE) checked by the owner on the console and merged into `release/v0.5.1`.) (2026-10-09: `feat/status-tap-select` (STATUS tap-to-select, FN for the cheats) and `feat/status-layout`, cut from it (STATUS energy panel in three rows with the reserve tanks and an AUTO/MANUAL button, the HUD's icons on the ammo panels) seen by the owner on the console and merged into `release/v0.5.1`; `feat/item-tracker` (P4.1 item tracking: the map's item balls, the items window, SPOILERS) checked by the owner on the console and merged into `release/v0.5.1`.) (2026-10-08: `feat/low-energy-blink` (P1.10) and `perf/ceres` (the mode 7 upload) checked by the owner on the 2DS and merged into `release/v0.4.1`; `perf/live-tabs` (P2.7) checked by the owner on the 2DS and merged into `release/v0.4.1`; `perf/second-eye-reuse` (fewer clears, the submit split) checked by the owner on the 2DS and the New 3DS and merged into `release/v0.4.1`; `perf/ab64-scene-on-main` (per-line strips drawn once a frame with two eyes) checked by the owner and merged into `release/v0.4.1`; `perf/fast-dma` (P2.5: fast DMA, palette cycles spread, cheaper colour math on the GPU, GPU TEST) was checked by the owner on the 2DS and merged into `release/v0.4.1`, squashed by content; `fix/map-level-buffer` and the perf work went into `release/v0.4.0`, published as `v0.4.0`; #47 (the teleport leaves stale VRAM, a debug-tool artefact) and #49 were closed. 2026-10-07: `feat/updater-notes` and `feat/options-layout` were checked by the owner on the console and merged; `v0.3.1` was published as a beta and promoted in place, `v0.3.2` followed. 2026-10-06: `chore/remove-pause-turbo`, `feat/self-updater` and `feat/save-states-list` were checked by the owner on the 2DS and merged into `release/v0.2.3`, squashed.) `feat/map-like-ingame` (2026-10-06, #31: map tab from the game's tiles, zoom, sprites, exact room outlines)
 was checked by the owner on the console and merged into `release/v0.2.2`, which was then merged into `main` as `v0.2.2`.
 `feat/libctru-input-audio` (2026-10-06, P1.3) was merged into `release/v0.2.2` after the owner ran it on a
 New 3DS ("as before") and later on the 2DS (sound works; see P2.6). `feat/plane-fixes` (2026-10-04), `fix/stereo-fx-follows-owner` and `fix/wide-window-kraid-tint` (2026-10-05)
@@ -31,7 +31,7 @@ achievements: 19 of the set's now unlock (#37, checked by the owner), through a 
 from the console is in its task (P4.4, P4.8, P3.2).
 
 **Priority** (owner's order; the reasons are in the decisions log):
-**P2.5 and P2.7 done for the rooms measured** (2DS ~59-60 fps mono and with FORCE 3D in the Landing Site, `AB64`, `AF14`; P2.5 stays open for other rooms) → P3.3 only as depth bugs turn up (#23, #34) → P4.9 → P1.10, P1.7, P0.4 when useful.
+**P2.5 and P2.7 done for the rooms measured** (2DS ~59-60 fps mono and with FORCE 3D in the Landing Site, `AB64`, `AF14`; P2.5 stays open for other rooms) → P3.3 only as depth bugs turn up (#23, #34) → P4.14 → P1.10, P1.7, P0.4 when useful.
 
 Tasks ticked [x] have been checked on a New 3DS by the owner; do not re-propose them.
 
@@ -645,7 +645,7 @@ Lessons from mzm that apply directly:
   Ticked 2026-10-06 (owner: the screens and boxes are translated and checked); what was left
   open moved to P4.10.
 
-- [ ] **P4.9** One language setting for the port and the game (owner's request, 2026-10-03; after
+- [x] **P4.9** One language setting for the port and the game (owner's request, 2026-10-03; after
   P4.8). Today the game's own OPTION MODE choice (ENGLISH TEXT / JAPANESE TEXT, the Japanese
   subtitles of the intro) and the bottom screen's LANGUAGE are separate. Two ways, to pick:
   (a) keep both in step: LANGUAGE on the bottom screen gains JAPANESE, which sets the game's
@@ -653,6 +653,17 @@ Lessons from mzm that apply directly:
   text puts back the last non-Japanese language); (b) the game's menu line becomes one
   language entry that opens a list of the port's languages, Japanese among them. Either way
   the bottom screen needs a Japanese UI translation (and a font with kana for it).
+  **Chosen 2026-10-09 (owner): (b)**, on `feat/game-language-menu`. OPTION MODE's two text rows become LANGUAGE (with
+  the language chosen under it, a row the cursor skips) that opens a list screen of the port's languages
+  (`game_options_screen_index` 13, `RtlLanguageMenu` in `sm_rtl.h`, the cursor and blank rows in `sm_82.c`; the
+  text by `LanguageScreens` in `game_text_screens.c`). Picking one there sets `g_ui_lang` and saves `config.ini`, as
+  OPTIONS -> LANGUAGE does. JAPANESE (`kLangJa`, index 5) is the game's Japanese text: `japanese_text_flag` follows the
+  language (on entering OPTION MODE, on picking, on START GAME) and every string, the bottom screen's too, stays English
+  (`UiLang_Text`); the list writes 日本語 with the cells of the ROM's "(日本語字幕スーパー)". A Japanese bottom screen
+  (the console's system font has kana and kanji) is left for later. The language stays in `config.ini`, never in the
+  game's SRAM: a file saved with JAPANESE TEXT gets the port's language when OPTION MODE is entered. Checked on the PC
+  (the list, picking, the intro's Japanese subtitles; `newgame-es` keeps the English WRAM hash), then by the owner
+  on the console.
   *Done when:* the language is chosen in one place and the other follows, checked on the console.
 
 - [x] **P4.11** Save states without a fixed number (issue #44, owner's request 2026-10-06). Done 2026-10-06, checked by the owner on the 2DS (merged): `source/states_store.c` (the list is `saves/save<id>.sav` found by scanning, newest first; ids 0-9 are the old
@@ -691,6 +702,17 @@ Lessons from mzm that apply directly:
   *Done when:* on the console, a published beta shows its notes in the prompt and WHAT'S NEW, a beta build says BETA next to the version
   and is offered the stable build of its own version once it exists, and a stable build shows no BETA. (The offer of a stable to a beta
   build and the notes before installing were seen with `v0.3.1`.)
+
+- [ ] **P4.14** Translations in files instead of code (owner's request, 2026-10-09; after P4.9). The UI's strings
+  (`ui_lang.c`), the message boxes (`game_text.c`) and the screens (`game_text_screens.c`) move to one file per
+  language; the languages offered (OPTIONS -> LANGUAGE and the game's list) are the files found: the port's own in
+  romfs, and any in `sdmc:/3ds/Super Metroid 3DS/lang/` added or replacing one, so a new language needs no rebuild.
+  English stays in the code as the fallback and the key (the screens already find their phrases by the English).
+  Limits a file cannot lift: the alphabet (Latin capitals with the accents the fonts mark, see P4.8; another script
+  needs glyphs drawn) and the room (no wrapping: `tools/ui-preview` and the `game-text` captures must grow a way to
+  check a language file and report what does not fit). Format to decide with the owner (JSON or a sectioned text file).
+  *Done when:* the five languages load from files with the same pictures as today, and a sixth file dropped on the SD
+  card shows up in both menus, checked on the console.
 
 ## Phase 5: completion
 

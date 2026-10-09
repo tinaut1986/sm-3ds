@@ -9,8 +9,11 @@
 // drawn (check with tools/ui-preview, which renders the tabs in every language).
 #pragma once
 
-// The order is what config.ini stores: append only.
-typedef enum { kLangEn, kLangEs, kLangCa, kLangFr, kLangPt, kLangCount } UiLang;
+// The order is what config.ini stores: append only. kLangJa is the game's Japanese text (the
+// intro's subtitles, japanese_text_flag); everything else, this UI too, is in English with it:
+// only the first kTextLangCount have strings of their own.
+typedef enum { kLangEn, kLangEs, kLangCa, kLangFr, kLangPt, kLangJa, kLangCount } UiLang;
+enum { kTextLangCount = kLangJa };
 
 typedef enum {
   kStrOn, kStrOff,
@@ -40,13 +43,19 @@ typedef enum {
 
 extern UiLang g_ui_lang;
 
+// The language of the strings: g_ui_lang, or English for a language without its own (kLangJa).
+UiLang UiLang_Text(void);
+
+// Called after the game's OPTION MODE picked a language (game_text_screens.c), to save it.
+extern void (*g_ui_lang_on_change)(void);
+
 // The text in the current language (English when a translation is missing).
 const char *Tr(UiStr id);
 
 // A language's name in itself (ESPAÑOL, FRANÇAIS...).
 const char *UiLang_Name(UiLang lang);
 
-// The console's language when the UI has it, else English.
+// The console's language when the port has it (Japanese: the game's Japanese text), else English.
 UiLang UiLang_FromSystem(void);
 
 // The game's names for the Status tab: an item or beam in the order of kSmItems / kSmBeams

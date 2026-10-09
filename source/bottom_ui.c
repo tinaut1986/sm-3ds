@@ -3025,6 +3025,12 @@ bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *p) {
   return true;
 }
 
+// The game's OPTION MODE picked a language (game_text_screens.c): saved as if tapped here.
+static void OnGameLanguage(void) {
+  SaveConfig();
+  g_dirty = 2;
+}
+
 // ---- Init -------------------------------------------------------------------
 
 bool BottomUi_Init(const UiRomInfo *rom) {
@@ -3035,6 +3041,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_ui.new3ds_speedup = g_is_new3ds;
   g_ui_lang = UiLang_FromSystem();   // until config.ini says otherwise
   LoadConfig();
+  g_ui_lang_on_change = OnGameLanguage;
   if (!g_is_new3ds) g_ui.new3ds_speedup = false;
   if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);
   g_ptmu = R_SUCCEEDED(ptmuInit());

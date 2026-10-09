@@ -172,7 +172,7 @@ static const MsgText kPt[kMsgCount] = {
 };
 
 static const MsgText *Messages(void) {
-  switch (g_ui_lang) {
+  switch (UiLang_Text()) {
   case kLangEs: return kEs;
   case kLangCa: return kCa;
   case kLangFr: return kFr;
