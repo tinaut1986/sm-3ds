@@ -138,3 +138,10 @@ bool Cheats_GiveAll(void) {
   equipped_beams = (equipped_beams & ~kBeamSpazer) | 0x1000 | 0x0002 | 0x0001 | kBeamPlasma;
   return true;
 }
+
+bool Hud_RequestSelect(int item) {
+  if (game_state != 0x08 || item < kSmHudNone || item > kSmHudXray) return false;
+  g_rtl_hud_select.frame = nmi_frame_counter_word;
+  g_rtl_hud_select.item = (int8)item;
+  return true;
+}

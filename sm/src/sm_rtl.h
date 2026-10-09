@@ -169,6 +169,14 @@ static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anch
 // 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.
 // The game's RAM is left alone: only VRAM changes.
 extern void (*g_rtl_message_box_hook)(int shown);
+// 3DS port: a HUD item (0 none, 1 missiles, 2 supers, 3 power bombs, 4 grapple, 5 X-ray) asked
+// for by the frontend (a tap on the bottom screen; one day a button of a modern control scheme).
+// HandleSwitchingHudSelection takes it in the next game frame as if SELECT had landed on it: an
+// item the game would skip (no ammo, not equipped) leaves the selection as it was. `frame` is
+// nmi_frame_counter_word when it was asked; a request not taken within 2 frames (the game was not
+// handling the HUD selection: a cutscene, the pause menu) is dropped. item < 0 = none.
+typedef struct { int8 item; uint16 frame; } RtlHudSelect;
+extern RtlHudSelect g_rtl_hud_select;
 extern uint16 g_rtl_message_box_vram;
 // 3DS port, WIDE view: OAM entries that belong to the HUD (the Ceres escape timer). The
 // view leans off a room edge while the HUD keeps its place on the screen, so the renderer

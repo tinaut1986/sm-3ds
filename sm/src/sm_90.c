@@ -4061,10 +4061,24 @@ static Func_U8 *const kRunSwitchedToHudHandler[6] = {  // 0x90C4B5
   SwitchToHudHandler_Grapple,
   SwitchToHudHandler_Xray,
 };
+RtlHudSelect g_rtl_hud_select = { -1, 0 };   // 3DS port, see sm_rtl.h
+
 void HandleSwitchingHudSelection(void) {
   uint16 v0;
   uint16 r22 = 0;
   uint16 r18 = hud_item_index;
+  if (g_rtl_hud_select.item >= 0) {   // 3DS port: a selection from the frontend, see sm_rtl.h
+    const int8 want = g_rtl_hud_select.item;
+    g_rtl_hud_select.item = -1;
+    if (want <= 5 && (uint16)(nmi_frame_counter_word - g_rtl_hud_select.frame) <= 2) {
+      hud_item_index = want;
+      if (kRunSwitchedToHudHandler[want]() & 1)
+        hud_item_index = r18;
+      else
+        samus_auto_cancel_hud_item_index = 0;
+      goto LABEL_13;
+    }
+  }
   if ((button_config_itemcancel_y & joypad1_newkeys) != 0) {
     samus_auto_cancel_hud_item_index = 0;
 LABEL_5:
