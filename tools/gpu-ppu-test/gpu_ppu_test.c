@@ -467,7 +467,7 @@ static int g_cursor_frames, g_cursor_bad, g_cursor_blink;
 
 static void CheckIntroCursor(const char *label) {
   const Ppu *ppu = g_snes->ppu;
-  if (game_state != 0x1e || g_ui_lang == kLangEn) return;
+  if (game_state != 0x1e || UiLang_Text() == kLangEn) return;
   const BgLayer *bg = &ppu->bgLayer[2];
   int last_row = -1, last_col = -1, first_col = 99, letters = 0;
   for (int r = 4; r <= 23; r++)

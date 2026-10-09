@@ -169,6 +169,24 @@ static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anch
 // 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.
 // The game's RAM is left alone: only VRAM changes.
 extern void (*g_rtl_message_box_hook)(int shown);
+// 3DS port, one language for the game and the port (docs/PLAN.md P4.9): when set, OPTION MODE's
+// ENGLISH TEXT / JAPANESE TEXT rows become one LANGUAGE entry (row 1; row 2 shows the language and
+// the cursor skips it) that opens a list of the port's languages, a screen of its own
+// (game_options_screen_index kRtlLanguageScreen). japanese_text_flag follows the language: set for
+// the Japanese one, clear for any other. The text of both screens is drawn by the port
+// (source/game_text_screens.c); the game's code only moves the cursor and blanks the list
+// screen's rows. NULL: the game's own rows.
+typedef struct {
+  int (*count)(void);
+  int (*current)(void);
+  void (*choose)(int i);
+  bool (*is_japanese)(int i);
+} RtlLanguageMenu;
+extern const RtlLanguageMenu *g_rtl_language_menu;
+enum { kRtlLanguageScreen = 13, kRtlLanguageMaxShown = 10 };
+// The tilemap row (16 px letters: this row and the next) of language i of n on the list screen:
+// three rows apart like OPTION MODE's when they fit, two otherwise.
+static inline int RtlLanguageMenuRow(int i, int n) { return n <= 6 ? 6 + 3 * i : 5 + 2 * i; }
 // 3DS port: a HUD item (0 none, 1 missiles, 2 supers, 3 power bombs, 4 grapple, 5 X-ray) asked
 // for by the frontend (a tap on the bottom screen; one day a button of a modern control scheme).
 // HandleSwitchingHudSelection takes it in the next game frame as if SELECT had landed on it: an

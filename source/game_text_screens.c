@@ -20,6 +20,7 @@
 #include "src/types.h"
 #include "src/variables.h"
 #include "src/sm_cpu_infra.h"
+#include "src/sm_rtl.h"
 #include "src/snes/ppu.h"
 #include "src/snes/snes.h"
 #include "ui_lang.h"
@@ -328,7 +329,7 @@ enum {
 typedef struct {
   const char *en;                   // capitals, single spaces; '#' is any letter, put back
                                     // where the translation has '#' ("SAMUS #")
-  const char *tr[kLangCount - 1];   // Spanish, Catalan, French, Portuguese (UTF-8); NULL: as English
+  const char *tr[kTextLangCount - 1];   // Spanish, Catalan, French, Portuguese (UTF-8); NULL: as English
   uint8_t flags;
 } Phrase;
 
@@ -337,6 +338,10 @@ static unsigned NextCode(const char **s) {
   if ((p[0] & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) {
     *s += 2;
     return (p[0] & 0x1F) << 6 | (p[1] & 0x3F);
+  }
+  if ((p[0] & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80) {   // 日本語
+    *s += 3;
+    return (p[0] & 0x0F) << 12 | (p[1] & 0x3F) << 6 | (p[2] & 0x3F);
   }
   *s += 1;
   return p[0];
@@ -449,8 +454,8 @@ static bool IsLetter(unsigned c) { return c > ' '; }
 static bool IsAlpha(unsigned c) { return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c >= 0xC0; }
 
 static void TranslateLayer(const TextLayer *L, const Phrase *phrases, int count) {
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   const int rows = LayerRows(L) - (L->font->h - 1);
   for (int r = 0; r < rows; r++) {
     unsigned line[32];
@@ -568,7 +573,7 @@ static void PutLabel(uint16_t base, int bpp, const uint16_t *chars, int n, const
 typedef struct {
   uint16_t chars[4];
   int n;
-  const char *tr[kLangCount - 1];
+  const char *tr[kTextLangCount - 1];
 } Label;
 
 // ---- Words as pictures, redrawn into chars of their own -----------------------------------------
@@ -580,7 +585,7 @@ typedef struct {
 typedef struct {
   uint16_t chars[10];       // the English run
   int n;
-  const char *tr[kLangCount - 1];
+  const char *tr[kTextLangCount - 1];
 } WordRun;
 
 typedef struct {
@@ -626,8 +631,8 @@ static int TinyText(const char *text, int rows, uint8_t px[8][128], int y0, uint
 }
 
 static void TranslateWordRuns(const WordStyle *st, const WordRun *runs, int count, uint8_t pen) {
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   const int cells_total = 0x400 * st->pages;
   for (int i = 0; i < count; i++) {
     const WordRun *wr = &runs[i];
@@ -668,8 +673,8 @@ static void TranslateWordRuns(const WordStyle *st, const WordRun *runs, int coun
 // The labels found on the layer's page (their chars side by side) are redrawn.
 static void TranslateLabels(uint16_t map, uint16_t base, int bpp, const Label *labels, int count, uint8_t pen,
                             uint8_t shade) {
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   for (int i = 0; i < count; i++) {
     const Label *l = &labels[i];
     bool found = false;
@@ -696,6 +701,8 @@ static const FontChar kMenuBigChars[] = {
   { '?', 0x44, 0x54 }, { '+', 0x45, 0x55 }, { '-', 0x46, 0x56 }, { '(', 0x47, 0x57 }, { ')', 0x48, 0x58 },
   { '1', 0x01, 0x11 }, { '2', 0x02, 0x12 }, { '3', 0x03, 0x13 }, { '4', 0x04, 0x14 }, { '5', 0x05, 0x15 },
   { '6', 0x06, 0x16 }, { '7', 0x07, 0x17 }, { '8', 0x08, 0x18 }, { '9', 0x09, 0x19 },
+  // 日本語, from OPTION MODE's "(日本語字幕スーパー)" (the language list, P4.9).
+  { 0x65E5, 0x49, 0x59 }, { 0x672C, 0x4a, 0x5a }, { 0x8A9E, 0x4b, 0x5b },
 };
 
 static const CustomGlyph kMenuBigCustom[] = {
@@ -732,8 +739,6 @@ static const Font *MenuSmall(void) {
 static const Phrase kOptionsBig[] = {
   { "OPTION MODE", { "OPCIONES", "OPCIONS", "OPTIONS", "OPÇÕES" }, kCentre },
   { "START GAME", { "EMPEZAR PARTIDA", "COMENÇAR PARTIDA", "COMMENCER", "INICIAR JOGO" } },
-  { "ENGLISH TEXT", { "TEXTO EN ESPAÑOL", "TEXT EN CATALÀ", "TEXTE EN FRANÇAIS", "TEXTO EM PORTUGUÊS" } },
-  { "JAPANESE TEXT", { "TEXTO EN JAPONÉS", "TEXT EN JAPONÈS", "TEXTE EN JAPONAIS", "TEXTO EM JAPONÊS" }, kClearRight },
   { "CONTROLLER SETTING MODE", { "CONFIGURAR MANDO", "CONFIGURAR CONTROLS", "CONFIGURER LA MANETTE",
                                  "CONFIGURAR CONTROLE" }, kCentre },
   { "SPECIAL SETTING MODE", { "AJUSTES ESPECIALES", "OPCIONS ESPECIALS", "OPTIONS SPÉCIALES", "AJUSTES ESPECIAIS" },
@@ -758,6 +763,12 @@ static const Phrase kOptionsBig[] = {
   { "SHOT HOLD", { "DISPARO", "TRET", "TIR", "TIRO" } },
 };
 
+// The game's language rows, when the port's LANGUAGE entry does not replace them (LanguageScreens).
+static const Phrase kOptionsTextRows[] = {
+  { "ENGLISH TEXT", { "TEXTO EN ESPAÑOL", "TEXT EN CATALÀ", "TEXTE EN FRANÇAIS", "TEXTO EM PORTUGUÊS" } },
+  { "JAPANESE TEXT", { "TEXTO EN JAPONÉS", "TEXT EN JAPONÈS", "TEXTE EN JAPONAIS", "TEXTO EM JAPONÊS" }, kClearRight },
+};
+
 static const Phrase kOptionsSmall[] = {
   { "SELECT", { "ELEGIR", "TRIAR", "CHOISIR", "ESCOLHER" } },
   { "CANCEL", { "VOLVER", "TORNAR", "RETOUR", "VOLTAR" } },
@@ -765,6 +776,79 @@ static const Phrase kOptionsSmall[] = {
   { "OR", { "O", "O", "OU", "OU" } },
   { "MODE", { "CAMBIAR", "CANVIAR", "CHANGER", "MUDAR" } },
   { "CHANGE", { "OPCIÓN", "OPCIÓ", "OPTION", "OPÇÃO" } },
+};
+
+// ---- One language for the game and the port (docs/PLAN.md P4.9, sm_rtl.h) ----------------------
+// With the port's LANGUAGE entry, in every language (English too: the game's rows are gone):
+// on OPTION MODE, ENGLISH TEXT becomes LANGUAGE and the JAPANESE TEXT row the language chosen;
+// the list screen (OPTION MODE's tilemap with blank rows 4-24, sm_82.c) gets LANGUAGE as its
+// title and the languages, the chosen one bright and the others dim as the game's own rows were.
+
+enum { kPalBright = 0x0000, kPalDim = 0x0400, kPalMask = 0x1c00 };
+
+static const char *const kLanguageTitle[kTextLangCount] = { "LANGUAGE", "IDIOMA", "IDIOMA", "LANGUE", "IDIOMA" };
+
+// A language in itself; Japanese with the game's own letters.
+static const char *LanguageName(int lang) { return lang == kLangJa ? "日本語" : UiLang_Name((UiLang)lang); }
+
+static void ClearCells(const TextLayer *L, int row, int col0, int col1) {
+  for (int x = col0; x < col1; x++)
+    for (int k = 0; k < L->font->h; k++)
+      Want((uint16_t)(L->map + (row + k) * 32 + x), (uint16_t)((Cell(L, row + k, x) & 0xfc00) | L->font->fill));
+}
+
+// Writes `text` from (row, col) on, in palette `pal` (kPalBright / kPalDim).
+static void PutText(const TextLayer *L, int row, int col, const char *text, uint16_t pal) {
+  const uint16_t attr = (uint16_t)((Cell(L, row, col) & 0x3c00 & ~kPalMask) | pal);
+  for (const char *s = text; *s && col < 32; col++) {
+    const unsigned code = NextCode(&s);
+    if (!PutLetter(L, row, col, code, attr)) PutLetter(L, row, col, ' ', attr);
+  }
+}
+
+// True if (row, col) on shows the English `en` (capitals and spaces).
+static bool ShowsText(const TextLayer *L, int row, int col, const char *en) {
+  for (; *en; en++, col++)
+    if (col >= 32 || DecodeCell(L, row, col) != (unsigned char)*en) return false;
+  return true;
+}
+
+static void LanguageScreens(const TextLayer *big) {
+  const RtlLanguageMenu *m = g_rtl_language_menu;
+  const int lang = UiLang_Text();
+  // OPTION MODE: the rows of ENGLISH TEXT (10) and JAPANESE TEXT (13), at column 4.
+  if (ShowsText(big, 10, 4, "ENGLISH TEXT")) {
+    ClearCells(big, 10, 4, 32);
+    ClearCells(big, 13, 4, 32);
+    PutText(big, 10, 4, kLanguageTitle[lang], kPalBright);
+    PutText(big, 13, 6, LanguageName(m->current()), kPalBright);
+    return;
+  }
+  // The list: the title still OPTION MODE, nothing under it until the footer.
+  if (!ShowsText(big, 1, 10, "OPTION MODE")) return;
+  for (int r = 4; r < 25; r++)
+    for (int x = 0; x < 32; x++)
+      if ((Cell(big, r, x) & 0x3ff) != big->font->fill) return;
+  static const Phrase kTitle = { "OPTION MODE", { NULL }, kCentre };
+  PutPhrase(big, 1, 10, 11, &kTitle, kLanguageTitle[lang], (const unsigned[]){ 0 });
+  int n = m->count();
+  if (n > kRtlLanguageMaxShown) n = kRtlLanguageMaxShown;
+  const int cur = m->current();
+  for (int i = 0; i < n; i++)
+    PutText(big, RtlLanguageMenuRow(i, n), 4, LanguageName(i), i == cur ? kPalBright : kPalDim);
+}
+
+static int LanguageMenuCount(void) { return kLangCount; }
+static int LanguageMenuCurrent(void) { return (int)g_ui_lang; }
+static void LanguageMenuChoose(int i) {
+  if ((unsigned)i >= kLangCount || (UiLang)i == g_ui_lang) return;
+  g_ui_lang = (UiLang)i;
+  if (g_ui_lang_on_change) g_ui_lang_on_change();
+}
+static bool LanguageMenuIsJapanese(int i) { return i == kLangJa; }
+
+static const RtlLanguageMenu kLanguageMenu = {
+  LanguageMenuCount, LanguageMenuCurrent, LanguageMenuChoose, LanguageMenuIsJapanese,
 };
 
 static void OptionsScreen(void) {
@@ -775,8 +859,13 @@ static void OptionsScreen(void) {
   PoolReserve(&pool, &kMenuBig);
   TextLayer small = { MenuSmall(), ppu->bgLayer[0].tilemapAdr, ppu->bgLayer[0].tileAdr, &pool };
   PoolReserve(&pool, MenuSmall());
-  TranslateLayer(&big, kOptionsBig, sizeof(kOptionsBig) / sizeof(kOptionsBig[0]));
-  TranslateLayer(&small, kOptionsSmall, sizeof(kOptionsSmall) / sizeof(kOptionsSmall[0]));
+  if (UiLang_Text() != kLangEn) {
+    TranslateLayer(&big, kOptionsBig, sizeof(kOptionsBig) / sizeof(kOptionsBig[0]));
+    if (!g_rtl_language_menu)
+      TranslateLayer(&big, kOptionsTextRows, sizeof(kOptionsTextRows) / sizeof(kOptionsTextRows[0]));
+    TranslateLayer(&small, kOptionsSmall, sizeof(kOptionsSmall) / sizeof(kOptionsSmall[0]));
+  }
+  if (g_rtl_language_menu) LanguageScreens(&big);
 }
 
 // ---- File select (game state 4) ----------------------------------------------------------------
@@ -837,7 +926,7 @@ static void FileSelectScreen(void) {
 
 typedef struct {
   const char *en;                   // the page's words, single spaces
-  const char *tr[kLangCount - 1];
+  const char *tr[kTextLangCount - 1];
   int width;                        // letters per line
 } Page;
 
@@ -915,8 +1004,8 @@ static void MoveCursorSprite(const TextLayer *L, int row_lo, int row_hi, int to_
 }
 
 static void TranslatePages(const TextLayer *L, int row0, int row1, const Page *pages, int count) {
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   const Font *f = L->font;
   // The English letters, in reading order.
   static int16_t cell_row[kMaxPageCells], cell_col[kMaxPageCells];
@@ -1172,7 +1261,7 @@ typedef struct {
   int x0, y0, x1, y1;       // the inside, in pixels of the n x 2 cells
   uint8_t pen, bg;
   bool bold;
-  const char *tr[kLangCount - 1];
+  const char *tr[kTextLangCount - 1];
 } BoxWord;
 
 static const BoxWord kPauseButtons[] = {
@@ -1183,8 +1272,8 @@ static const BoxWord kPauseButtons[] = {
 };
 
 static void TranslateBoxWords(uint16_t map, int pages, uint16_t base, CharPool *pool, const BoxWord *words, int count) {
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   for (int i = 0; i < count; i++) {
     const BoxWord *bw = &words[i];
     const char *tr = bw->tr[lang - 1];
@@ -1421,7 +1510,7 @@ static void EndingScreen(void) {
 // ENERGY is a picture over chars 0x0b-0x0d and 0x32: colour 2 letters outlined in 1 on 3.
 
 static void HudScreen(void) {
-  static const struct { const char *tr[kLangCount - 1]; } kEnergy = { { "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" } };
+  static const struct { const char *tr[kTextLangCount - 1]; } kEnergy = { { "ENERGÍA", "ENERGIA", "ÉNERGIE", "ENERGIA" } };
   static const uint16_t kChars[4] = { 0x0b, 0x0c, 0x0d, 0x32 };
   enum { kHudMap = 0x5800 };
   // BG3's chars are where the room says: 0x4000 in most, 0x2000 in Kraid's, whose BG2 tilemap is at 0x4000 (writing the
@@ -1429,8 +1518,8 @@ static void HudScreen(void) {
   const Ppu *hud_ppu = ThePpu();
   if (!hud_ppu) return;
   const uint16_t kHudChars = hud_ppu->bgLayer[2].tileAdr;
-  const int lang = g_ui_lang;
-  if (lang <= kLangEn || lang >= kLangCount) return;
+  const int lang = UiLang_Text();
+  if (lang <= kLangEn) return;
   bool found = false;
   for (int c = 0; c + 4 <= 0x80 && !found; c++) {
     int k = 0;
@@ -1473,15 +1562,14 @@ static void Hook(void) {
   static int menu_state;
   if (game_state == 2 || game_state == 4) menu_state = game_state;
   else if (game_state != 5) menu_state = 0;
-  if (g_ui_lang != kLangEn) {
+  // The option menus also in English when the port's LANGUAGE entry is on (LanguageScreens).
+  const bool options = game_state == 2 || (game_state == 5 && menu_index < 2 && menu_state == 2);
+  if (options && (g_rtl_language_menu || UiLang_Text() != kLangEn)) OptionsScreen();
+  if (UiLang_Text() != kLangEn) {
     switch (game_state) {
-    case 2: OptionsScreen(); break;
     case 4: FileSelectScreen(); break;
     case 5:
-      if (menu_index < 2) {
-        if (menu_state == 2) OptionsScreen();
-        else if (menu_state == 4) FileSelectScreen();
-      }
+      if (menu_index < 2 && menu_state == 4) FileSelectScreen();
       break;
     case 0x1e: IntroScreen(); break;
     case 12: case 13: case 14: case 15: case 16: case 17: case 18: PauseScreen(); HudScreen(); break;
@@ -1499,6 +1587,7 @@ void GameTextScreens_Init(void) {
   if (ppu) memcpy(g_shadow, ppu->vram, sizeof(g_shadow));
   g_ppu_vram_shadow = g_shadow;
   g_rtl_game_text_hook = Hook;
+  g_rtl_language_menu = &kLanguageMenu;
 }
 
 void GameTextScreens_PutBack(void) {
