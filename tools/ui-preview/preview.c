@@ -192,6 +192,32 @@ int main(int argc, char **argv) {
   Tap(236 + 5, 182 + 5);             // the cross: discard
   Tap(160, 220);                     // close
 #endif
+  {   // Items: some of Brinstar's taken (the map's dots, the items window), SPOILERS off then on.
+    static const int kTaken[] = { 13, 14, 15, 17, 23, 26, 38 };
+    for (unsigned i = 0; i < sizeof(kTaken) / sizeof(kTaken[0]); i++) item_bit_array[kTaken[i] >> 3] |= 1 << (kTaken[i] & 7);
+    TapTab(kMap);
+    Tap(2 + 1 * 45 + 5, 183 + 5);      // Brinstar
+    Tap(192 + 15, 198 + 6);            // zoom 2X
+    Shot("map, Brinstar 2X: item dots, big = still there, small = taken");
+    Tap(132 + 20, 198 + 6);            // the items box
+    Shot("items window, spoilers off");
+    Tap(160, 220);                     // CLOSE
+    TapTab(kOptions);
+    Tap(239 + 5, 64 + 5);              // SPOILERS: on
+    Shot("options, spoilers on");
+    TapTab(kStatus);
+    Shot("status, spoilers on");
+    TapTab(kMap);
+    Shot("map, Brinstar 2X, spoilers on");
+    Tap(132 + 20, 198 + 6);
+    Tap(150, 56 + 2 * 13 + 5);         // the Norfair row
+    Shot("items window, spoilers on, Norfair picked");
+    Tap(160, 220);
+    Tap(192 + 15, 198 + 6), Tap(192 + 15, 198 + 6);   // back to 1X
+    Tap(226 + 20, 198 + 6);            // FOLLOW on again
+    TapTab(kOptions);
+    Tap(239 + 5, 64 + 5);              // SPOILERS: off again
+  }
   TapTab(kStates);
   Shot("states");
   BottomUi_TouchDown(150, 160);      // drag the list up by 90 px

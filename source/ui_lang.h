@@ -34,6 +34,7 @@ typedef enum {
   kStrHud, kStrHudHidden, kStrHudShown,
   kStrWhatsNew, kStrNotesEmpty, kStrUpdFrom,
   kStrUpdsLabel, kStrUpdsCheck, kStrUpdsChecking, kStrUpdsNew, kStrUpdsInstalling, kStrUpdsRestart, kStrUpdsError,
+  kStrSpoilers, kStrArea, kStrMajorShort, kStrTotalShort, kStrUniqueItems, kStrNone,
   kStrCount
 } UiStr;
 

@@ -46,7 +46,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -61,6 +61,9 @@ static Rect g_present_rect;
 static uint32_t g_live_key;         // what the open live tab shows (LiveKey) at its last full redraw
 static uint32_t g_last_redraw;
 static bool g_is_new3ds;
+// OPTIONS -> SPOILERS. Off (the default, like mzm) hides what Samus has not found yet: the names on
+// the STATUS tab, the item totals of the map and its window, and the map dots the game does not draw.
+static bool g_show_spoilers;
 static char g_toast[64];   // UTF-8
 static u64 g_toast_until;
 static int g_tap_x = -1000, g_tap_y;
@@ -282,6 +285,7 @@ static struct { bool active, dragging; int start_x, start_y, last_x, last_y; } g
 static Rect AreaButtonRect(int i) { return (Rect){ 2 + i * 45, 183, 43, 13 }; }
 static Rect FollowRect(void) { return (Rect){ 226, 198, 92, 13 }; }
 static Rect ZoomRect(void) { return (Rect){ 192, 198, 30, 13 }; }
+static Rect ItemsRect(void) { return (Rect){ 132, 198, 56, 13 }; }   // opens the items window
 
 // Map cell <-> canvas pixel. Row 0 is the empty margin of the map, where the arrow names sit.
 static int MapPxX(int col) { return col * MAP_CELL - g_scroll_x; }
@@ -326,8 +330,14 @@ static int ShownMapArea(void) {
   return g_map_area;
 }
 
+static void OpenItems(int area);
+
 static void MapTouch(int x, int y) {
   const int area = ShownMapArea();
+  if (UiIn(ItemsRect(), x, y)) {
+    OpenItems(area);
+    return;
+  }
   for (int i = 0; i < kSmAreaCount; i++) {
     if (UiIn(AreaButtonRect(i), x, y)) {
       g_map_area = i;
@@ -510,6 +520,71 @@ static void DrawDoorMark(Surface s, const SmWarpDoorMark *d) {
 }
 #endif
 
+// Item marks over the map, as in Zero Mission: a big hollow ball on a cell with an item still to
+// take, a small dot where every item was taken. The game's own map has a small dot on most item
+// cells (TileItemDot); the hidden items have none, and with SPOILERS off they get a mark only once
+// taken. `fill` is the cell's colour in the middle (0 if transparent), to hollow the ball with.
+static uint32_t Bgr555ToRgb(uint16_t c) { return RGB((c & 31) << 3, (c >> 5 & 31) << 3, (c >> 10 & 31) << 3); }
+
+static bool TileItemDot(uint16_t tile, uint32_t *col, uint32_t *fill) {
+  uint16_t px[64];
+  SmMap_TilePixels(tile, px);
+  const uint16_t c = px[3 * 8 + 3];
+  *fill = c ? Bgr555ToRgb(c) : 0;
+  if (!c || px[3 * 8 + 4] != c || px[4 * 8 + 3] != c || px[4 * 8 + 4] != c) return false;
+  // A dot: the 2x2 middle stands out from the ring around it (a filled cell does not).
+  static const uint8_t kRing[] = { 2 * 8 + 3, 2 * 8 + 4, 5 * 8 + 3, 5 * 8 + 4, 3 * 8 + 2, 4 * 8 + 2, 3 * 8 + 5, 4 * 8 + 5 };
+  for (unsigned i = 0; i < sizeof(kRing); i++)
+    if (px[kRing[i]] == c) return false;
+  *col = Bgr555ToRgb(c);
+  *fill = px[2 * 8 + 3] ? Bgr555ToRgb(px[2 * 8 + 3]) : 0;
+  return true;
+}
+
+static void DrawItemMarks(Surface s, int area, bool station) {
+  int n;
+  const SmPickup *items = SmMap_Pickups(&n);
+  const int cell = MAP_CELL;
+  for (int i = 0; i < n; i++) {
+    const SmPickup *it = &items[i];
+    if (it->area != area) continue;
+    bool first = true, left = false, taken = false;   // a cell can hold two items: one left makes it big
+    for (int j = 0; j < n; j++) {
+      if (items[j].area != area || items[j].col != it->col || items[j].row != it->row) continue;
+      if (j < i) first = false;
+      if (SmMap_PickupTaken(&items[j])) taken = true;
+      else left = true;
+    }
+    if (!first) continue;
+    bool exists, explored;
+    SmMap_Cell(area, it->col, it->row, &exists, &explored);
+    if (!exists || (!explored && !station)) continue;
+    const int x = MapPxX(it->col), y = MapPxY(it->row);
+    if (x + cell <= 0 || x >= SCREEN_W || y + cell <= MAP_Y0 || y >= MAP_VIEW_Y1) continue;
+    uint32_t col = COL_TEXT, fill = 0;
+    if (!TileItemDot(SmMap_CellTile(area, it->col, it->row, explored), &col, &fill) && !g_show_spoilers) {
+      if (!taken) continue;
+      left = false;   // the hidden item's mark only says where one was found
+    }
+    if (left) {
+      // A ring in the dot's colour, hollowed with the cell's own (which hides the game's small dot).
+      const int d = (cell + 1) / 2, bx = x + (cell - d) / 2, by = y + (cell - d) / 2;
+      if (fill) UiFillRect(s, bx + 1, by + 1, d - 2, d - 2, fill);
+      if (d >= 4) {   // corners cut: a ball
+        UiFillRect(s, bx + 1, by, d - 2, 1, col);
+        UiFillRect(s, bx + 1, by + d - 1, d - 2, 1, col);
+        UiFillRect(s, bx, by + 1, 1, d - 2, col);
+        UiFillRect(s, bx + d - 1, by + 1, 1, d - 2, col);
+      } else {
+        UiFrameRect(s, bx, by, d, d, col);
+      }
+    } else {
+      const int d = cell / 4, o = (cell - d) / 2;
+      UiFillRect(s, x + o, y + o, d, d, col);
+    }
+  }
+}
+
 // Samus's mark on the MAP tab blinks every 15 frames: the pixels under it are kept, so a blink rewrites only the cell
 // (LiveUpdate) instead of the whole screen.
 enum { kMarkMax = 16 };
@@ -590,6 +665,7 @@ static void DrawMap(Surface s, const UiPerf *p) {
   SmMapIcon icons[kSmMapMaxIcons];
   const int icon_count = SmMap_Icons(area, icons, kSmMapMaxIcons);
   for (int i = icon_count - 1; i >= 0; i--) DrawMapSprite(s, &icons[i]);
+  DrawItemMarks(s, area, station);
 
   // Outline the room Samus is in; Samus's blinking mark goes on last (below).
   g_mark.valid = false;
@@ -612,8 +688,22 @@ static void DrawMap(Surface s, const UiPerf *p) {
 
   for (int i = 0; i < kSmAreaCount; i++)
     UiDrawButton(s, AreaButtonRect(i), i == area ? COL_TAB_ON : COL_TAB, TrAreaShort(i));
-  UiDrawTextf(s, 4, 201, COL_TEXT, "%s  %d/%d %s%s%s", TrArea(area), seen, total, Tr(kStrCells),
-              station ? "  " : "", station ? Tr(kStrMapMark) : "");
+  // The area's name is on its button above; the line holds the cells seen and, after it, the items.
+  UiDrawTextf(s, 4, 201, COL_TEXT, "%d/%d %s%s%s", seen, total, Tr(kStrCells), station ? "  " : "",
+              station ? Tr(kStrMapMark) : "");
+  {
+    int all[kSmPickupKinds], got[kSmPickupKinds], sum_all = 0, sum_got = 0;
+    SmMap_PickupCounts(area, all, got);
+    for (int k = 0; k < kSmPickupKinds; k++) sum_all += all[k], sum_got += got[k];
+    const Rect r = ItemsRect();
+    UiDrawBox(s, r, COL_PANEL, COL_BORDER, Pressed(r));
+    UiFillRect(s, r.x + 5, r.y + 4, 4, 5, COL_TEXT);   // a ball
+    UiFillRect(s, r.x + 4, r.y + 5, 6, 3, COL_TEXT);
+    char buf[16];
+    if (g_show_spoilers) snprintf(buf, sizeof(buf), "%d/%d", sum_got, sum_all);
+    else snprintf(buf, sizeof(buf), "%d", sum_got);
+    UiDrawText(s, r.x + 14, r.y + 3, 1, g_show_spoilers && sum_all > 0 && sum_got == sum_all ? COL_GOOD : COL_TEXT, buf);
+  }
   char follow[32];
   snprintf(follow, sizeof(follow), "%s: %s", Tr(kStrFollow), Tr(g_map_follow ? kStrOn : kStrOff));
   UiDrawButton(s, FollowRect(), g_map_follow ? COL_ON : COL_OFF, follow);
@@ -720,7 +810,7 @@ static void DrawStatus(Surface s) {
     UiFillRect(s, x, 73, 98, 26, picked ? RGB(48, 44, 14) : COL_PANEL);
     UiFrameRect(s, x, 73, 98, 26, picked ? COL_WARN : COL_BORDER);
     if (picked) UiFrameRect(s, x + 1, 74, 96, 24, COL_WARN);
-    UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], TrAmmo(i));
+    UiDrawText(s, x + 5, 77, 1, kAmmoCol[i], max[i] || g_show_spoilers ? TrAmmo(i) : "---");
     UiDrawTextf(s, x + 5 + 8 * 6, 77, COL_TEXT, "%u/%u", cur[i], max[i]);
     UiDrawBar(s, x + 5, 88, 88, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
   }
@@ -732,7 +822,7 @@ static void DrawStatus(Surface s) {
     const bool have = (collected_items & kSmItems[i].mask) != 0;
     const bool on = (equipped_items & kSmItems[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrItem(i));
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, have || g_show_spoilers ? TrItem(i) : "---");
     // The grapple beam (4) and the X-ray scope (5) are chosen with SELECT too.
     if ((hud_item_index == 4 && kSmItems[i].mask == 0x4000) || (hud_item_index == 5 && kSmItems[i].mask == 0x8000)) {
       UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
@@ -753,7 +843,7 @@ static void DrawStatus(Surface s) {
     const bool have = (collected_beams & kSmBeams[i].mask) != 0;
     const bool on = (equipped_beams & kSmBeams[i].mask) != 0;
     UiFillRect(s, r.x, r.y, r.w, r.h, Pressed(r) ? COL_PRESSED : COL_PANEL);
-    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, TrBeam(i));
+    UiDrawText(s, r.x + 4, r.y + 3, 1, have ? (on ? COL_GOOD : COL_WARN) : COL_FAINT, have || g_show_spoilers ? TrBeam(i) : "---");
   }
 
   // Map stations (Ceres has none). Debug builds: grey none, green used, purple forced,
@@ -1128,14 +1218,14 @@ void BottomUi_GameReset(void) {
 // (each shows its own setting and its current value, a tap changes it).
 //
 //   FRAMES            AUDIO [speaker]
-//   FPS | CPU         LANGUAGE
+//   FPS | CPU         LANGUAGE | SPOILERS
 //   IMAGE | VIEW      HUD
 //   UPDATE | CHANNEL  UPDATES | WHAT'S NEW
 //   RESET GAME (the whole width)
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_COUNT
 } OptCell;
 
 enum { kOptHudSlot = 5, kOptUpdateSlot = 6, kOptNewsSlot = 7, kOptResetRow = 8, kOptSpeakerW = 34 };
@@ -1152,7 +1242,8 @@ static Rect OptRect(OptCell c) {
   case OPT_AUDIO: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
   case OPT_FPS: return OptHalf(2, 0);
   case OPT_SPEEDUP: return OptHalf(2, 1);
-  case OPT_LANGUAGE: return OptSlot(3);
+  case OPT_LANGUAGE: return OptHalf(3, 0);
+  case OPT_SPOILERS: return OptHalf(3, 1);
   case OPT_DISPLAY: return OptHalf(4, 0);
   case OPT_WIDE: return OptHalf(4, 1);
   case OPT_AUTO_UPDATE: return OptHalf(kOptUpdateSlot, 0);
@@ -1220,6 +1311,8 @@ static void DrawOptions(Surface s) {
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", "268 MHZ", COL_FAINT);
   DrawOptCell(s, OptRect(OPT_LANGUAGE), Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
+  DrawOptCell(s, OptRect(OPT_SPOILERS), Tr(kStrSpoilers), Tr(g_show_spoilers ? kStrOn : kStrOff),
+              g_show_spoilers ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_DISPLAY), Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelP : kStrScaled), COL_GOOD);
   DrawOptCell(s, OptRect(OPT_WIDE), Tr(kStrView), Tr(g_ui.wide ? kStrViewWide : kStrViewOriginal), g_ui.wide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_AUTO_UPDATE), Tr(kStrUpdate), Tr(g_ui.auto_update ? kStrAuto : kStrNo),
@@ -1291,6 +1384,7 @@ static void OptionsTouch(int x, int y) {
       Updater_SetBeta(g_ui.update_beta);
       break;
     case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
+    case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
     default: break;
@@ -1323,6 +1417,127 @@ static void ResetModalTouch(int x, int y) {
   }
 }
 
+
+// ---- Items window ---------------------------------------------------------------
+// Opened from the items box on the MAP tab: what has been taken in each area, kind by kind
+// (SmMap_PickupCounts), and under it the unique items of the area picked (the one the map
+// shows when it opens; a tap on a row picks another). SPOILERS off shows the counts taken
+// only, never a total, and lists only the unique items found.
+
+enum { kItemsAreas = 6 };   // Ceres has no items
+static int g_items_area;
+static Rect ItemsRowRect(int i) { return (Rect){ 12, 56 + i * 13, 296, 12 }; }
+static Rect ItemsCloseRect(void) { return (Rect){ 116, 212, 88, 18 }; }
+static const int kItemsColX[kSmPickupKinds + 1] = { 46, 112, 152, 190, 84, 226, 262 };   // by SmPickupKind, then TOT
+
+// A major item's name from its PLM type (kSmItems / kSmBeams order in cheats.c).
+static const char *MajorName(int type) {
+  static const int8_t kItem[kSmPickupTypes] = { -1, -1, -1, -1, 3, -1, -1, 4, 6, -1, -1, 8, 0, 1, 10, -1, 9, 5, 7, 2, -1 };
+  static const int8_t kBeam[kSmPickupTypes] = { -1, -1, -1, -1, -1, 0, 1, -1, -1, 2, 3, -1, -1, -1, -1, 4, -1, -1, -1, -1, -1 };
+  if (type < 0 || type >= kSmPickupTypes) return "?";
+  return kItem[type] >= 0 ? TrItem(kItem[type]) : kBeam[type] >= 0 ? TrBeam(kBeam[type]) : "?";
+}
+
+static void OpenItems(int area) {
+  g_items_area = area >= 0 && area < kItemsAreas ? area : -1;
+  g_modal = MODAL_ITEMS;
+}
+
+static void DrawItemsCount(Surface s, int x, int y, int got, int all, uint32_t col) {
+  char buf[16];
+  if (g_show_spoilers) {
+    if (all == 0) {
+      UiDrawText(s, x, y, 1, COL_FAINT, "-");
+      return;
+    }
+    snprintf(buf, sizeof(buf), "%d/%d", got, all);
+    UiDrawText(s, x, y, 1, got == all ? COL_GOOD : col, buf);
+  } else {
+    snprintf(buf, sizeof(buf), "%d", got);
+    UiDrawText(s, x, y, 1, got ? col : COL_FAINT, buf);
+  }
+}
+
+static void DrawItemsModal(Surface s) {
+  static const uint32_t kKindCol[kSmPickupKinds] = { COL_ENERGY, COL_MISSILE, COL_SUPER, COL_PBOMB, COL_RESERVE, COL_TEXT };
+  UiFillRect(s, 8, 26, 304, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 9, 27, 302, 208, COL_MODAL);
+
+  int sum_all[kSmPickupKinds] = { 0 }, sum_got[kSmPickupKinds] = { 0 }, all_total = 0, got_total = 0;
+  int all[kItemsAreas][kSmPickupKinds], got[kItemsAreas][kSmPickupKinds];
+  for (int a = 0; a < kItemsAreas; a++) {
+    SmMap_PickupCounts(a, all[a], got[a]);
+    for (int k = 0; k < kSmPickupKinds; k++) {
+      sum_all[k] += all[a][k], sum_got[k] += got[a][k];
+      all_total += all[a][k], got_total += got[a][k];
+    }
+  }
+  char title[48];
+  if (g_show_spoilers)
+    snprintf(title, sizeof(title), "%s: %d/%d (%d%%)", Tr(kStrItems), got_total, all_total, all_total ? got_total * 100 / all_total : 0);
+  else
+    snprintf(title, sizeof(title), "%s: %d", Tr(kStrItems), got_total);
+  UiDrawText(s, 14, 31, 1, COL_TITLE, title);
+
+  // Column heads: energy and reserve tanks are E and R, the ammo has its own short names.
+  const int hy = 45;
+  UiDrawText(s, 14, hy, 1, COL_ACCENT, Tr(kStrArea));
+  UiDrawText(s, kItemsColX[kSmPickupEnergy], hy, 1, COL_ENERGY, "E");
+  UiDrawText(s, kItemsColX[kSmPickupReserve], hy, 1, COL_RESERVE, "R");
+  UiDrawText(s, kItemsColX[kSmPickupMissile], hy, 1, COL_MISSILE, TrAmmo(0));
+  UiDrawText(s, kItemsColX[kSmPickupSuper], hy, 1, COL_SUPER, TrAmmo(1));
+  UiDrawText(s, kItemsColX[kSmPickupPowerBomb], hy, 1, COL_PBOMB, TrAmmo(2));
+  UiDrawText(s, kItemsColX[kSmPickupMajor], hy, 1, COL_TEXT, Tr(kStrMajorShort));
+  UiDrawText(s, kItemsColX[kSmPickupKinds], hy, 1, COL_TEXT, Tr(kStrTotalShort));
+
+  for (int a = 0; a <= kItemsAreas; a++) {   // the last row is the whole game
+    const Rect r = ItemsRowRect(a);
+    const bool total_row = a == kItemsAreas, picked = a == g_items_area;
+    const int *ra = total_row ? sum_all : all[a], *rg = total_row ? sum_got : got[a];
+    if (total_row) UiFillRect(s, r.x, r.y - 1, r.w, 1, COL_BORDER);
+    else UiFillRect(s, r.x, r.y, r.w, r.h, picked ? RGB(28, 54, 44) : (a & 1) ? COL_MODAL : COL_PANEL);
+    if (picked) UiFrameRect(s, r.x, r.y, r.w, r.h, RGB(90, 220, 150));
+    UiDrawText(s, 14, r.y + 3, 1, total_row ? COL_TITLE : picked ? RGB(180, 255, 210) : COL_TEXT,
+               total_row ? Tr(kStrTotalShort) : TrAreaShort(a));
+    int row_all = 0, row_got = 0;
+    for (int k = 0; k < kSmPickupKinds; k++) {
+      DrawItemsCount(s, kItemsColX[k], r.y + 3, rg[k], ra[k], kKindCol[k]);
+      row_all += ra[k], row_got += rg[k];
+    }
+    DrawItemsCount(s, kItemsColX[kSmPickupKinds], r.y + 3, row_got, row_all, COL_TEXT);
+  }
+
+  // The unique items of the area picked, two columns, in the game's item order.
+  const int ly = ItemsRowRect(kItemsAreas).y + 18;
+  if (g_items_area >= 0) {
+    char head[48];
+    snprintf(head, sizeof(head), "%s - %s", Tr(kStrUniqueItems), TrArea(g_items_area));
+    UiDrawText(s, 14, ly, 1, COL_ACCENT, head);
+    int n, shown = 0;
+    const SmPickup *items = SmMap_Pickups(&n);
+    for (int i = 0; i < n; i++) {
+      const SmPickup *it = &items[i];
+      if (it->area != g_items_area || it->kind != kSmPickupMajor) continue;
+      const bool taken = SmMap_PickupTaken(it);
+      if (!taken && !g_show_spoilers) continue;   // not even a "---": that would tell how many are left
+      const int x = 20 + (shown % 2) * 146, y = ly + 12 + (shown / 2) * 10;
+      UiFillRect(s, x - 6, y + 2, 3, 3, taken ? COL_GOOD : COL_FAINT);
+      UiDrawText(s, x, y, 1, taken ? COL_GOOD : COL_DIM, MajorName(it->type));
+      shown++;
+    }
+    if (!shown) UiDrawText(s, 20, ly + 12, 1, COL_FAINT, Tr(kStrNone));
+  }
+  UiDrawBoxLabel(s, ItemsCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(ItemsCloseRect()), Tr(kStrClose));
+}
+
+static void ItemsModalTouch(int x, int y) {
+  if (UiIn(ItemsCloseRect(), x, y)) {
+    g_modal = MODAL_NONE;
+    return;
+  }
+  for (int a = 0; a < kItemsAreas; a++)
+    if (UiIn(ItemsRowRect(a), x, y)) g_items_area = a;
+}
 
 // ---- What's new ----------------------------------------------------------------------
 // The release notes the updater read on its last check (Updater_CopyNotes), in a window over
@@ -2217,11 +2432,12 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide; } SavedOptions;
+typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers; } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide };
+                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
+                         g_show_spoilers };
 }
 
 static void SaveConfig(void) {
@@ -2230,8 +2446,8 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          o.language, o.map_zoom, o.auto_update, o.update_beta, o.hud_hide);
+          "language=%d\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.language, o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers);
   fclose(f);
 }
 
@@ -2262,6 +2478,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
     else if (!strcmp(key, "update_beta")) g_ui.update_beta = v != 0;
     else if (!strcmp(key, "hud_auto_hide")) g_ui.hud_auto_hide = v != 0;
+    else if (!strcmp(key, "spoilers")) g_show_spoilers = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
     else if (!strcmp(key, "language") && v >= 0 && v < kLangCount) g_ui_lang = (UiLang)v;
   }
@@ -2306,6 +2523,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_RA_DETAIL: RaDetailTouch(x, y); return;
   case MODAL_STATE: StateDetailTouch(x, y); return;
   case MODAL_NOTES: NotesTouch(x, y); return;
+  case MODAL_ITEMS: ItemsModalTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -2394,6 +2612,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_RA_DETAIL: DrawRaDetail(s); break;
   case MODAL_STATE: DrawStateDetail(s); break;
   case MODAL_NOTES: DrawNotes(s); break;
+  case MODAL_ITEMS: DrawItemsModal(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;
@@ -2416,7 +2635,7 @@ static void DrawBottom(const UiPerf *p) {
 // timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
 static bool UiIsLive(void) {
   switch (g_modal) {
-  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: break;
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: break;
 #if DEBUG_TOOLS
   // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
   case MODAL_TOOLS: return SceneRec_Active();

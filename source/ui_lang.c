@@ -154,6 +154,15 @@ static const char *const kText[kStrCount][kLangCount] = {
   [kStrUpdsRestart] = { "RESTART", "REINICIA", "REINICIA", "REDÉMARRER", "REINICIE" },
   [kStrUpdsError] = { "ERROR", "ERROR", "ERROR", "ERREUR", "ERRO" },
   [kStrUpdFrom] = { "%s > %s", "%s > %s", "%s > %s", "%s > %s", "%s > %s" },
+  // OPTIONS -> SPOILERS (ON / OFF): off hides the names of what Samus has not found and the item totals.
+  [kStrSpoilers] = { "SPOILERS", "SPOILERS", "SPOILERS", "SPOILERS", "SPOILERS" },
+  // The items window (map tab): column heads of its table (energy and reserve tanks are "E" and "R"),
+  // and the unique items of the area picked under it.
+  [kStrArea] = { "AREA", "ZONA", "ZONA", "ZONE", "ÁREA" },
+  [kStrMajorShort] = { "ITEM", "OBJ", "OBJ", "OBJ", "ITEM" },
+  [kStrTotalShort] = { "TOT", "TOT", "TOT", "TOT", "TOT" },
+  [kStrUniqueItems] = { "UNIQUE ITEMS", "OBJETOS ÚNICOS", "OBJECTES ÚNICS", "OBJETS UNIQUES", "ITENS ÚNICOS" },
+  [kStrNone] = { "NONE", "NINGUNO", "CAP", "AUCUN", "NENHUM" },
 };
 
 static const char *const kNames[kLangCount] = { "ENGLISH", "ESPAÑOL", "CATALÀ", "FRANÇAIS", "PORTUGUÊS" };
