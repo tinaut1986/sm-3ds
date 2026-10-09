@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
   // A plausible mid-game state: Landing Site, some Crateria explored.
   game_state = 8; area_index = 0; room_index = 0x1A; room_ptr = 0x91F8;
   samus_x_pos = 700; samus_y_pos = 300;
-  samus_health = 247; samus_max_health = 499; samus_reserve_health = 60; samus_max_reserve_health = 100; reserve_health_mode = 1;
+  samus_health = 247; samus_max_health = 499; samus_reserve_health = 160; samus_max_reserve_health = 300; reserve_health_mode = 1;
   samus_missiles = 45; samus_max_missiles = 75; samus_super_missiles = 5; samus_max_super_missiles = 10; samus_power_bombs = 0; samus_max_power_bombs = 10;
   collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100 | 0x4000 | 0x8000; equipped_items = 0x0001 | 0x0004 | 0x1000 | 0x4000;
   collected_beams = 0x1000 | 0x0002; equipped_beams = 0x1000;
