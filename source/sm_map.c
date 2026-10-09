@@ -79,6 +79,7 @@ uint32_t SmMap_AreaKey(int area) {
   const uint8_t *bits = ExploredBits(area);
   for (int i = 0; bits && i < 256; i++) h = (h ^ bits[i]) * 16777619u;
   if (area >= 0 && area < 6) h = (h ^ boss_bits_for_area[area]) * 16777619u;
+  for (int i = 0; i < 0x40; i++) h = (h ^ item_bit_array[i]) * 16777619u;   // the item marks
   return (h ^ (SmMap_HasMapStation(area) ? 1u : 0u)) * 16777619u;
 }
 
@@ -314,6 +315,95 @@ bool SmMap_SamusCell(int *area, int *col, int *row) {
   if (col) *col = c;
   if (row) *row = rr;
   return true;
+}
+
+// ---- Items ------------------------------------------------------------------------
+// Item PLMs in bank $84: three runs (visible, in a Chozo orb, hidden in a shot block) of
+// 21 headers 4 bytes apart, in the same type order. The room argument is the item's bit.
+#define kItemPlmFirst 0xEED7
+#define kItemPlmRun   (kSmPickupTypes * 4)
+
+static SmPickup g_pickups[kSmMaxPickups];
+static int g_pickup_count = -1;
+
+static SmPickupKind PickupKind(int type) {
+  switch (type) {
+  case 0: return kSmPickupEnergy;
+  case 1: return kSmPickupMissile;
+  case 2: return kSmPickupSuper;
+  case 3: return kSmPickupPowerBomb;
+  case 20: return kSmPickupReserve;
+  default: return kSmPickupMajor;
+  }
+}
+
+static void AddPickupsOfState(const SmRoom *r, uint16_t state) {
+  const uint16_t plms = Word(RomPtr(0x8F0000 | (uint16_t)(state + 20)));
+  if (plms < 0x8000) return;
+  for (const uint8_t *e = RomPtr(0x8F0000 | plms); Word(e) != 0; e += 6) {
+    const uint16_t id = Word(e);
+    if (id < kItemPlmFirst || id >= kItemPlmFirst + 3 * kItemPlmRun || (id - kItemPlmFirst) % 4) continue;
+    const uint16_t bit = Word(e + 4);
+    if (bit >= 0x200) continue;
+    bool seen = false;
+    for (int i = 0; i < g_pickup_count && !seen; i++) seen = g_pickups[i].bit == bit;
+    if (seen || g_pickup_count >= kSmMaxPickups) continue;
+    const int type = (id - kItemPlmFirst) % kItemPlmRun / 4;
+    int col = r->x + e[2] / 16, row = r->y + 1 + e[3] / 16;
+    if (col >= kSmMapCols) col = kSmMapCols - 1;
+    if (row >= kSmMapRows) row = kSmMapRows - 1;
+    g_pickups[g_pickup_count++] = (SmPickup){ r->header, r->area, (uint8_t)col, (uint8_t)row, (uint8_t)bit,
+                                              (uint8_t)type, (uint8_t)PickupKind(type) };
+  }
+}
+
+static void ScanPickups(void) {
+  if (g_pickup_count >= 0) return;
+  SmMap_Init();
+  g_pickup_count = 0;
+  for (int i = 0; i < g_room_count; i++) {
+    const SmRoom *r = &g_rooms[i];
+    // The state list (HandleRoomDefStateSelect): condition word, its argument, the state's
+    // pointer; the default state (0xE5E6) comes last and inline. Items of every state count,
+    // once each (the same item is in several states of a room).
+    uint16_t a = (uint16_t)(r->header + 11);
+    for (int guard = 0; guard < 16; guard++) {
+      const uint16_t cond = Word(RomPtr(0x8F0000 | a));
+      if (cond == 0xE5E6) { AddPickupsOfState(r, (uint16_t)(a + 2)); break; }
+      int arg;
+      switch (cond) {
+      case 0xE612: case 0xE629: arg = 1; break;
+      case 0xE5EB: arg = 2; break;
+      case 0xE5FF: case 0xE640: case 0xE652: case 0xE669: case 0xE676: arg = 0; break;
+      default: arg = -1; break;
+      }
+      if (arg < 0) break;
+      AddPickupsOfState(r, Word(RomPtr(0x8F0000 | (uint16_t)(a + 2 + arg))));
+      a = (uint16_t)(a + 4 + arg);
+    }
+  }
+}
+
+const SmPickup *SmMap_Pickups(int *count) {
+  ScanPickups();
+  if (count) *count = g_pickup_count;
+  return g_pickups;
+}
+
+bool SmMap_PickupTaken(const SmPickup *p) {
+  return (item_bit_array[p->bit >> 3] >> (p->bit & 7)) & 1;
+}
+
+void SmMap_PickupCounts(int area, int total[kSmPickupKinds], int taken[kSmPickupKinds]) {
+  ScanPickups();
+  memset(total, 0, sizeof(int) * kSmPickupKinds);
+  memset(taken, 0, sizeof(int) * kSmPickupKinds);
+  for (int i = 0; i < g_pickup_count; i++) {
+    const SmPickup *p = &g_pickups[i];
+    if (p->area != area) continue;
+    total[p->kind]++;
+    if (SmMap_PickupTaken(p)) taken[p->kind]++;
+  }
 }
 
 // ---- Debug map unlock ------------------------------------------------------------

@@ -60,7 +60,7 @@ bool SmMap_RoomOwnsCell(const SmRoom *room, int col, int row);
 
 // True if the area's map station has been used, so every existing cell shows.
 bool SmMap_HasMapStation(int area);
-// Changes when what the pause map of `area` shows changes: its explored cells, its bosses, its map station
+// Changes when what the MAP tab shows of `area` changes: its explored cells, its bosses, its map station, the items taken
 // (the bottom screen's MAP tab redraws on it instead of every few frames).
 uint32_t SmMap_AreaKey(int area);
 
@@ -72,6 +72,30 @@ const SmRoom *SmMap_RoomAt(int area, int col, int row);
 
 // The room Samus is in now, or NULL.
 const SmRoom *SmMap_CurrentRoom(void);
+
+// --- Items ------------------------------------------------------------------------
+// Every item of the game, found once in the rooms' PLM lists (all their states): the
+// visible, Chozo-orb and hidden item PLMs of bank $84, each with its bit in the game's
+// item_bit_array. 100 in the JU ROM. The map cell is the screen the PLM sits in.
+typedef enum {
+  kSmPickupEnergy, kSmPickupMissile, kSmPickupSuper, kSmPickupPowerBomb, kSmPickupReserve,
+  kSmPickupMajor,   // a unique item or beam
+  kSmPickupKinds
+} SmPickupKind;
+
+typedef struct {
+  uint16_t room;        // header pointer of the room it is in
+  uint8_t area, col, row;
+  uint8_t bit;          // index into item_bit_array
+  uint8_t type;         // PLM item type: 0 energy tank, 1 missile, ... 20 reserve tank (kSmPickupTypeNames order)
+  uint8_t kind;         // SmPickupKind
+} SmPickup;
+
+enum { kSmMaxPickups = 128, kSmPickupTypes = 21 };
+const SmPickup *SmMap_Pickups(int *count);
+bool SmMap_PickupTaken(const SmPickup *p);
+// Per area (0-6): how many of each kind there are and how many are taken.
+void SmMap_PickupCounts(int area, int total[kSmPickupKinds], int taken[kSmPickupKinds]);
 
 // --- Debug: unlock an area's map -------------------------------------------------
 // Areas 0-5 (Ceres has no map station). Each tap on the Status tab cycles
