@@ -23,6 +23,7 @@
 
 #include "bottom_ui.h"
 #include "cheats.h"
+#include "modern_controls.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
@@ -869,7 +870,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
-      int inputs = g_input1_state | g_gamepad_buttons | CirclePadAsDpad();
+      int inputs = ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad());
       Cheats_BeforeFrame();
       {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
         const int hidden = BottomUi_HudHidden();

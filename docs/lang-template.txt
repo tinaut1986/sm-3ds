@@ -124,6 +124,28 @@ ITEM =
 TOT =
 UNIQUE ITEMS =
 NONE =
+CONTROLS =
+CLASSIC =
+MODERN =
+MOVE =
+MOVE, ALWAYS RUNNING =
+JUMP =
+RUN =
+WALK =
+FIRE =
+FIRE / BOMB IN BALL =
+CHOOSE WEAPON =
+CANCEL WEAPON =
+AIM UP =
+AIM DOWN =
+AIM DOWN, UNTIL UP =
+PAUSE =
+MORPH BALL IN / OUT =
+MISSILE / POWER BOMB IN BALL =
+GRAPPLING BEAM =
+X-RAY SCOPE =
+MISSILE OR SUPER MISSILE =
+BUTTONS FROM THE GAME'S CONTROLLER SETTING =
 
 [items]
 # 11 characters at most
@@ -204,22 +226,32 @@ ENERGY TANK =
 MISSILE =
 # lowercase, a {} for each picture of the English line
 MISSILE (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+MISSILE (modern line) =
 # up to three rows split by |
 SUPER MISSILE =
 # lowercase, a {} for each picture of the English line
 SUPER MISSILE (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+SUPER MISSILE (modern line) =
 # up to three rows split by |
 POWER BOMB =
 # lowercase, a {} for each picture of the English line
 POWER BOMB (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+POWER BOMB (modern line) =
 # up to three rows split by |
 GRAPPLING BEAM =
 # lowercase, a {} for each picture of the English line
 GRAPPLING BEAM (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+GRAPPLING BEAM (modern line) =
 # up to three rows split by |
 X-RAY SCOPE =
 # lowercase, a {} for each picture of the English line
 X-RAY SCOPE (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+X-RAY SCOPE (modern line) =
 # up to three rows split by |
 VARIA SUIT =
 # up to three rows split by |
@@ -236,6 +268,8 @@ SPACE JUMP =
 SPEED BOOSTER =
 # lowercase, a {} for each picture of the English line
 SPEED BOOSTER (line) =
+# modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons
+SPEED BOOSTER (modern line) =
 # up to three rows split by |
 CHARGE BEAM =
 # up to three rows split by |
@@ -324,6 +358,28 @@ MODE =
 CHANGE =
 # the title of the language list and its entry in OPTION MODE
 LANGUAGE =
+# CONTROLLER SETTING MODE, the scheme under the title: its first choice, 10 letters at most
+CLASSIC =
+# its second choice, 12 letters at most
+MODERN =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+WALK =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+SHOT / BOMB =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+MORPH BALL =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+AIM =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+MISSILE =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+POWER BOMB =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+GRAPPLING BEAM =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+X-RAY SCOPE =
+# CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most
+MISSILE / SUPER =
 
 [file select]
 # in the game's capitals, in about the English one's room

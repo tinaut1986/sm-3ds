@@ -170,7 +170,7 @@ static void CheckValue(const Key *k, const char *value, int line) {
     if (bars > 2) Report(true, line, "\"%s\": a box has three rows at most%s", value, "");
   }
   const bool ui = UiSection(k->section);
-  const bool lowercase_line = strstr(k->key, "(line)") != NULL;
+  const bool lowercase_line = strstr(k->key, "line)") != NULL;   // "(line)", "(modern line)"
   for (const char *p = value; *p;) {
     const char *start = p;
     const unsigned c = NextCode(&p);

@@ -711,6 +711,9 @@ static const CustomGlyph kMenuBigCustom[] = {
   // Q: the top of O, a bottom with a tail.
   { 'Q', { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
            ".eed.eed", ".eed.eed", ".eed.eed", ".eedeeed", ".eed.eee", "..eeeeee", "...dddee", "......ed" }, 0x00 },
+  // /: the game's font has none (CONTROLLER SETTING MODE's modern rows).
+  { '/', { "........", ".....eed", ".....eed", "....eed.", "....eed.", "...eed..", "...eed..", "..eed...",
+           "..eed...", ".eed....", ".eed....", "eed.....", "eed.....", "........", "........", "........" }, 0x00 },
 };
 
 static const Font kMenuBig = {
@@ -836,6 +839,85 @@ static void LanguageScreens(const TextLayer *big) {
     PutText(big, RtlLanguageMenuRow(i, n), 4, LanguageName(i), i == cur ? kPalBright : kPalDim);
 }
 
+// CONTROLLER SETTING MODE with the control scheme (sm_rtl.h, RtlControlsMenu), drawn over the game's
+// own list every frame: a fixed row with the game's left-right D-pad (as SPECIAL SETTING MODE shows
+// "change") and CLASSIC / MODERN, the chosen one bright; under it the rows g_rtl_ctl_top on: the
+// original's button rows with the icon of the button each is set to, END and RESET TO DEFAULT, or the
+// modern scheme's buttons, dim (they cannot be changed), and END.
+static const char *OptionsText(const char *en) {
+  const char *t = UiLang_Get("options", en);
+  return t ? t : en;
+}
+
+enum { kCtlLabelCol = 6, kCtlIconCol = 23 };
+enum { kBtnX, kBtnA, kBtnB, kBtnSelect, kBtnY, kBtnL, kBtnR, kBtnLeftRight = 10, kBtnUpDown };
+
+// A 3x2 button icon (RtlCtlButtonIcon), or one of the font's 2x2 D-pads: its left and right arms
+// marked (SPECIAL SETTING MODE's "change"), or its up and down ones (the footer's "select"); at
+// (row, col). Returns its width.
+static int CtlIcon(const TextLayer *L, int row, int col, int button, bool dim) {
+  if (button >= kBtnLeftRight) {
+    const uint16_t first = button == kBtnUpDown ? 0xb2 : 0xb4;
+    const uint16_t attr = (uint16_t)((Cell(L, 1, 16) & 0x2000) | (dim ? kPalDim : kPalBright));
+    for (int k = 0; k < 4; k++)
+      Want((uint16_t)(L->map + (row + k / 2) * 32 + col + k % 2), (uint16_t)(attr | (first + (k / 2) * 0x10 + k % 2)));
+    return 2;
+  }
+  const uint16 *w = RtlCtlButtonIcon(button);
+  for (int k = 0; k < 6; k++) {
+    uint16_t v = w[k];
+    if (dim) v = (uint16_t)((v & ~kPalMask) | kPalDim);
+    Want((uint16_t)(L->map + (row + k / 3) * 32 + col + k % 3), v);
+  }
+  return 3;
+}
+
+static void CtlPlus(const TextLayer *L, int row, int col, bool dim) {
+  const uint16_t attr = (uint16_t)((Cell(L, 1, 16) & 0x2000) | (dim ? kPalDim : kPalBright));
+  Want((uint16_t)(L->map + row * 32 + col), (uint16_t)(attr | 0x45));
+  Want((uint16_t)(L->map + (row + 1) * 32 + col), (uint16_t)(attr | 0x55));
+}
+
+static void ControllerList(const TextLayer *big) {
+  const bool modern = g_rtl_controls_menu->modern();
+  const int n = RtlCtlCount(modern);
+  // The area under the title, blank.
+  for (int r = 3; r < 28; r++)
+    for (int x = 0; x < 32; x++)
+      Want((uint16_t)(big->map + r * 32 + x), (uint16_t)((Cell(big, r, x) & 0xfc00 & ~kPalMask) | big->font->fill));
+  static const char *const kClassic[7] = { "SHOT", "JUMP", "DASH", "ITEM SELECT", "ITEM CANCEL", "ANGLE UP", "ANGLE DOWN" };
+  // The modern scheme: the label (an [options] key) and its buttons, a second one after a "+".
+  static const struct { const char *en; int8_t b1, b2; } kModern[11] = {
+    { "DASH", kBtnLeftRight, -1 }, { "JUMP", kBtnA, -1 }, { "WALK", kBtnB, -1 }, { "SHOT / BOMB", kBtnX, -1 },
+    { "MORPH BALL", kBtnY, -1 }, { "AIM", kBtnL, kBtnUpDown }, { "MISSILE", kBtnR, kBtnX },
+    { "POWER BOMB", kBtnR, kBtnX }, { "GRAPPLING BEAM", kBtnR, kBtnY }, { "X-RAY SCOPE", kBtnR, kBtnB },
+    { "MISSILE / SUPER", kBtnSelect, -1 },
+  };
+  // The scheme: the left-right D-pad, then both names, the chosen one bright.
+  CtlIcon(big, kRtlCtlHeadRow, kCtlLabelCol, kBtnLeftRight, false);
+  PutText(big, kRtlCtlHeadRow, kCtlLabelCol + 3, OptionsText("CLASSIC"), modern ? kPalDim : kPalBright);
+  PutText(big, kRtlCtlHeadRow, 20, OptionsText("MODERN"), modern ? kPalBright : kPalDim);
+  for (int i = g_rtl_ctl_top; i < n && i < g_rtl_ctl_top + kRtlCtlShown; i++) {
+    const int row = kRtlCtlRow0 + kRtlCtlPitch * (i - g_rtl_ctl_top);
+    if (!modern && i < 7) {
+      PutText(big, row, kCtlLabelCol, OptionsText(kClassic[i]), kPalBright);
+      CtlIcon(big, row, kCtlIconCol, RtlCtlBinding(i), false);
+    } else if (modern && i < 11) {
+      const int k = i;
+      PutText(big, row, kCtlLabelCol, OptionsText(kModern[k].en), kPalDim);
+      int col = kCtlIconCol;
+      col += CtlIcon(big, row, col, kModern[k].b1, true);
+      if (kModern[k].b2 >= 0) {
+        CtlPlus(big, row, col++, true);
+        CtlIcon(big, row, col, kModern[k].b2, true);
+      }
+    } else {
+      const bool reset = !modern && i == n - 1;
+      PutText(big, row, kCtlLabelCol, OptionsText(reset ? "RESET TO DEFAULT" : "END"), kPalBright);
+    }
+  }
+}
+
 static int LanguageMenuCount(void) { return UiLang_Count(); }
 static int LanguageMenuCurrent(void) { return g_ui_lang; }
 static void LanguageMenuChoose(int i) {
@@ -862,6 +944,8 @@ static void OptionsScreen(void) {
     TranslateLayer(&small, "options", kOptionsSmall, sizeof(kOptionsSmall) / sizeof(kOptionsSmall[0]));
   }
   if (g_rtl_language_menu) LanguageScreens(&big);
+  if (g_rtl_controls_menu && g_rtl_controls_row_shown && game_options_screen_index >= 5 && game_options_screen_index <= 7)
+    ControllerList(&big);   // also while it dissolves in and out
 }
 
 // ---- File select (game state 4) ----------------------------------------------------------------
@@ -1506,6 +1590,12 @@ void GameTextScreens_ForEachKey(LangKeyFn *fn) {
   FOR_KEYS(fn, "options", kOptionsBig, kRoom);
   FOR_KEYS(fn, "options", kOptionsSmall, kRoom);
   fn("options", "LANGUAGE", "the title of the language list and its entry in OPTION MODE");
+  fn("options", "CLASSIC", "CONTROLLER SETTING MODE, the scheme under the title: its first choice, 10 letters at most");
+  fn("options", "MODERN", "its second choice, 12 letters at most");
+  static const char *const kModernRows[] = { "WALK", "SHOT / BOMB", "MORPH BALL", "AIM", "MISSILE", "POWER BOMB",
+                                             "GRAPPLING BEAM", "X-RAY SCOPE", "MISSILE / SUPER" };
+  for (size_t i = 0; i < sizeof(kModernRows) / sizeof(kModernRows[0]); i++)
+    fn("options", kModernRows[i], "CONTROLLER SETTING MODE, the modern scheme's rows: 16 letters at most");
   FOR_KEYS(fn, "file select", kFileSelectBig, kRoom);
   FOR_KEYS(fn, "file select", kFileSelectSmall, kRoom);
   FOR_KEYS(fn, "file select", kFileSelectLabels, "a picture redrawn with a small font in the English one's room");

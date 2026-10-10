@@ -1351,6 +1351,9 @@ void InitializeHud(void) {  // 0x809A79
 
 static const uint16 kEnergyTankIconTilemapOffsets[14] = { 0x42, 0x44, 0x46, 0x48, 0x4a, 0x4c, 0x4e, 2, 4, 6, 8, 0xa, 0xc, 0xe };
 
+uint8 g_rtl_hud_marked;   // 3DS port, see sm_rtl.h
+bool g_rtl_hud_quiet, g_rtl_hud_click;
+
 void HandleHudTilemap(void) {  // 0x809B44
   if (reserve_health_mode == 1) {
     const uint16 *v1 = (const uint16 *)RomPtr_80(addr_kHudTilemaps_AutoReserve);
@@ -1405,9 +1408,23 @@ void HandleHudTilemap(void) {  // 0x809B44
     if (samus_movement_type != 3
         && samus_movement_type != 20
         && grapple_beam_function == 0xC4F0
-        && !time_is_frozen_flag) {
+        && !time_is_frozen_flag
+        && !g_rtl_hud_quiet) {   // 3DS port
       QueueSfx1_Max6(0x39);
     }
+  }
+  {   // 3DS port: the marked items (modern controls), see sm_rtl.h
+    static uint8 drawn;
+    if (g_rtl_hud_click) {
+      g_rtl_hud_click = false;
+      if (!time_is_frozen_flag) QueueSfx1_Max6(0x39);
+    }
+    for (int i = 1; i <= 5; i++) {
+      const uint8 bit = 1 << i;
+      if (((g_rtl_hud_marked | drawn) & bit) && i != hud_item_index)
+        ToggleHudItemHighlight(i, (g_rtl_hud_marked & bit) ? 0x0000 : 0x1400);
+    }
+    drawn = g_rtl_hud_marked;
   }
   uint16 v4 = 5120;
   if ((nmi_frame_counter_byte & 0x10) != 0)
