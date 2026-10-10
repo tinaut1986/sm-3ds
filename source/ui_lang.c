@@ -145,6 +145,31 @@ static const char *const kText[kStrCount] = {
   [kStrTotalShort] = "TOT",
   [kStrUniqueItems] = "UNIQUE ITEMS",
   [kStrNone] = "NONE",
+  // OPTIONS -> CONTROLS: the original buttons, or the modern scheme (docs/modern-controls.md).
+  [kStrControls] = "CONTROLS",
+  [kStrClassic] = "CLASSIC",
+  [kStrModern] = "MODERN",
+  // OPTIONS -> CONTROLS -> "?": the window with what each button does (the keys are drawn, the text beside them
+  // has about 34 characters of room).
+  [kStrCtlMove] = "MOVE",
+  [kStrCtlMoveRun] = "MOVE, ALWAYS RUNNING",
+  [kStrCtlJump] = "JUMP",
+  [kStrCtlRun] = "RUN",
+  [kStrCtlWalk] = "WALK",
+  [kStrCtlFire] = "FIRE",
+  [kStrCtlFireBomb] = "FIRE / BOMB IN BALL",
+  [kStrCtlChoose] = "CHOOSE WEAPON",
+  [kStrCtlCancel] = "CANCEL WEAPON",
+  [kStrCtlAimUp] = "AIM UP",
+  [kStrCtlAimDown] = "AIM DOWN",
+  [kStrCtlAimDownLock] = "AIM DOWN, UNTIL UP",
+  [kStrCtlPause] = "PAUSE",
+  [kStrCtlMorph] = "MORPH BALL IN / OUT",
+  [kStrCtlMissile] = "MISSILE / POWER BOMB IN BALL",
+  [kStrCtlGrapple] = "GRAPPLING BEAM",
+  [kStrCtlXray] = "X-RAY SCOPE",
+  [kStrCtlMissileKind] = "MISSILE OR SUPER MISSILE",
+  [kStrCtlConfigNote] = "BUTTONS FROM THE GAME'S CONTROLLER SETTING",
 };
 
 static const char *g_tr[kStrCount];   // the current language's, resolved by UiLang_Set

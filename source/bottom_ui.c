@@ -12,6 +12,8 @@
 #include "src/sm_rtl.h"
 #include "src/variables.h"
 #include "cheats.h"
+#include "game_text.h"
+#include "modern_controls.h"
 #include "debug_tools.h"
 #include "scene_rec.h"
 #include "sm_map.h"
@@ -46,7 +48,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS, MODAL_CONTROLS } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -786,11 +788,17 @@ static void DrawTapMark(Surface s, Rect r, bool ready) {
 
 // A HUD item on STATUS has two looks: marked (a tinted body: the one chosen) and active (a double
 // yellow frame: the one the game uses now, its HUD highlight). With the original controls they are
-// the same item, SELECT's. A modern scheme (#32) keeps one choice per pair (missiles or supers,
-// bombs or power bombs...): several marked at once, one active at most. Only these two change then.
+// the same item, SELECT's. With the modern ones (modern_controls.h) the marked one is the missile kind
+// R + X fires (the game's HUD draws it too, g_rtl_hud_marked) and the active one what a button holds.
 #define COL_HUD_MARKED RGB(48, 44, 14)
-static bool StatusHudMarked(int item) { return hud_item_index == (uint16)item; }
+static bool StatusHudMarked(int item) {
+  return ModernControls_On() ? (g_rtl_hud_marked >> item & 1) != 0 : hud_item_index == (uint16)item;
+}
 static bool StatusHudActive(int item) { return hud_item_index == (uint16)item; }
+// With the modern controls a tap only marks the missile kind; the other items are the buttons' job.
+static bool StatusHudTappable(int item) {
+  return !ModernControls_On() || item == kSmHudMissiles || item == kSmHudSupers;
+}
 
 static void DrawHudActiveFrame(Surface s, Rect r) {
   UiFrameRect(s, r.x, r.y, r.w, r.h, COL_WARN);
@@ -902,7 +910,7 @@ static void DrawStatus(Surface s) {
     if (max[i] || g_show_spoilers) UiDrawTextf(s, x + 32, 77, max[i] ? COL_TEXT : COL_FAINT, "%u/%u", cur[i], max[i]);
     else UiDrawText(s, x + 32, 77, 1, COL_FAINT, "---");
     UiDrawBar(s, x + 32, 88, 60, 7, (int)cur[i], (int)max[i], kAmmoCol[i]);
-    if (max[i]) DrawTapMark(s, ar, cur[i] > 0);
+    if (max[i] && StatusHudTappable(kSmHudMissiles + i)) DrawTapMark(s, ar, ModernControls_On() || cur[i] > 0);
   }
 
   // Items: green = equipped, yellow = collected but switched off, dim = missing.
@@ -918,7 +926,7 @@ static void DrawStatus(Surface s) {
 #if DEBUG_TOOLS
     if (g_status_fn) UiFrameRect(s, r.x, r.y, r.w, r.h, COL_FN);
 #endif
-    if (hud >= 0 && have) DrawTapMark(s, r, on);
+    if (hud >= 0 && have && StatusHudTappable(hud)) DrawTapMark(s, r, on);
     if (hud >= 0 && StatusHudActive(hud)) DrawHudActiveFrame(s, r);
   }
 #if DEBUG_TOOLS
@@ -1015,7 +1023,15 @@ static void StatusTouch(int x, int y) {
     return;
   }
   const int item = StatusHudItemAt(x, y);
-  if (item >= 0) Hud_RequestSelect(hud_item_index == item ? kSmHudNone : item);
+  if (item < 0 || !StatusHudTappable(item)) return;
+  if (ModernControls_On()) {
+    if (item != ModernControls_Missile() && (item == kSmHudMissiles ? samus_max_missiles : samus_max_super_missiles)) {
+      ModernControls_SetMissile(item);
+      g_rtl_hud_click = true;
+    }
+    return;
+  }
+  Hud_RequestSelect(hud_item_index == item ? kSmHudNone : item);
 }
 
 // ---- States tab -----------------------------------------------------------------
@@ -1336,7 +1352,7 @@ void BottomUi_GameReset(void) {
 // Two columns of slots. A slot is one button, or two half buttons that share its width
 // (each shows its own setting and its current value, a tap changes it).
 //
-//   FRAMES            AUDIO [speaker]
+//   FRAMES | AUDIO    CONTROLS [?]
 //   FPS | CPU         LANGUAGE | SPOILERS
 //   IMAGE | VIEW      HUD
 //   UPDATE | CHANNEL  UPDATES | WHAT'S NEW
@@ -1344,7 +1360,7 @@ void BottomUi_GameReset(void) {
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_COUNT
 } OptCell;
 
 enum { kOptHudSlot = 5, kOptUpdateSlot = 6, kOptNewsSlot = 7, kOptResetRow = 8, kOptSpeakerW = 34 };
@@ -1357,8 +1373,9 @@ static Rect OptHalf(int slot, int half) {
 
 static Rect OptRect(OptCell c) {
   switch (c) {
-  case OPT_PACING: return OptSlot(0);
-  case OPT_AUDIO: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
+  case OPT_PACING: return OptHalf(0, 0);
+  case OPT_AUDIO: return OptHalf(0, 1);
+  case OPT_CONTROLS: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
   case OPT_FPS: return OptHalf(2, 0);
   case OPT_SPEEDUP: return OptHalf(2, 1);
   case OPT_LANGUAGE: return OptHalf(3, 0);
@@ -1372,7 +1389,8 @@ static Rect OptRect(OptCell c) {
   default: return OptHalf(kOptNewsSlot, 0);   // OPT_UPDATES
   }
 }
-static Rect SpeakerRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
+// The "?" beside CONTROLS: the window with both schemes' buttons.
+static Rect ControlsHelpRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
 static Rect ResetRect(void) {
   const Rect l = OptSlot(kOptResetRow), r = OptSlot(kOptResetRow + 1);
   return (Rect){ l.x, l.y, r.x + r.w - l.x, l.h };
@@ -1416,12 +1434,13 @@ static void DrawOptions(Surface s) {
   static const UiStr kPaceNames[kPaceCount] = { kStrAuto, kStrPaceLock, kStrPaceNoSkip };
   DrawOptCell(s, OptRect(OPT_PACING), Tr(kStrPacing), Tr(kPaceNames[g_ui.pacing]), g_ui.pacing == kPaceNoSkip ? COL_WARN : COL_GOOD);
 
-  // AUDIO opens its own window one day (a volume for each kind of sound); for now a tap on it, or
-  // on the loudspeaker beside it, which stays the shortcut, switches the sound.
-  DrawOptCell(s, OptRect(OPT_AUDIO), Tr(kStrAudio), Tr(g_ui.audio_on ? kStrOn : kStrOff), g_ui.audio_on ? COL_GOOD : COL_DIM);
-  const Rect sp = SpeakerRect();
-  UiDrawBox(s, sp, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(sp));
-  DrawSpeaker(s, sp.x + sp.w / 2 - 2, sp.y + sp.h / 2, g_ui.audio_on, g_ui.audio_on ? COL_GOOD : COL_DIM);
+  // AUDIO: a tap switches the sound; the loudspeaker beside the value shows it.
+  const Rect ar = OptRect(OPT_AUDIO);
+  DrawOptCell(s, ar, Tr(kStrAudio), Tr(g_ui.audio_on ? kStrOn : kStrOff), g_ui.audio_on ? COL_GOOD : COL_DIM);
+  DrawSpeaker(s, ar.x + ar.w - 14, ar.y + 20, g_ui.audio_on, g_ui.audio_on ? COL_GOOD : COL_DIM);
+  // CONTROLS, and beside it "?": what each button does in both schemes (MODAL_CONTROLS).
+  DrawOptCell(s, OptRect(OPT_CONTROLS), Tr(kStrControls), Tr(ModernControls_On() ? kStrModern : kStrClassic), COL_GOOD);
+  UiDrawBoxLabel(s, ControlsHelpRect(), RGB(24, 32, 50), RGB(50, 80, 130), COL_ACCENT, Pressed(ControlsHelpRect()), "?");
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1471,13 +1490,21 @@ static void DrawOptions(Surface s) {
 
 static void OpenNotes(void);
 
+static void OpenControlsHelp(void);
+
+// OPTIONS -> CONTROLS (and config.ini): the scheme and the item boxes' lines that go with it.
+static void SetControls(bool modern) {
+  ModernControls_Set(modern);
+  GameText_SetModernLines(modern);
+}
+
 static void OptionsTouch(int x, int y) {
   if (UiIn(ResetRect(), x, y)) {
     g_modal = MODAL_RESET;
     return;
   }
-  if (UiIn(SpeakerRect(), x, y)) {
-    g_ui.audio_on = !g_ui.audio_on;
+  if (UiIn(ControlsHelpRect(), x, y)) {
+    OpenControlsHelp();
     return;
   }
   for (int i = 0; i < OPT_COUNT; i++) {
@@ -1503,6 +1530,7 @@ static void OptionsTouch(int x, int y) {
       Updater_SetBeta(g_ui.update_beta);
       break;
     case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
+    case OPT_CONTROLS: SetControls(!ModernControls_On()); break;
     case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
@@ -1536,6 +1564,111 @@ static void ResetModalTouch(int x, int y) {
   }
 }
 
+
+// ---- Controls window ------------------------------------------------------------
+// OPTIONS -> "?" beside CONTROLS: what each button does, a tab for each scheme (the one in use
+// first). The original's buttons are read from the game's own configuration (CONTROLLER SETTING
+// MODE can move them); the modern ones are fixed (modern_controls.c).
+
+static bool g_controls_help_modern;   // the tab shown
+static Rect ControlsTabRect(int i) { return (Rect){ 150 + i * 80, 30, 76, 16 }; }
+static Rect ControlsCloseRect(void) { return (Rect){ 116, 212, 88, 18 }; }
+
+static void OpenControlsHelp(void) {
+  g_controls_help_modern = ModernControls_On();
+  g_modal = MODAL_CONTROLS;
+}
+
+// A SNES button mask of the game's configuration as the 3DS button's name (`fallback`: none set).
+static const char *ButtonName(uint16_t mask, const char *fallback) {
+  static const struct { uint16_t bit; const char *name; } kNames[] = {
+    { 0x0080, "A" }, { 0x8000, "B" }, { 0x0040, "X" }, { 0x4000, "Y" }, { 0x0020, "L" }, { 0x0010, "R" },
+    { 0x2000, "SELECT" }, { 0x1000, "START" },
+  };
+  for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); i++)
+    if (mask & kNames[i].bit) return kNames[i].name;
+  return fallback;
+}
+
+// A key as the console shows it: a small box with its name, or the D-pad (DOWN: its lower arm lit).
+// Returns its width.
+static int DrawKey(Surface s, int x, int y, const char *name) {
+  if (!strcmp(name, "DPAD") || !strcmp(name, "DOWN")) {
+    const uint32_t ink = RGB(150, 190, 230);
+    UiFillRect(s, x + 4, y, 3, 11, ink);
+    UiFillRect(s, x, y + 4, 11, 3, ink);
+    if (name[1] == 'O') UiFillRect(s, x + 4, y + 7, 3, 4, COL_WARN);
+    return 11;
+  }
+  const int w = UiTextWidth(name, 1) + 6;
+  UiFillRect(s, x, y, w, 11, RGB(36, 48, 72));
+  UiFrameRect(s, x, y, w, 11, RGB(110, 140, 190));
+  UiDrawText(s, x + 3, y + 2, 1, COL_TEXT, name);
+  return w;
+}
+
+// "R+X": the keys of one row with a + between them.
+static void DrawKeys(Surface s, int x, int y, const char *keys) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%s", keys);
+  bool first = true;
+  for (char *k = strtok(buf, "+"); k; k = strtok(NULL, "+"), first = false) {
+    if (!first) {
+      UiDrawText(s, x, y + 2, 1, COL_DIM, "+");
+      x += 8;
+    }
+    x += DrawKey(s, x, y, k) + 2;
+  }
+}
+
+static void DrawControlsModal(Surface s) {
+  UiFillRect(s, 8, 26, 304, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 9, 27, 302, 208, COL_MODAL);
+  UiDrawText(s, 16, 34, 1, COL_TITLE, Tr(kStrControls));
+  for (int i = 0; i < 2; i++) {
+    const Rect t = ControlsTabRect(i);
+    const bool on = (i == 1) == g_controls_help_modern;
+    UiDrawBoxLabel(s, t, on ? RGB(28, 54, 44) : COL_BOX, on ? RGB(90, 220, 150) : COL_BOX_EDGE,
+                   on ? RGB(180, 255, 210) : COL_DIM, Pressed(t), Tr(i ? kStrModern : kStrClassic));
+  }
+  typedef struct { const char *keys; UiStr what; } Row;
+  enum { kRows = 12, kY0 = 54, kPitch = 13, kTextX = 100 };
+  Row rows[kRows];
+  int n = 0;
+  if (!g_controls_help_modern) {
+    const struct { uint16_t mask; const char *def; UiStr what; } kClassic[] = {
+      { button_config_jump_a, "A", kStrCtlJump }, { button_config_run_b, "B", kStrCtlRun },
+      { button_config_shoot_x, "X", kStrCtlFire }, { button_config_itemswitch, "SELECT", kStrCtlChoose },
+      { button_config_itemcancel_y, "Y", kStrCtlCancel }, { button_config_aim_up_R, "R", kStrCtlAimUp },
+      { button_config_aim_down_L, "L", kStrCtlAimDown },
+    };
+    rows[n++] = (Row){ "DPAD", kStrCtlMove };
+    for (size_t i = 0; i < sizeof(kClassic) / sizeof(kClassic[0]); i++)
+      rows[n++] = (Row){ ButtonName(kClassic[i].mask, kClassic[i].def), kClassic[i].what };
+    rows[n++] = (Row){ "START", kStrCtlPause };
+  } else {
+    static const Row kModern[] = {
+      { "DPAD", kStrCtlMoveRun }, { "A", kStrCtlJump }, { "B", kStrCtlWalk }, { "X", kStrCtlFireBomb },
+      { "Y", kStrCtlMorph }, { "L", kStrCtlAimUp }, { "L+DOWN", kStrCtlAimDownLock }, { "R+X", kStrCtlMissile },
+      { "R+Y", kStrCtlGrapple }, { "R+B", kStrCtlXray }, { "SELECT", kStrCtlMissileKind }, { "START", kStrCtlPause },
+    };
+    for (size_t i = 0; i < sizeof(kModern) / sizeof(kModern[0]) && n < kRows; i++) rows[n++] = kModern[i];
+  }
+  for (int i = 0; i < n; i++) {
+    const int y = kY0 + i * kPitch;
+    if (i & 1) UiFillRect(s, 12, y - 1, 296, kPitch, COL_PANEL);
+    DrawKeys(s, 16, y, rows[i].keys);
+    UiDrawText(s, kTextX, y + 2, 1, COL_TEXT, Tr(rows[i].what));
+  }
+  if (!g_controls_help_modern) UiDrawText(s, 16, kY0 + n * kPitch + 6, 1, COL_DIM, Tr(kStrCtlConfigNote));
+  UiDrawBoxLabel(s, ControlsCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(ControlsCloseRect()), Tr(kStrClose));
+}
+
+static void ControlsModalTouch(int x, int y) {
+  if (UiIn(ControlsCloseRect(), x, y)) g_modal = MODAL_NONE;
+  for (int i = 0; i < 2; i++)
+    if (UiIn(ControlsTabRect(i), x, y)) g_controls_help_modern = i == 1;
+}
 
 // ---- Items window ---------------------------------------------------------------
 // Opened from the items box on the MAP tab: what has been taken in each area, kind by kind
@@ -2551,22 +2684,30 @@ static void DrawUnlockNotice(Surface s) {
 
 #define CONFIG_PATH "config.ini"
 
-typedef struct { int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers; } SavedOptions;
+typedef struct {
+  int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
+      controls, missile;
+} SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
                          g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers };
+                         g_show_spoilers, ModernControls_On(), ModernControls_Missile() };
 }
+
+static SavedOptions g_saved_options;   // what config.ini holds
 
 static void SaveConfig(void) {
   FILE *f = fopen(CONFIG_PATH, "w");
   if (!f) return;
   SavedOptions o = CurrentOptions();
+  g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\n", o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
-          UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers);
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\n",
+          o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
+          o.controls ? "modern" : "classic", o.missile);
   fclose(f);
 }
 
@@ -2597,6 +2738,10 @@ static void LoadConfig(void) {
       if (UiLang_FromCode(code) >= 0) UiLang_Set(UiLang_FromCode(code));
       continue;
     }
+    if (sscanf(line, "controls=%15[^\r\n]", code) == 1) {
+      SetControls(!strcmp(code, "modern"));
+      continue;
+    }
     if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
     if (!strcmp(key, "tab") && v >= 0 && v < TAB_COUNT && TabVisible((Tab)v)) g_tab = (Tab)v;
     else if (!strcmp(key, "pacing") && v >= 0 && v < kPaceCount) g_ui.pacing = (int)v;
@@ -2610,6 +2755,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "update_beta")) g_ui.update_beta = v != 0;
     else if (!strcmp(key, "hud_auto_hide")) g_ui.hud_auto_hide = v != 0;
     else if (!strcmp(key, "spoilers")) g_show_spoilers = v != 0;
+    else if (!strcmp(key, "modern_missile")) ModernControls_SetMissile(v);
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
   }
   fclose(f);
@@ -2654,6 +2800,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_STATE: StateDetailTouch(x, y); return;
   case MODAL_NOTES: NotesTouch(x, y); return;
   case MODAL_ITEMS: ItemsModalTouch(x, y); return;
+  case MODAL_CONTROLS: ControlsModalTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -2743,6 +2890,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_STATE: DrawStateDetail(s); break;
   case MODAL_NOTES: DrawNotes(s); break;
   case MODAL_ITEMS: DrawItemsModal(s); break;
+  case MODAL_CONTROLS: DrawControlsModal(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;
@@ -2765,7 +2913,7 @@ static void DrawBottom(const UiPerf *p) {
 // timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
 static bool UiIsLive(void) {
   switch (g_modal) {
-  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: break;
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: case MODAL_CONTROLS: break;
 #if DEBUG_TOOLS
   // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
   case MODAL_TOOLS: return SceneRec_Active();
@@ -2812,7 +2960,7 @@ static uint32_t LiveKey(void) {
   if (g_tab == TAB_STATUS) {
     MIX(samus_health), MIX(samus_max_health), MIX(samus_reserve_health), MIX(samus_max_reserve_health), MIX(reserve_health_mode);
     MIX(samus_missiles), MIX(samus_max_missiles), MIX(samus_super_missiles), MIX(samus_max_super_missiles);
-    MIX(samus_power_bombs), MIX(samus_max_power_bombs), MIX(hud_item_index);
+    MIX(samus_power_bombs), MIX(samus_max_power_bombs), MIX(hud_item_index), MIX(g_rtl_hud_marked), MIX(ModernControls_On());
     MIX(collected_items), MIX(equipped_items), MIX(collected_beams), MIX(equipped_beams);
     for (int i = 0; i < 6; i++) MIX(SmMap_HasMapStation(i)), MIX(SmMap_DebugState(i));
     MIX(area_index), MIX(room_index);
@@ -2868,6 +3016,11 @@ bool BottomUi_PresentRect(Rect *r) {
 
 bool BottomUi_Frame(const UiPerf *p) {
   const u64 now = osGetTime();
+  {   // Options changed away from the touch screen (SELECT's missile kind with the modern controls, the
+      // game's CONTROLS row): saved once the game is out of gameplay, so the SD card is not written mid-run.
+    const SavedOptions o = CurrentOptions();
+    if (game_state != 0x08 && memcmp(&o, &g_saved_options, sizeof(o)) != 0) SaveConfig();
+  }
   g_ui_frames = p->frames;
   const char *why = NULL;   // what asked for a redraw this frame, for the debug log
   if (g_toast[0] && now > g_toast_until) {
@@ -3042,6 +3195,14 @@ static void OnGameLanguage(void) {
   g_dirty = 2;
 }
 
+// The game's CONTROLLER SETTING MODE -> CLASSIC / MODERN row (sm_rtl.h, RtlControlsMenu); saved by BottomUi_Frame.
+static bool ControlsMenuModern(void) { return ModernControls_On(); }
+static void ControlsMenuSetModern(bool on) {
+  SetControls(on);
+  g_dirty = 2;
+}
+static const RtlControlsMenu kControlsMenu = { ControlsMenuModern, ControlsMenuSetModern };
+
 // ---- Init -------------------------------------------------------------------
 
 bool BottomUi_Init(const UiRomInfo *rom) {
@@ -3052,7 +3213,9 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_ui.new3ds_speedup = g_is_new3ds;
   UiLang_Set(UiLang_FromSystem());   // until config.ini says otherwise
   LoadConfig();
+  g_saved_options = CurrentOptions();
   g_ui_lang_on_change = OnGameLanguage;
+  g_rtl_controls_menu = &kControlsMenu;
   if (!g_is_new3ds) g_ui.new3ds_speedup = false;
   if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);
   g_ptmu = R_SUCCEEDED(ptmuInit());
@@ -3066,6 +3229,8 @@ bool BottomUi_Init(const UiRomInfo *rom) {
 }
 
 void BottomUi_Exit(void) {
+  const SavedOptions o = CurrentOptions();
+  if (memcmp(&o, &g_saved_options, sizeof(o)) != 0) SaveConfig();
   if (g_ptmu) ptmuExit();
   osSetSpeedupEnable(false);
 }

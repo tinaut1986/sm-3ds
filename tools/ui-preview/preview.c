@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include "ui_lang.h"
 #include "cheats.h"
+#include "modern_controls.h"
 #include "debug_tools.h"
 #include "src/sm_cpu_infra.h"
 #include "sm_map.h"
@@ -274,10 +275,10 @@ int main(int argc, char **argv) {
   extern int g_preview_upd_progress;
   extern bool g_preview_upd_kept;
   extern const char *g_preview_upd_message;
-  // The half buttons and the loudspeaker: a tap changes each.
+  // The half buttons: a tap changes each.
   Tap(8 + 5, 64 + 5);                // FPS: top-left
   Tap(8 + 5, 64 + 5);                // top-right
-  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // the loudspeaker: sound off
+  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound off
   Tap(8 + 5, 30 + 5);                // FRAMES: LOCK 30
   Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: + BETAS
   Tap(8 + 77 + 5, 98 + 5);           // VIEW: WIDE
@@ -286,7 +287,7 @@ int main(int argc, char **argv) {
   Shot("options, NO SKIP toast");
   Tap(8 + 5, 30 + 5);                // FRAMES: AUTO again
   Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5);   // FPS back to NO
-  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // sound on
+  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound on
   Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: back
   Tap(8 + 77 + 5, 98 + 5);           // VIEW: back
   Tap(162 + 77 + 5, 132 + 5);        // WHAT'S NEW before any check
@@ -328,6 +329,9 @@ int main(int argc, char **argv) {
     Tap(162 + 5, 64 + 5);            // LANGUAGE
     if (g_ui_lang != lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
+    Tap(162 + 5, 30 + 5);            // CONTROLS: MODERN in one language, CLASSIC in the next
+    // The game marks the missile kind each frame of gameplay (modern_controls.c); here by hand.
+    g_rtl_hud_marked = ModernControls_On() ? 1 << kSmHudMissiles : 0;
     Tap(8 + 5, 30 + 5), Tap(8 + 5, 30 + 5);   // FRAMES: LOCK 30, then NO SKIP: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
@@ -336,8 +340,15 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel
+    Tap(312 - 17, 30 + 5);           // "?" beside CONTROLS: the window, both tabs
+    snprintf(what, sizeof(what), "controls window, scheme in use, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(ModernControls_On() ? 150 + 5 : 230 + 5, 30 + 5);
+    snprintf(what, sizeof(what), "controls window, other tab, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(160, 220);                   // CLOSE
     TapTab(kStatus);
-    snprintf(what, sizeof(what), "status, %s", UiLang_Name(g_ui_lang));
+    snprintf(what, sizeof(what), "status, %s, %s controls", UiLang_Name(g_ui_lang), ModernControls_On() ? "modern" : "classic");
     Shot(what);
     TapTab(kStates);
     snprintf(what, sizeof(what), "states, %s", UiLang_Name(g_ui_lang));

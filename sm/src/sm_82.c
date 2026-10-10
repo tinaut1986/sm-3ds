@@ -4453,6 +4453,10 @@ void CreatePlmsExecuteDoorAsmRoomSetup(void) {  // 0x82EB6C
 }
 
 const RtlLanguageMenu *g_rtl_language_menu;   // 3DS port, see sm_rtl.h
+const RtlControlsMenu *g_rtl_controls_menu;   // 3DS port, see sm_rtl.h
+bool g_rtl_controls_row_shown;
+int g_rtl_ctl_cursor, g_rtl_ctl_top;
+static void ControllerSettingsList(void);
 
 static void GameOptionsMenu_D_Languages(void);
 
@@ -4707,6 +4711,7 @@ void GameOptionsMenu_5_DissolveOutScreen(void) {  // 0x82EF18
     screen_fade_counter = 0;
     reg_BG1VOFS = 0;
     ++game_options_screen_index;
+    g_rtl_controls_row_shown = false;   // 3DS port: set again below for CONTROLLER SETTING MODE
     if (g_rtl_language_menu && menu_option_index == 1) {
       // 3DS port: the language list, OPTION MODE's tilemap with the rows under the title blank
       // (the port writes the languages there).
@@ -4745,6 +4750,8 @@ void GameOptionsMenu_5_DissolveOutScreen(void) {  // 0x82EF18
         CreateOptionsMenuObject_(v1, addr_stru_82F4CA);
         LoadControllerOptionsFromControllerBindings();
         OptionsMenuFunc6();
+        g_rtl_controls_row_shown = g_rtl_controls_menu != NULL;   // 3DS port: the list, on its first row
+        g_rtl_ctl_cursor = g_rtl_ctl_top = 0;
       }
     } else {
       for (n = 1023; (n & 0x8000) == 0; --n)
@@ -4880,6 +4887,10 @@ static const uint16 word_82F204[16] = {  // 0x82F159
 };
 
 void GameOptionsMenu_7_ControllerSettings(void) {
+  if (g_rtl_controls_menu) {   // 3DS port: the list with the control scheme, see sm_rtl.h
+    ControllerSettingsList();
+    return;
+  }
 
   if ((joypad1_newkeys & kButton_Up) != 0) {
     QueueSfx1_Max6(0x37);
@@ -4950,6 +4961,53 @@ void OptionsMenuControllerFunc_7(void) {  // 0x82F25D
   }
 }
 
+// 3DS port: CONTROLLER SETTING MODE as a list with the control scheme on its first row (sm_rtl.h).
+const uint16 *RtlCtlButtonIcon(int button) {
+  return (const uint16 *)RomPtr_82(g_off_82F647[button >= 0 && button <= 6 ? button : 0]);
+}
+
+int RtlCtlBinding(int action) { return action >= 0 && action <= 6 ? eproj_F[action + 13] : 0; }
+
+static void ControllerSettingsList(void) {
+  bool modern = g_rtl_controls_menu->modern();
+  const uint16 keys = joypad1_newkeys;
+  if ((keys & (kButton_Left | kButton_Right)) != 0) {   // the scheme, from any row
+    const bool want = (keys & kButton_Right) != 0;
+    if (want != modern) {
+      QueueSfx1_Max6(0x38);
+      g_rtl_controls_menu->set_modern(want);
+      modern = want;
+      g_rtl_ctl_cursor = g_rtl_ctl_top = 0;
+    }
+    return;
+  }
+  const int n = RtlCtlCount(modern), end = modern ? n - 1 : n - 2;
+  if ((keys & kButton_Up) != 0) {
+    QueueSfx1_Max6(0x37);
+    g_rtl_ctl_cursor = g_rtl_ctl_cursor > 0 ? g_rtl_ctl_cursor - 1 : n - 1;
+  } else if ((keys & kButton_Down) != 0) {
+    QueueSfx1_Max6(0x37);
+    g_rtl_ctl_cursor = g_rtl_ctl_cursor + 1 < n ? g_rtl_ctl_cursor + 1 : 0;
+  } else if (g_rtl_ctl_cursor == end) {
+    if ((keys & (kButton_A | kButton_Start)) != 0) {
+      QueueSfx1_Max6(0x38);
+      menu_option_index = 7;
+      OptionsMenuControllerFunc_7();   // leaves if the buttons are all different
+    }
+  } else if (!modern && g_rtl_ctl_cursor == n - 1) {
+    if ((keys & (kButton_A | kButton_Start)) != 0) {
+      QueueSfx1_Max6(0x38);
+      OptionsMenuControllerFunc_8();
+    }
+  } else if (!modern && keys) {   // a button row of the original: the button pressed goes there
+    QueueSfx1_Max6(0x38);
+    menu_option_index = g_rtl_ctl_cursor;
+    OptionsMenuControllerFunc_0();
+  }
+  if (g_rtl_ctl_cursor < g_rtl_ctl_top) g_rtl_ctl_top = g_rtl_ctl_cursor;
+  if (g_rtl_ctl_cursor >= g_rtl_ctl_top + kRtlCtlShown) g_rtl_ctl_top = g_rtl_ctl_cursor - kRtlCtlShown + 1;
+}
+
 void GameOptionsMenu_9_ScrollControllerSettingsDown(void) {  // 0x82F271
   reg_BG1VOFS += 2;
   if (reg_BG1VOFS == 32)
@@ -4978,6 +5036,13 @@ void OptionsPreInstr_F2A9(uint16 v0) {  // 0x82F2A9
       return;
     }
     uint16 v3 = off_82F2ED[v2];
+    if (v2 == 7 && g_rtl_controls_menu && v3) {   // 3DS port: the list, from under the CLASSIC / MODERN row
+      const uint16 *v4 = (const uint16 *)RomPtr_82(v3);
+      int v5 = v0 >> 1;
+      eproj_y_pos[v5 + 13] = *v4;
+      eproj_x_vel[v5 + 3] = v4[1] + 8 * (kRtlCtlRow0 - kRtlCtlHeadRow) + 8 * kRtlCtlPitch * (g_rtl_ctl_cursor - g_rtl_ctl_top);
+      return;
+    }
     if (v3) {
       const uint16 *v4 = (const uint16 *)RomPtr_82(v3 + 4 * menu_option_index);
       int v5 = v0 >> 1;

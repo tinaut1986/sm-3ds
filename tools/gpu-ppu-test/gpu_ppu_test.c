@@ -31,6 +31,7 @@
 #include "sm_planes.h"
 #include "stereo_depth.h"
 #include "game_text.h"
+#include "modern_controls.h"
 #include "ui_lang.h"
 
 bool g_debug_flag, g_is_turbo, g_want_dump_memmap_flags, g_new_ppu = true, g_other_image;
@@ -541,6 +542,12 @@ static void CheckEdgeSprites(const char *label) {
   }
 }
 
+static void TestSetModern(bool on) {
+  ModernControls_Set(on);
+  GameText_SetModernLines(on);
+}
+static const RtlControlsMenu kTestControlsMenu = { ModernControls_On, TestSetModern };
+
 static int g_p3_frames, g_p3_quads, g_p3_bad;   // STEREO_P3: priority 3 sprites and the plane they got
 
 static void TestFrame(const char *label, bool check_capture) {
@@ -963,6 +970,12 @@ int main(int argc, char **argv) {
     UiLang_Set(atoi(getenv("GAME_LANG")));
     GameText_Init();
   }
+  // MODERN=1: the item boxes' lines of the modern controls (with GAME_LANG); HUD_MARKED=mask: those HUD
+  // items drawn as marked (g_rtl_hud_marked, bit 1 missiles, 2 supers), as the modern controls do.
+  if (getenv("MODERN")) GameText_SetModernLines(true);
+  // CONTROLS_MENU=1: SPECIAL SETTING MODE's CONTROLS row (RtlControlsMenu), as the console has it.
+  if (getenv("CONTROLS_MENU")) g_rtl_controls_menu = &kTestControlsMenu;
+  if (getenv("HUD_MARKED")) g_rtl_hud_marked = (uint8)strtol(getenv("HUD_MARKED"), NULL, 0);
   GpuPpu_SetMessageBoxMap(kSmWideMessageBoxMap);   // as the console in gameplay: message boxes on the HUD plane
   // WIDE: the game side fills the margins' tilemap areas in every frame run from here on
   // (they are outside the normal view, so the normal checks are unaffected).
@@ -1198,6 +1211,12 @@ int main(int argc, char **argv) {
         const int it = (int)strtol(getenv("ITEMS"), 0, 16);
         collected_items |= it, equipped_items |= it;
       }
+      // AMMO=1: 10 missiles, 5 super missiles and 5 power bombs from frame 1, with their HUD icons.
+      if (getenv("AMMO") && k == 1) {
+        samus_missiles = samus_max_missiles = 10, AddMissilesToHudTilemap();
+        samus_super_missiles = samus_max_super_missiles = 5, AddSuperMissilesToHudTilemap();
+        samus_power_bombs = samus_max_power_bombs = 5, AddPowerBombsToHudTilemap();
+      }
       // XRAY=1: X-ray scope collected, equipped and selected from frame 1 (hold Y, 0x02, to use it).
       if (getenv("XRAY") && k == 1) {
         collected_items |= 0x8000, equipped_items |= 0x8000;
@@ -1234,9 +1253,21 @@ int main(int argc, char **argv) {
         EnableHdmaObjects();
         SpawnPowerBombExplosion();
       }
+      // MODERN=1 also plays ROOM_SEQ's buttons through the modern controls (modern_controls.c), as
+      // physical buttons; MODERN_TRACE=1 prints what the game made of them every frame.
+      const int raw_input = g_input;
+      if (getenv("MODERN")) {
+        ModernControls_Set(true);
+        g_input = ModernControls_Translate(raw_input);
+      }
       char label[64];
       snprintf(label, sizeof(label), "room %04X frame %d (state %02x)", rooms[r].header, k, (unsigned)game_state);
       TestFrame(label, k == 0);
+      if (getenv("MODERN_TRACE"))
+        printf("  k%d pad %03x -> %03x: hud %d marked %02x missiles %d supers %d pb %d grapple %04x pose %02x move %02x x %d\n", k,
+               raw_input, g_input, hud_item_index, g_rtl_hud_marked, samus_missiles, samus_super_missiles, samus_power_bombs,
+               grapple_beam_function, (unsigned)samus_pose, (unsigned)samus_movement_type, samus_x_pos);
+      g_input = raw_input;
       SmWarp_AfterFrame();
     }
     if (getenv("BLOCKS_AT")) {   // BLOCKS_AT=x,y,w,h: block type/BTS of a block rectangle

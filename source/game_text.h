@@ -15,7 +15,15 @@
 // written over it; what is no longer wanted is put back from that copy.
 #pragma once
 
+#include <stdbool.h>
+
 void GameText_Init(void);
+
+// A message box is on screen (from when the game draws it until it is gone).
+bool GameText_MessageBoxShown(void);
+// The item boxes' instruction lines for the modern controls (modern_controls.h): their
+// "(modern line)" keys, English included, instead of the game's own lines.
+void GameText_SetModernLines(bool on);
 
 // The other screens (game_text_screens.c), set up by GameText_Init.
 void GameTextScreens_Init(void);

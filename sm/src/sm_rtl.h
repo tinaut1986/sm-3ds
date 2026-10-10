@@ -187,6 +187,27 @@ enum { kRtlLanguageScreen = 13, kRtlLanguageMaxShown = 10 };
 // The tilemap row (16 px letters: this row and the next) of language i of n on the list screen:
 // three rows apart like OPTION MODE's when they fit, two otherwise.
 static inline int RtlLanguageMenuRow(int i, int n) { return n <= 6 ? 6 + 3 * i : 5 + 2 * i; }
+// 3DS port, the control scheme in the game's own options (docs/modern-controls.md): when set,
+// CONTROLLER SETTING MODE shows CLASSIC / MODERN in a fixed row under the title (kRtlCtlHeadRow; left
+// and right switch it from any row) and under it a list of kRtlCtlShown rows that scrolls a row at a
+// time: with CLASSIC the game's 7 button rows, END and RESET TO DEFAULT (the game's own functions
+// assign, check and reset); with MODERN 11 rows with the modern scheme's buttons, dim and not
+// assignable, then END. The game's code moves g_rtl_ctl_cursor / g_rtl_ctl_top and the cursor
+// sprite; the rows are drawn by the port (source/game_text_screens.c) while g_rtl_controls_row_shown.
+// NULL: the game's own screen.
+typedef struct {
+  bool (*modern)(void);
+  void (*set_modern)(bool on);
+} RtlControlsMenu;
+extern const RtlControlsMenu *g_rtl_controls_menu;
+extern bool g_rtl_controls_row_shown;
+extern int g_rtl_ctl_cursor, g_rtl_ctl_top;
+enum { kRtlCtlHeadRow = 5, kRtlCtlRow0 = 8, kRtlCtlPitch = 3, kRtlCtlShown = 7, kRtlCtlClassicCount = 9, kRtlCtlModernCount = 12 };
+static inline int RtlCtlCount(bool modern) { return modern ? kRtlCtlModernCount : kRtlCtlClassicCount; }
+// A button's icon on that screen, 3x2 tilemap words: 0 X, 1 A, 2 B, 3 SELECT, 4 Y, 5 L, 6 R.
+const uint16 *RtlCtlButtonIcon(int button);
+// The button (as above) the original's action 0..6 (SHOT .. ANGLE DOWN) is set to.
+int RtlCtlBinding(int action);
 // 3DS port: a HUD item (0 none, 1 missiles, 2 supers, 3 power bombs, 4 grapple, 5 X-ray) asked
 // for by the frontend (a tap on the bottom screen; one day a button of a modern control scheme).
 // HandleSwitchingHudSelection takes it in the next game frame as if SELECT had landed on it: an
@@ -195,6 +216,13 @@ static inline int RtlLanguageMenuRow(int i, int n) { return n <= 6 ? 6 + 3 * i :
 // handling the HUD selection: a cutscene, the pause menu) is dropped. item < 0 = none.
 typedef struct { int8 item; uint16 frame; } RtlHudSelect;
 extern RtlHudSelect g_rtl_hud_select;
+// 3DS port, modern controls (source/modern_controls.c, docs/modern-controls.md). g_rtl_hud_marked:
+// bit n = HUD item n is drawn as marked (BG3 palette 0, amber) while it is not the selected one; 0 with the
+// original controls. g_rtl_hud_quiet: no click when the selection changes (the modern buttons change
+// it on every press); g_rtl_hud_click: one click, asked for when the marked item changes. All of it
+// is C state, never WRAM: the game's RAM keeps only what a SNES pad could produce.
+extern uint8 g_rtl_hud_marked;
+extern bool g_rtl_hud_quiet, g_rtl_hud_click;
 extern uint16 g_rtl_message_box_vram;
 // 3DS port, WIDE view: OAM entries that belong to the HUD (the Ceres escape timer). The
 // view leans off a room edge while the HUD keeps its place on the screen, so the renderer
