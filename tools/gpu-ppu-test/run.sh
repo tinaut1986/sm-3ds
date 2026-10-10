@@ -21,8 +21,10 @@
 # FORCE_STATE=n sets the game state on frame 5 of the rooms mode (38: the ending).
 # SRAM_SAVE=n saves the game to file n (0-2) on frame 2 of the rooms mode (saves/sm.srm).
 # SAMUS_AT=x,y puts Samus there on frame 1 (SCROLLS_OPEN=1: all scroll screens blue;
-# ITEMS=hex: items given; XRAY=1: the X-ray scope selected, hold Y with ROOM_SEQ=2@n). SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (SHOTS_STEP=n: every n-th; MSGBOX=n queues
-# message box n first; GAME_LANG=n in UI language n, ui_lang.h). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
+# ITEMS=hex: items given; AMMO=1: missiles, supers and power bombs with their HUD icons; XRAY=1: the X-ray scope selected, hold Y with ROOM_SEQ=2@n). SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (SHOTS_STEP=n: every n-th; MSGBOX=n queues
+# message box n first; GAME_LANG=n in UI language n, ui_lang.h; MODERN=1 their modern controls' lines, and ROOM_SEQ's buttons played
+# through the modern controls (MODERN_TRACE=1 prints the HUD item, ammo, grapple and pose each frame); HUD_MARKED=mask the HUD items
+# drawn as marked, bit 1 missiles, 2 supers; CONTROLS_MENU=1 the CONTROLS row of SPECIAL SETTING MODE). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # EPROJ_MARGIN=1 [EPROJ_ID=hex]: count the frames with an enemy projectile (of that id) outside the game's 256 px window
 # (WIDE keeps them alive in the margins); EPROJ_LIST=n lists every projectile each n-th tested frame.
 # ENEMY_LIST=n lists every enemy slot (pointer, place, screen x, properties) each n-th tested frame; ENEMY_MARGIN=ptr counts
@@ -55,7 +57,7 @@ SRCS=$(ls $S/src/*.c $S/src/snes/*.c | grep -v "/main.c\|opengl.c\|glsl_shader.c
 if [ -z "$NO_BUILD" ]; then
   gcc ${HOST_CFLAGS:--m32 -malign-double} -O2 -g -fno-strict-aliasing -I"$S" -I"$ROOT/source" -I"$ROOT/third_party/sdl_keys" \
       -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -DFULL_NATIVE -w $SRCS \
-      "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/sm_wide.c" "$ROOT/source/stereo_depth.c" "$ROOT/source/sm_planes.c" "$ROOT/source/game_text.c" "$ROOT/source/game_text_screens.c" "$ROOT/source/ui_lang.c" \
+      "$ROOT/source/gpu_ppu.c" "$ROOT/source/gpu_ppu_ref.c" "$ROOT/source/sm_map.c" "$ROOT/source/sm_warp.c" "$ROOT/source/sm_wide.c" "$ROOT/source/stereo_depth.c" "$ROOT/source/sm_planes.c" "$ROOT/source/game_text.c" "$ROOT/source/modern_controls.c" "$ROOT/source/cheats.c" "$ROOT/source/game_text_screens.c" "$ROOT/source/ui_lang.c" "$ROOT/source/lang_file.c" -DLANG_DIR="\"$ROOT/romfs/lang\"" \
       "$ROOT/tools/gpu-ppu-test/gpu_ppu_test.c" -o "$WORK/gpu_ppu_test" -lm
 fi
 [ "$2" = build ] && exit 0   # tools/test: compile only

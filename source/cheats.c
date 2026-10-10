@@ -138,3 +138,23 @@ bool Cheats_GiveAll(void) {
   equipped_beams = (equipped_beams & ~kBeamSpazer) | 0x1000 | 0x0002 | 0x0001 | kBeamPlasma;
   return true;
 }
+
+bool Hud_RequestSelect(int item) {
+  if (game_state != 0x08 || item < kSmHudNone || item > kSmHudXray) return false;
+  g_rtl_hud_select.frame = nmi_frame_counter_word;
+  g_rtl_hud_select.item = (int8)item;
+  return true;
+}
+
+bool Hud_ToggleReserveMode(void) {
+  if (game_state != 0x08 || !samus_max_reserve_health) return false;
+  if (reserve_health_mode == 1) {
+    // EquipmentScreenHudReserveAutoTilemap_Off: blank the AUTO mark; in AUTO HandleHudTilemap draws it every frame.
+    reserve_health_mode = 2;
+    static const uint8_t kAutoMarkCells[] = { 8, 9, 40, 41, 72, 73 };
+    for (unsigned i = 0; i < sizeof(kAutoMarkCells); i++) hud_tilemap[kAutoMarkCells[i]] = 0x2C0F;
+  } else {
+    reserve_health_mode = 1;
+  }
+  return true;
+}

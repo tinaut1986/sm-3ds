@@ -53,6 +53,25 @@ int main(int argc, char **argv) {
       for (int col = 0; col < kSmMapCols; col++) found += SmMap_RoomAt(area, col, row) != NULL;
   printf("%d rooms, the largest level data %d bytes (room %04X) of %d; %d cells with a room\n", n, max_len, max_room, kSmMapLevelBytes,
          found);
+  // The item scan (SmMap_Pickups): the game's 100 items, each on a cell its area's map draws.
+  {
+    static const int kWant[kSmPickupKinds] = { 14, 46, 10, 10, 4, 16 };
+    int count, kinds[kSmPickupKinds] = { 0 };
+    const SmPickup *items = SmMap_Pickups(&count);
+    for (int i = 0; i < count; i++) {
+      kinds[items[i].kind]++;
+      bool exists = false;
+      SmMap_Cell(items[i].area, items[i].col, items[i].row, &exists, NULL);
+      if (getenv("MAP_TEST_ITEMS"))
+        printf("item bit %3d type %2d area %d cell %2d,%2d room %04X%s\n", items[i].bit, items[i].type, items[i].area,
+               items[i].col, items[i].row, items[i].room, exists ? "" : "  (no map cell)");
+      if (!exists) bad++, printf("FAIL item bit %d in room %04X: cell %d,%d is not on the map\n", items[i].bit, items[i].room, items[i].col, items[i].row);
+    }
+    printf("%d items: %d energy, %d missile, %d super, %d power bomb, %d reserve, %d major\n", count, kinds[0], kinds[1],
+           kinds[2], kinds[3], kinds[4], kinds[5]);
+    for (int k = 0; k < kSmPickupKinds; k++)
+      if (kinds[k] != kWant[k]) bad++, printf("FAIL item kind %d: %d, expected %d\n", k, kinds[k], kWant[k]);
+  }
   if (bad) return 1;
   printf("map_test: OK\n");
   return 0;

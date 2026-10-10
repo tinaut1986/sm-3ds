@@ -15,7 +15,15 @@
 // written over it; what is no longer wanted is put back from that copy.
 #pragma once
 
+#include <stdbool.h>
+
 void GameText_Init(void);
+
+// A message box is on screen (from when the game draws it until it is gone).
+bool GameText_MessageBoxShown(void);
+// The item boxes' instruction lines for the modern controls (modern_controls.h): their
+// "(modern line)" keys, English included, instead of the game's own lines.
+void GameText_SetModernLines(bool on);
 
 // The other screens (game_text_screens.c), set up by GameText_Init.
 void GameTextScreens_Init(void);
@@ -26,3 +34,10 @@ void GameTextScreens_PutBack(void);
 
 // VRAM was replaced wholesale (a loaded state, a reset): forget the characters to put back.
 void GameText_Forget(void);
+
+// Every key of the language files these texts look up (tools/lang-check writes the template from
+// them and checks a file against them): `fn` is called with the section, the key (the English)
+// and, for some, a note on its limits (NULL: none).
+typedef void LangKeyFn(const char *section, const char *key, const char *note);
+void GameText_ForEachKey(LangKeyFn *fn);
+void GameTextScreens_ForEachKey(LangKeyFn *fn);

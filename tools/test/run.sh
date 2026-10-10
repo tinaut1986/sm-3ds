@@ -60,6 +60,9 @@ check states "states_test: OK" "$(grep -q '^states_test: OK$' "$OUT/states-test.
 echo "updater: version comparison and release-list parsing of the self-updater"
 WORK=$OUT/updater-test "$ROOT/tools/updater-test/run.sh" > "$OUT/updater-test.log" 2>&1
 check updater "updater_parse_test: OK" "$(grep -q '^updater_parse_test: OK$' "$OUT/updater-test.log"; echo $?)"
+echo "lang-files: the port's language files against the keys the code looks up, and the template"
+WORK=$OUT/lang-check "$ROOT/tools/lang-check/run.sh" > "$OUT/lang-check.log" 2>&1
+check lang-files "lang_check: OK, no warnings" "$(grep -q '^lang_check: OK$' "$OUT/lang-check.log" && ! grep -q 'warning:' "$OUT/lang-check.log"; echo $?)"
 
 if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
   echo "No ROM (pass it or set SM_ROM): the other tests need it."

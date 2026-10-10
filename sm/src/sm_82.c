@@ -4452,7 +4452,28 @@ void CreatePlmsExecuteDoorAsmRoomSetup(void) {  // 0x82EB6C
     elevator_status = 2;
 }
 
-static Func_V *const kGameOptionsMenuFuncs[13] = {  // 0x82EB9F
+const RtlLanguageMenu *g_rtl_language_menu;   // 3DS port, see sm_rtl.h
+const RtlControlsMenu *g_rtl_controls_menu;   // 3DS port, see sm_rtl.h
+bool g_rtl_controls_row_shown;
+int g_rtl_ctl_cursor, g_rtl_ctl_top;
+static void ControllerSettingsList(void);
+
+static void GameOptionsMenu_D_Languages(void);
+
+// 3DS port: the languages the list shows (sm_rtl.h), 0 without the port's language entry.
+static int LanguageMenu_Count(void) {
+  if (!g_rtl_language_menu) return 0;
+  const int n = g_rtl_language_menu->count();
+  return n < 0 ? 0 : n > kRtlLanguageMaxShown ? kRtlLanguageMaxShown : n;
+}
+
+// 3DS port: japanese_text_flag from the port's language, so the two never disagree.
+static void LanguageMenu_SyncJapanese(void) {
+  if (g_rtl_language_menu)
+    japanese_text_flag = g_rtl_language_menu->is_japanese(g_rtl_language_menu->current()) ? 1 : 0;
+}
+
+static Func_V *const kGameOptionsMenuFuncs[14] = {  // 0x82EB9F
   GameOptionsMenuFunc_0,
   GameOptionsMenu_1_LoadingOptionsScreen,
   GameOptionsMenu_2_FadeInOptionsScreen,
@@ -4466,6 +4487,7 @@ static Func_V *const kGameOptionsMenuFuncs[13] = {  // 0x82EB9F
   GameOptionsMenu_A_ScrollControllerSettingsUp,
   GameOptionsMenu_B_TransitionBackToFileSelect,
   GameOptionsMenu_C_FadeOutOptionsScreenToStart,
+  GameOptionsMenu_D_Languages,   // 3DS port: kRtlLanguageScreen
 };
 
 CoroutineRet GameState_2_GameOptionsMenu(void) {
@@ -4527,6 +4549,7 @@ void GameOptionsMenu_1_LoadingOptionsScreen(void) {  // 0x82EC11
   CreateOptionsMenuObject_(0, addr_stru_82F4B8);
   CreateOptionsMenuObject_(0, addr_stru_82F4C4);
   ++game_options_screen_index;
+  LanguageMenu_SyncJapanese();
   OptionsMenuFunc4();
 }
 
@@ -4569,20 +4592,28 @@ void GameOptionsMenu_3_OptionsScreen(void) {
     QueueSfx1_Max6(0x37);
     if ((--menu_option_index & 0x8000) != 0)
       menu_option_index = 4;
+    if (g_rtl_language_menu && menu_option_index == 2)   // 3DS port: row 2 only shows the language
+      menu_option_index = 1;
   } else if ((joypad1_newkeys & kButton_Down) != 0) {
     QueueSfx1_Max6(0x37);
     if (++menu_option_index == 5)
       menu_option_index = 0;
+    if (g_rtl_language_menu && menu_option_index == 2)
+      menu_option_index = 3;
   }
   if ((joypad1_newkeys & 0x8000) != 0) {
     game_options_screen_index = 11;
   } else if ((joypad1_newkeys & kButton_A) != 0 || (joypad1_newkeys & kButton_Start) != 0) {
     QueueSfx1_Max6(0x38);
-    kGameOptionsMenuItemFuncs[menu_option_index]();
+    if (g_rtl_language_menu && menu_option_index == 1)   // 3DS port: LANGUAGE opens the list
+      GameOptionsMenuItemFunc_4();
+    else
+      kGameOptionsMenuItemFuncs[menu_option_index]();
   }
 }
 
 void GameOptionsMenuItemFunc_0(void) {  // 0x82EDB1
+  LanguageMenu_SyncJapanese();   // 3DS port: LANGUAGE may have changed on the bottom screen
   if (enable_debug && (joypad1_lastkeys & kButton_L) == 0 || loading_game_state == kGameState_5_FileSelectMap) {
     game_options_screen_index = 4;
   } else {
@@ -4680,7 +4711,16 @@ void GameOptionsMenu_5_DissolveOutScreen(void) {  // 0x82EF18
     screen_fade_counter = 0;
     reg_BG1VOFS = 0;
     ++game_options_screen_index;
-    if (menu_option_index) {
+    g_rtl_controls_row_shown = false;   // 3DS port: set again below for CONTROLLER SETTING MODE
+    if (g_rtl_language_menu && menu_option_index == 1) {
+      // 3DS port: the language list, OPTION MODE's tilemap with the rows under the title blank
+      // (the port writes the languages there).
+      for (int i = 1023; i >= 0; --i)
+        ram3000.pause_menu_map_tilemap[i] = custom_background[i + 5375];
+      for (int i = 4 * 32; i < 25 * 32; i++)
+        ram3000.pause_menu_map_tilemap[i] = 0x000F;
+      CreateOptionsMenuObject_(0, addr_stru_82F4C4);
+    } else if (menu_option_index) {
       if ((menu_option_index & 4) != 0) {
         if (japanese_text_flag) {
           for (int i = 1023; i >= 0; --i)
@@ -4710,6 +4750,8 @@ void GameOptionsMenu_5_DissolveOutScreen(void) {  // 0x82EF18
         CreateOptionsMenuObject_(v1, addr_stru_82F4CA);
         LoadControllerOptionsFromControllerBindings();
         OptionsMenuFunc6();
+        g_rtl_controls_row_shown = g_rtl_controls_menu != NULL;   // 3DS port: the list, on its first row
+        g_rtl_ctl_cursor = g_rtl_ctl_top = 0;
       }
     } else {
       for (n = 1023; (n & 0x8000) == 0; --n)
@@ -4729,7 +4771,11 @@ void GameOptionsMenu_6_DissolveInScreen(void) {  // 0x82EFDB
     reg_MOSAIC = 0;
     screen_fade_delay = 0;
     screen_fade_counter = 0;
-    if (menu_option_index) {
+    if (g_rtl_language_menu && menu_option_index == 1) {   // 3DS port: the language list
+      const int n = LanguageMenu_Count(), cur = g_rtl_language_menu->current();
+      game_options_screen_index = kRtlLanguageScreen;
+      menu_option_index = cur >= 0 && cur < n ? cur : 0;
+    } else if (menu_option_index) {
       if ((menu_option_index & 4) != 0)
         game_options_screen_index = 8;
       else
@@ -4740,6 +4786,35 @@ void GameOptionsMenu_6_DissolveInScreen(void) {  // 0x82EFDB
     }
   }
 }
+// 3DS port: the language list (sm_rtl.h). Up and down move the cursor; A or START picks the
+// language and B keeps the one there was, both back to OPTION MODE on its START GAME row.
+static void GameOptionsMenu_D_Languages(void) {
+  const int n = LanguageMenu_Count();
+  if (n == 0) {
+    menu_option_index = 0;
+    GameOptionsMenuItemFunc_4();
+    return;
+  }
+  if ((joypad1_newkeys & kButton_Up) != 0) {
+    QueueSfx1_Max6(0x37);
+    menu_option_index = menu_option_index > 0 ? menu_option_index - 1 : n - 1;
+  } else if ((joypad1_newkeys & kButton_Down) != 0) {
+    QueueSfx1_Max6(0x37);
+    menu_option_index = menu_option_index + 1 < n ? menu_option_index + 1 : 0;
+  }
+  if ((joypad1_newkeys & 0x8000) != 0) {
+    QueueSfx1_Max6(0x38);
+    menu_option_index = 0;
+    GameOptionsMenuItemFunc_4();
+  } else if ((joypad1_newkeys & (kButton_A | kButton_Start)) != 0) {
+    QueueSfx1_Max6(0x38);
+    g_rtl_language_menu->choose(menu_option_index);
+    LanguageMenu_SyncJapanese();
+    menu_option_index = 0;
+    GameOptionsMenuItemFunc_4();
+  }
+}
+
 static Func_V *const kGameOptionsMenuSpecialSettings[3] = {  // 0x82F024
   GameOptionsMenuSpecialSettings_0,
   GameOptionsMenuSpecialSettings_0,
@@ -4812,6 +4887,10 @@ static const uint16 word_82F204[16] = {  // 0x82F159
 };
 
 void GameOptionsMenu_7_ControllerSettings(void) {
+  if (g_rtl_controls_menu) {   // 3DS port: the list with the control scheme, see sm_rtl.h
+    ControllerSettingsList();
+    return;
+  }
 
   if ((joypad1_newkeys & kButton_Up) != 0) {
     QueueSfx1_Max6(0x37);
@@ -4882,6 +4961,53 @@ void OptionsMenuControllerFunc_7(void) {  // 0x82F25D
   }
 }
 
+// 3DS port: CONTROLLER SETTING MODE as a list with the control scheme on its first row (sm_rtl.h).
+const uint16 *RtlCtlButtonIcon(int button) {
+  return (const uint16 *)RomPtr_82(g_off_82F647[button >= 0 && button <= 6 ? button : 0]);
+}
+
+int RtlCtlBinding(int action) { return action >= 0 && action <= 6 ? eproj_F[action + 13] : 0; }
+
+static void ControllerSettingsList(void) {
+  bool modern = g_rtl_controls_menu->modern();
+  const uint16 keys = joypad1_newkeys;
+  if ((keys & (kButton_Left | kButton_Right)) != 0) {   // the scheme, from any row
+    const bool want = (keys & kButton_Right) != 0;
+    if (want != modern) {
+      QueueSfx1_Max6(0x38);
+      g_rtl_controls_menu->set_modern(want);
+      modern = want;
+      g_rtl_ctl_cursor = g_rtl_ctl_top = 0;
+    }
+    return;
+  }
+  const int n = RtlCtlCount(modern), end = modern ? n - 1 : n - 2;
+  if ((keys & kButton_Up) != 0) {
+    QueueSfx1_Max6(0x37);
+    g_rtl_ctl_cursor = g_rtl_ctl_cursor > 0 ? g_rtl_ctl_cursor - 1 : n - 1;
+  } else if ((keys & kButton_Down) != 0) {
+    QueueSfx1_Max6(0x37);
+    g_rtl_ctl_cursor = g_rtl_ctl_cursor + 1 < n ? g_rtl_ctl_cursor + 1 : 0;
+  } else if (g_rtl_ctl_cursor == end) {
+    if ((keys & (kButton_A | kButton_Start)) != 0) {
+      QueueSfx1_Max6(0x38);
+      menu_option_index = 7;
+      OptionsMenuControllerFunc_7();   // leaves if the buttons are all different
+    }
+  } else if (!modern && g_rtl_ctl_cursor == n - 1) {
+    if ((keys & (kButton_A | kButton_Start)) != 0) {
+      QueueSfx1_Max6(0x38);
+      OptionsMenuControllerFunc_8();
+    }
+  } else if (!modern && keys) {   // a button row of the original: the button pressed goes there
+    QueueSfx1_Max6(0x38);
+    menu_option_index = g_rtl_ctl_cursor;
+    OptionsMenuControllerFunc_0();
+  }
+  if (g_rtl_ctl_cursor < g_rtl_ctl_top) g_rtl_ctl_top = g_rtl_ctl_cursor;
+  if (g_rtl_ctl_cursor >= g_rtl_ctl_top + kRtlCtlShown) g_rtl_ctl_top = g_rtl_ctl_cursor - kRtlCtlShown + 1;
+}
+
 void GameOptionsMenu_9_ScrollControllerSettingsDown(void) {  // 0x82F271
   reg_BG1VOFS += 2;
   if (reg_BG1VOFS == 32)
@@ -4903,7 +5029,20 @@ void sub_82F296(uint16 j) {  // 0x82F296
 void OptionsPreInstr_F2A9(uint16 v0) {  // 0x82F2A9
   if (game_state == kGameState_2_GameOptionsMenu) {
     int v2 = game_options_screen_index;
+    if (v2 == kRtlLanguageScreen) {   // 3DS port: the language list, the cursor left of the name
+      int v5 = v0 >> 1;
+      eproj_y_pos[v5 + 13] = 24;
+      eproj_x_vel[v5 + 3] = 8 * RtlLanguageMenuRow(menu_option_index, LanguageMenu_Count()) + 8;
+      return;
+    }
     uint16 v3 = off_82F2ED[v2];
+    if (v2 == 7 && g_rtl_controls_menu && v3) {   // 3DS port: the list, from under the CLASSIC / MODERN row
+      const uint16 *v4 = (const uint16 *)RomPtr_82(v3);
+      int v5 = v0 >> 1;
+      eproj_y_pos[v5 + 13] = *v4;
+      eproj_x_vel[v5 + 3] = v4[1] + 8 * (kRtlCtlRow0 - kRtlCtlHeadRow) + 8 * kRtlCtlPitch * (g_rtl_ctl_cursor - g_rtl_ctl_top);
+      return;
+    }
     if (v3) {
       const uint16 *v4 = (const uint16 *)RomPtr_82(v3 + 4 * menu_option_index);
       int v5 = v0 >> 1;

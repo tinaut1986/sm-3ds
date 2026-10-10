@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include "ui_lang.h"
 #include "cheats.h"
+#include "modern_controls.h"
 #include "debug_tools.h"
 #include "src/sm_cpu_infra.h"
 #include "sm_map.h"
@@ -89,9 +90,9 @@ int main(int argc, char **argv) {
   // A plausible mid-game state: Landing Site, some Crateria explored.
   game_state = 8; area_index = 0; room_index = 0x1A; room_ptr = 0x91F8;
   samus_x_pos = 700; samus_y_pos = 300;
-  samus_health = 247; samus_max_health = 499; samus_reserve_health = 60; samus_max_reserve_health = 100; reserve_health_mode = 1;
+  samus_health = 247; samus_max_health = 499; samus_reserve_health = 160; samus_max_reserve_health = 300; reserve_health_mode = 1;
   samus_missiles = 45; samus_max_missiles = 75; samus_super_missiles = 5; samus_max_super_missiles = 10; samus_power_bombs = 0; samus_max_power_bombs = 10;
-  collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100; equipped_items = 0x0001 | 0x0004 | 0x1000;
+  collected_items = 0x0001 | 0x0004 | 0x1000 | 0x0100 | 0x4000 | 0x8000; equipped_items = 0x0001 | 0x0004 | 0x1000 | 0x4000;
   collected_beams = 0x1000 | 0x0002; equipped_beams = 0x1000;
   game_time_hours = 3; game_time_minutes = 27; game_time_seconds = 9;
   hud_item_index = 2;   // the super missiles selected with SELECT
@@ -157,12 +158,14 @@ int main(int argc, char **argv) {
 #if DEBUG_TOOLS
   Tap(260, 55);                      // GOD
   Tap(290, 55);                      // MAX
+  Tap(287 + 10, 139 + 5);            // FN on: item and beam taps edit
   Tap(8 + 1 * 77 + 5, 111 + 5);      // GRAV on
   Tap(8 + 4 * 61 + 5, 165 + 5);      // PLASMA on
   Tap(8 + 0 * 51 + 5, 191 + 5);      // Crateria: station
   Tap(8 + 2 * 51 + 5, 191 + 5);      // Norfair: station
   Tap(8 + 2 * 51 + 5, 191 + 5);      // Norfair: explored
-  Shot("status after debug taps (GOD, MAX, GRAV, PLASMA, CRA station, NOR explored)");
+  Shot("status after debug taps (FN, GOD, MAX, GRAV, PLASMA, CRA station, NOR explored)");
+  Tap(287 + 10, 139 + 5);            // FN off
   TapTab(kMap);
   Tap(2 + 2 * 45 + 5, 183 + 5);      // show Norfair
   Shot("map, Norfair all explored");
@@ -192,6 +195,32 @@ int main(int argc, char **argv) {
   Tap(236 + 5, 182 + 5);             // the cross: discard
   Tap(160, 220);                     // close
 #endif
+  {   // Items: some of Brinstar's taken (the map's dots, the items window), SPOILERS off then on.
+    static const int kTaken[] = { 13, 14, 15, 17, 23, 26, 38 };
+    for (unsigned i = 0; i < sizeof(kTaken) / sizeof(kTaken[0]); i++) item_bit_array[kTaken[i] >> 3] |= 1 << (kTaken[i] & 7);
+    TapTab(kMap);
+    Tap(2 + 1 * 45 + 5, 183 + 5);      // Brinstar
+    Tap(192 + 15, 198 + 6);            // zoom 2X
+    Shot("map, Brinstar 2X: item dots, big = still there, small = taken");
+    Tap(132 + 20, 198 + 6);            // the items box
+    Shot("items window, spoilers off");
+    Tap(160, 220);                     // CLOSE
+    TapTab(kOptions);
+    Tap(239 + 5, 64 + 5);              // SPOILERS: on
+    Shot("options, spoilers on");
+    TapTab(kStatus);
+    Shot("status, spoilers on");
+    TapTab(kMap);
+    Shot("map, Brinstar 2X, spoilers on");
+    Tap(132 + 20, 198 + 6);
+    Tap(150, 56 + 2 * 13 + 5);         // the Norfair row
+    Shot("items window, spoilers on, Norfair picked");
+    Tap(160, 220);
+    Tap(192 + 15, 198 + 6), Tap(192 + 15, 198 + 6);   // back to 1X
+    Tap(226 + 20, 198 + 6);            // FOLLOW on again
+    TapTab(kOptions);
+    Tap(239 + 5, 64 + 5);              // SPOILERS: off again
+  }
   TapTab(kStates);
   Shot("states");
   BottomUi_TouchDown(150, 160);      // drag the list up by 90 px
@@ -246,10 +275,10 @@ int main(int argc, char **argv) {
   extern int g_preview_upd_progress;
   extern bool g_preview_upd_kept;
   extern const char *g_preview_upd_message;
-  // The half buttons and the loudspeaker: a tap changes each.
+  // The half buttons: a tap changes each.
   Tap(8 + 5, 64 + 5);                // FPS: top-left
   Tap(8 + 5, 64 + 5);                // top-right
-  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // the loudspeaker: sound off
+  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound off
   Tap(8 + 5, 30 + 5);                // FRAMES: LOCK 30
   Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: + BETAS
   Tap(8 + 77 + 5, 98 + 5);           // VIEW: WIDE
@@ -258,7 +287,7 @@ int main(int argc, char **argv) {
   Shot("options, NO SKIP toast");
   Tap(8 + 5, 30 + 5);                // FRAMES: AUTO again
   Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5);   // FPS back to NO
-  Tap(8 + 5 + 154 - 40 + 130 - 60, 30 + 5);   // sound on
+  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound on
   Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: back
   Tap(8 + 77 + 5, 98 + 5);           // VIEW: back
   Tap(162 + 77 + 5, 132 + 5);        // WHAT'S NEW before any check
@@ -295,11 +324,14 @@ int main(int argc, char **argv) {
   g_preview_upd_state = UPD_IDLE;
   // Every other language: the player-facing tabs and the reset window. LANGUAGE is the
   // last option cell (left column, fourth row) and cycles.
-  for (int lang = 1; lang < kLangCount; lang++) {
+  for (int lang = 1; lang < UiLang_Count(); lang++) {
     TapTab(kOptions);
     Tap(162 + 5, 64 + 5);            // LANGUAGE
-    if (g_ui_lang != (UiLang)lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
+    if (g_ui_lang != lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
+    Tap(162 + 5, 30 + 5);            // CONTROLS: MODERN in one language, CLASSIC in the next
+    // The game marks the missile kind each frame of gameplay (modern_controls.c); here by hand.
+    g_rtl_hud_marked = ModernControls_On() ? 1 << kSmHudMissiles : 0;
     Tap(8 + 5, 30 + 5), Tap(8 + 5, 30 + 5);   // FRAMES: LOCK 30, then NO SKIP: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
@@ -308,8 +340,15 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel
+    Tap(312 - 17, 30 + 5);           // "?" beside CONTROLS: the window, both tabs
+    snprintf(what, sizeof(what), "controls window, scheme in use, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(ModernControls_On() ? 150 + 5 : 230 + 5, 30 + 5);
+    snprintf(what, sizeof(what), "controls window, other tab, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(160, 220);                   // CLOSE
     TapTab(kStatus);
-    snprintf(what, sizeof(what), "status, %s", UiLang_Name(g_ui_lang));
+    snprintf(what, sizeof(what), "status, %s, %s controls", UiLang_Name(g_ui_lang), ModernControls_On() ? "modern" : "classic");
     Shot(what);
     TapTab(kStates);
     snprintf(what, sizeof(what), "states, %s", UiLang_Name(g_ui_lang));
@@ -329,11 +368,11 @@ int main(int argc, char **argv) {
   }
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;
-  for (int lang = 0; lang < kLangCount; lang++) {
+  for (int lang = 0; lang < UiLang_Count(); lang++) {
     for (int id = 0; id < kStrCount; id++) {
-      g_ui_lang = kLangEn;
+      UiLang_Set(kLangEn);
       const char *en = Tr((UiStr)id);
-      g_ui_lang = (UiLang)lang;
+      UiLang_Set(lang);
       const char *t = Tr((UiStr)id), *a = en, *b = t;
       for (;;) {
         a = strchr(a, '%'), b = strchr(b, '%');

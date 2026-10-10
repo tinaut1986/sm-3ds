@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "src/types.h"
@@ -40,8 +41,8 @@ static bool FixedChar(int c) {
 // Per message box (1..28, see sm_85.c) the rows that change, row 0 being the first line of
 // text. Capitals rows use the game's own letters; accents become marks above (below for
 // Ç). An instruction line (`instr`, under an item's name) is lowercase, with "{}" where
-// each picture of the English line goes (icon, button), in the English order.
-// NULL keeps the English text.
+// each picture of the English line goes (icon, button), in the English order, and "{R}",
+// "{X}"... for a button by name (kButtonCells). NULL keeps the English text.
 
 typedef struct {
   const char *row[3];
@@ -51,133 +52,89 @@ typedef struct {
 
 enum { kMsgCount = 29 };
 
-static const MsgText kEs[kMsgCount] = {
-  [1] = { { "TANQUE DE ENERGÍA" } },
-  [2] = { { "MISIL" }, "elige {} y pulsa el botón {}." },
-  [3] = { { "SUPERMISIL" }, "elige {} y pulsa el botón {}." },
-  [4] = { { "BOMBA DE ENERGÍA" }, "elige {} y ponla con el botón {}." },
-  [5] = { { "RAYO ENGANCHE" }, "elige {} y mantén pulsado {}." },
-  [6] = { { "VISOR DE RAYOS X" }, "elige {} y mantén pulsado {}." },
-  [7] = { { "TRAJE CLIMÁTICO" } },
-  [8] = { { "ROTOSALTO" } },
-  [9] = { { "MORFOSFERA" } },
-  [10] = { { "SALTO EN BARRENA" } },
-  [11] = { { "SUPERSALTO" } },
-  [12] = { { "SALTO ESPACIAL" } },
-  [13] = { { "ACELERACIÓN" }, "mantén pulsado {} para correr." },
-  [14] = { { "RAYO RECARGA" } },
-  [15] = { { "RAYO DE HIELO" } },
-  [16] = { { "RAYO DE ONDAS" } },
-  [17] = { { "RAYO MÚLTIPLE" } },
-  [18] = { { "RAYO DE PLASMA" } },
-  [19] = { { "BOMBA" }, "{} ponla con el botón {}." },
-  [20] = { { "DATOS DEL MAPA", NULL, "DESCARGADOS." } },
-  [21] = { { "ENERGÍA", NULL, "RECARGADA." } },
-  [22] = { { "MISILES", NULL, "RECARGADOS." } },
-  [23] = { { "¿QUIERES", "GUARDAR?" }, NULL, "SÍ", "NO" },
-  [24] = { { "PARTIDA GUARDADA." } },
-  [25] = { { "TANQUE DE RESERVA" } },
-  [26] = { { "TRAJE GRAVITATORIO" } },
-  [28] = { { "¿QUIERES", "GUARDAR?" }, NULL, "SÍ", "NO" },
+// The English of each box, the key of its translation in the [message boxes] section of the
+// language files: "KEY = ROW | ROW | ROW" (an empty row keeps the English one), "KEY (line)" the
+// instruction line, "KEY (yes)" and "KEY (no)" the save prompt's choices. 23 and 28 are the
+// same prompt (a save station, the ship).
+static const char *const kMsgKeys[kMsgCount] = {
+  [1] = "ENERGY TANK", [2] = "MISSILE", [3] = "SUPER MISSILE", [4] = "POWER BOMB", [5] = "GRAPPLING BEAM",
+  [6] = "X-RAY SCOPE", [7] = "VARIA SUIT", [8] = "SPRING BALL", [9] = "MORPHING BALL", [10] = "SCREW ATTACK",
+  [11] = "HI-JUMP BOOTS", [12] = "SPACE JUMP", [13] = "SPEED BOOSTER", [14] = "CHARGE BEAM", [15] = "ICE BEAM",
+  [16] = "WAVE BEAM", [17] = "SPAZER", [18] = "PLASMA BEAM", [19] = "BOMB", [20] = "MAP DATA ACCESS COMPLETED.",
+  [21] = "ENERGY RECHARGE COMPLETED.", [22] = "MISSILE RELOAD COMPLETED.", [23] = "WOULD YOU LIKE TO SAVE?",
+  [24] = "SAVE COMPLETED.", [25] = "RESERVE TANK", [26] = "GRAVITY SUIT", [28] = "WOULD YOU LIKE TO SAVE?",
 };
 
-static const MsgText kCa[kMsgCount] = {
-  [1] = { { "TANC D'ENERGIA" } },
-  [2] = { { "MÍSSIL" }, "tria {} i prem el botó {}." },
-  [3] = { { "SUPERMÍSSIL" }, "tria {} i prem el botó {}." },
-  [4] = { { "BOMBA D'ENERGIA" }, "tria {} i posa-la amb el botó {}." },
-  [5] = { { "RAIG D'ENGANXADA" }, "tria {} i mantén premut {}." },
-  [6] = { { "VISOR DE RAIGS X" }, "tria {} i mantén premut {}." },
-  [7] = { { "VESTIT CLIMÀTIC" } },
-  [8] = { { "ROTOSALT" } },
-  [9] = { { "MORFOESFERA" } },
-  [10] = { { "SALT EN BARRINA" } },
-  [11] = { { "SUPERSALT" } },
-  [12] = { { "SALT ESPACIAL" } },
-  [13] = { { "ACCELERACIÓ" }, "mantén premut {} per córrer." },
-  [14] = { { "RAIG DE CÀRREGA" } },
-  [15] = { { "RAIG DE GEL" } },
-  [16] = { { "RAIG D'ONES" } },
-  [17] = { { "RAIG MÚLTIPLE" } },
-  [18] = { { "RAIG DE PLASMA" } },
-  [19] = { { "BOMBA" }, "{} posa-la amb el botó {}." },
-  [20] = { { "DADES DEL MAPA", NULL, "DESCARREGADES." } },
-  [21] = { { "ENERGIA", NULL, "RECARREGADA." } },
-  [22] = { { "MÍSSILS", NULL, "RECARREGATS." } },
-  [23] = { { "VOLS DESAR", "LA PARTIDA?" }, NULL, "SÍ", "NO" },
-  [24] = { { "PARTIDA DESADA." } },
-  [25] = { { "TANC DE RESERVA" } },
-  [26] = { { "VESTIT GRAVITATORI" } },
-  [28] = { { "VOLS DESAR", "LA PARTIDA?" }, NULL, "SÍ", "NO" },
+// The instruction lines of the modern controls ("KEY (modern line)"), English: the boxes whose line
+// names the original's buttons. BOMB's reads the same in both.
+static const char *const kModernLines[kMsgCount] = {
+  [2] = "{} hold {R} and press {X}.",
+  [3] = "{} {SELECT} picks it, then {R} and {X}.",
+  [4] = "{} in morph ball, hold {R} and press {X}.",
+  [5] = "{} hold {R} and press {Y}.",
+  [6] = "{} hold {R} and {B}.",
+  [13] = "keep running to speed up.",
 };
 
-static const MsgText kFr[kMsgCount] = {
-  [1] = { { "RÉSERVOIR D'ÉNERGIE" } },
-  [2] = { { "MISSILE" }, "choisis {} et appuie sur {}." },
-  [3] = { { "SUPER MISSILE" }, "choisis {} et appuie sur {}." },
-  [4] = { { "BOMBE DE PUISSANCE" }, "choisis {} et pose-la avec {}." },
-  [5] = { { "RAYON GRAPPIN" }, "choisis {} et maintiens {}." },
-  [6] = { { "VISEUR À RAYONS X" }, "choisis {} et maintiens {}." },
-  [7] = { { "COSTUME VARIA" } },
-  [8] = { { "BOULE REBOND" } },
-  [9] = { { "BOULE MORPHING" } },
-  [10] = { { "ATTAQUE EN VRILLE" } },
-  [11] = { { "MÉGA SAUT" } },
-  [12] = { { "SAUT SPATIAL" } },
-  [13] = { { "ACCÉLÉRATEUR" }, "maintiens {} pour courir." },
-  [14] = { { "RAYON DE CHARGE" } },
-  [15] = { { "RAYON DE GLACE" } },
-  [16] = { { "RAYON À VAGUE" } },
-  [17] = { { "RAYON SPAZER" } },
-  [18] = { { "RAYON PLASMA" } },
-  [19] = { { "BOMBE" }, "{} pose-la avec le bouton {}." },
-  [20] = { { "DONNÉES DE CARTE", NULL, "TÉLÉCHARGÉES." } },
-  [21] = { { "ÉNERGIE", NULL, "RECHARGÉE." } },
-  [22] = { { "MISSILES", NULL, "RECHARGÉS." } },
-  [23] = { { "VOULEZ-VOUS", "SAUVEGARDER ?" }, NULL, "OUI", "NON" },
-  [24] = { { "SAUVEGARDE FAITE." } },
-  [25] = { { "RÉSERVOIR SECOURS" } },
-  [26] = { { "COSTUME GRAVITÉ" } },
-  [28] = { { "VOULEZ-VOUS", "SAUVEGARDER ?" }, NULL, "OUI", "NON" },
-};
+static bool g_modern_lines;
+void GameText_SetModernLines(bool on) { g_modern_lines = on; }
 
-static const MsgText kPt[kMsgCount] = {
-  [1] = { { "TANQUE DE ENERGIA" } },
-  [2] = { { "MÍSSIL" }, "escolha {} e aperte {}." },
-  [3] = { { "SUPERMÍSSIL" }, "escolha {} e aperte {}." },
-  [4] = { { "BOMBA DE ENERGIA" }, "escolha {} e coloque com {}." },
-  [5] = { { "RAIO GANCHO" }, "escolha {} e segure {}." },
-  [6] = { { "VISOR DE RAIOS X" }, "escolha {} e segure {}." },
-  [7] = { { "TRAJE VARIA" } },
-  [8] = { { "SALTO ESFERA" } },
-  [9] = { { "MORFOSFERA" } },
-  [10] = { { "ATAQUE GIRATÓRIO" } },
-  [11] = { { "BOTAS DE SALTO" } },
-  [12] = { { "SALTO ESPACIAL" } },
-  [13] = { { "ACELERADOR" }, "segure {} para correr." },
-  [14] = { { "RAIO DE CARGA" } },
-  [15] = { { "RAIO DE GELO" } },
-  [16] = { { "RAIO DE ONDA" } },
-  [17] = { { "RAIO SPAZER" } },
-  [18] = { { "RAIO DE PLASMA" } },
-  [19] = { { "BOMBA" }, "{} coloque com o botão {}." },
-  [20] = { { "DADOS DO MAPA", NULL, "TRANSFERIDOS." } },
-  [21] = { { "ENERGIA", NULL, "RECARREGADA." } },
-  [22] = { { "MÍSSEIS", NULL, "RECARREGADOS." } },
-  [23] = { { "DESEJA", "SALVAR?" }, NULL, "SIM", "NÃO" },
-  [24] = { { "JOGO SALVO." } },
-  [25] = { { "TANQUE DE RESERVA" } },
-  [26] = { { "TRAJE GRAVITACIONAL" } },
-  [28] = { { "DESEJA", "SALVAR?" }, NULL, "SIM", "NÃO" },
-};
+static const char *BoxText(int index, const char *what) {
+  char key[64];
+  snprintf(key, sizeof(key), "%s (%s)", kMsgKeys[index], what);
+  return UiLang_Get("message boxes", key);
+}
 
-static const MsgText *Messages(void) {
-  switch (g_ui_lang) {
-  case kLangEs: return kEs;
-  case kLangCa: return kCa;
-  case kLangFr: return kFr;
-  case kLangPt: return kPt;
-  default: return NULL;
+// Box `index` in the current language. False when nothing of it is translated.
+static bool MessageText(int index, MsgText *m) {
+  static char rows[3][96];
+  memset(m, 0, sizeof(*m));
+  if (index <= 0 || index >= kMsgCount || !kMsgKeys[index]) return false;
+  const char *t = UiLang_Get("message boxes", kMsgKeys[index]);
+  for (int r = 0; r < 3 && t; r++) {
+    const char *bar = strchr(t, '|');
+    const char *end = bar ? bar : t + strlen(t);
+    while (t < end && *t == ' ') t++;
+    while (end > t && end[-1] == ' ') end--;
+    const size_t n = (size_t)(end - t) < sizeof(rows[r]) - 1 ? (size_t)(end - t) : sizeof(rows[r]) - 1;
+    if (n) {
+      memcpy(rows[r], t, n);
+      rows[r][n] = 0;
+      m->row[r] = rows[r];
+    }
+    t = bar ? bar + 1 : NULL;
+  }
+  m->instr = BoxText(index, "line");
+  if (g_modern_lines && kModernLines[index]) {
+    const char *t = BoxText(index, "modern line");
+    m->instr = t ? t : kModernLines[index];
+  }
+  m->yes = BoxText(index, "yes");
+  m->no = BoxText(index, "no");
+  if (m->yes && !m->no) m->no = "NO";
+  if (m->no && !m->yes) m->yes = "YES";
+  return m->row[0] || m->row[1] || m->row[2] || m->instr || m->yes;
+}
+
+void GameText_ForEachKey(LangKeyFn *fn) {
+  for (int i = 1; i < kMsgCount; i++) {
+    if (!kMsgKeys[i] || (i == 28 && !strcmp(kMsgKeys[i], kMsgKeys[23]))) continue;
+    char key[64];
+    fn("message boxes", kMsgKeys[i], "up to three rows split by |");
+    if ((i >= 2 && i <= 6) || i == 13 || i == 19) {
+      snprintf(key, sizeof(key), "%s (line)", kMsgKeys[i]);
+      fn("message boxes", key, "lowercase, a {} for each picture of the English line");
+    }
+    if (kModernLines[i]) {
+      snprintf(key, sizeof(key), "%s (modern line)", kMsgKeys[i]);
+      fn("message boxes", key, "modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons");
+    }
+    if (i == 23) {
+      snprintf(key, sizeof(key), "%s (yes)", kMsgKeys[i]);
+      fn("message boxes", key, "3 letters at most");
+      snprintf(key, sizeof(key), "%s (no)", kMsgKeys[i]);
+      fn("message boxes", key, "3 letters at most");
+    }
   }
 }
 
@@ -490,8 +447,48 @@ static void ChoicesRow(Box *b, int row, const char *yes, const char *no) {
   }
 }
 
+// The message box's button letters by name, as the game draws them (sm_85.c,
+// kTileNumbersForButtonLetters): capitals of the box font, each in its button's colour.
+static const struct { const char *name; uint16_t cell; } kButtonCells[] = {
+  { "A", 0x28e0 }, { "B", 0x3ce1 }, { "X", 0x2cf7 }, { "Y", 0x38f8 }, { "SELECT", 0x38d0 }, { "L", 0x38eb }, { "R", 0x38f1 },
+};
+
+// One stretch of an instruction line: text, then the picture after it (none on the last).
+typedef struct {
+  const char *text;
+  int len;
+  int block;       // the English picture (index into the line's blocks), or -1
+  uint16_t cell;   // a button by name (one cell), or 0
+} LinePart;
+
+static int ParseLine(const char *format, LinePart *parts, int max, int blocks) {
+  int np = 0, next_block = 0;
+  for (const char *s = format; np < max;) {
+    LinePart *p = &parts[np++];
+    p->text = s, p->block = -1, p->cell = 0;
+    const char *open = strchr(s, '{'), *close = open ? strchr(open, '}') : NULL;
+    if (!close) {
+      p->len = (int)strlen(s);
+      break;
+    }
+    p->len = (int)(open - s);
+    const int n = (int)(close - open - 1);
+    if (n == 0) {
+      if (next_block < blocks) p->block = next_block;
+      next_block++;
+    }
+    for (size_t k = 0; k < sizeof(kButtonCells) / sizeof(kButtonCells[0]) && n > 0; k++)
+      if ((int)strlen(kButtonCells[k].name) == n && !memcmp(open + 1, kButtonCells[k].name, n)) p->cell = kButtonCells[k].cell;
+    s = close + 1;
+  }
+  return np;
+}
+
+static void Widen(Box *b, int need);
+
 // The instruction line: the English pictures (icon, button...) are columns kept whole over
-// the rows above too; the words around them are drawn anew, everything centred.
+// the rows above too; the words around them are drawn anew, everything centred. A button
+// named in the line ("{R}") is one cell with the game's letter for it.
 static void InstructionRow(Box *b, int row, const char *format) {
   typedef struct { int x0, x1; } Block;
   Block blocks[6];
@@ -516,39 +513,34 @@ static void InstructionRow(Box *b, int row, const char *format) {
     if (nb < 6) blocks[nb].x0 = x, blocks[nb].x1 = e, nb++;
     x = e;
   }
+  // Items: text, picture, text, picture, ..., text.
+  LinePart parts[10];
+  const int np = ParseLine(format, parts, 10, nb);
+  int cells = 0;
+  for (int i = 0; i < np; i++) {
+    cells += (TextWidth(parts[i].text, parts[i].len) + 7) / 8;
+    if (parts[i].block >= 0) cells += blocks[parts[i].block].x1 - blocks[parts[i].block].x0;
+    else if (parts[i].cell) cells++;
+  }
+  Widen(b, cells + 2);
   // The English rows, to copy the pictures from once the rows are cleared.
   uint16_t wide[kMaxRows][32];
   memcpy(wide, b->map, sizeof(wide));
   const uint16_t text_attr = 0x2800;   // palette 2: colour 2 is the white of the game's words
   for (int r = first; r <= row; r++) ClearRow(b, r, b->map[r][b->x0] & 0xfc00);
-  // Items: text, block, text, block, ..., text.
-  const char *parts[8];
-  int part_len[8], np = 0;
-  for (const char *s = format;;) {
-    const char *h = strstr(s, "{}");
-    parts[np] = s;
-    part_len[np] = h ? (int)(h - s) : (int)strlen(s);
-    np++;
-    if (!h || np >= 7) break;
-    s = h + 2;
-  }
-  int cells = 0;
-  for (int i = 0; i < np; i++) {
-    cells += (TextWidth(parts[i], part_len[i]) + 7) / 8;
-    if (i < nb && i < np - 1) cells += blocks[i].x1 - blocks[i].x0;
-  }
   int x = b->x0 + ((b->x1 - b->x0) - cells > 0 ? ((b->x1 - b->x0) - cells) / 2 : 0);
   for (int i = 0; i < np; i++) {
+    const LinePart *p = &parts[i];
     // The text, drawn into its own run of cells.
-    const int w = TextWidth(parts[i], part_len[i]), n = (w + 7) / 8;
+    const int w = TextWidth(p->text, p->len), n = (w + 7) / 8;
     if (n > 0 && x + n <= b->x1) {
       Tile run[32];
       for (int k = 0; k < n; k++) TileFill(&run[k], 3);
       // Snug against the pictures: a text before one ends at its right edge, one after it
       // starts at its left, one between two is centred in its cells.
-      const bool before = i < nb && i < np - 1, after = i > 0;
+      const bool before = p->block >= 0 || p->cell, after = i > 0;
       int px = before && after ? (n * 8 - w) / 2 : before ? n * 8 - w : 0, chars = 0;
-      for (const char *s = parts[i]; s < parts[i] + part_len[i];) {
+      for (const char *s = p->text; s < p->text + p->len;) {
         char rows[8][6];
         const int gw = GlyphRows(NextCode(&s), rows);
         if (gw < 0) { px += 3; continue; }
@@ -562,10 +554,12 @@ static void InstructionRow(Box *b, int row, const char *format) {
       for (int k = 0; k < n; k++) PutNewTile(b, row, x + k, &run[k], text_attr);
     }
     x += n;
-    if (i < nb && i < np - 1) {
-      const Block *k = &blocks[i];
+    if (p->block >= 0) {
+      const Block *k = &blocks[p->block];
       for (int c = k->x0; c < k->x1 && x < b->x1; c++, x++)
         for (int r = first; r <= row; r++) b->map[r][x] = wide[r][c];
+    } else if (p->cell && x < b->x1) {
+      b->map[row][x++] = p->cell;
     }
   }
 }
@@ -596,11 +590,10 @@ static void Build(Box *b, const MsgText *m, int index) {
 // The box is in VRAM in English (from the game's own buffer): translate it.
 static void Translate(void) {
   RestoreChars();
-  const MsgText *all = Messages();
   const int index = message_box_index;
-  if (!all || index <= 0 || index >= kMsgCount) return;
-  const MsgText *m = &all[index];
-  if (!m->row[0] && !m->row[1] && !m->row[2] && !m->instr && !m->yes) return;
+  MsgText text;
+  if (!MessageText(index, &text)) return;
+  const MsgText *m = &text;
   Ppu *ppu = VramPpu();
   if (!ppu) return;
   static Box b;
@@ -648,7 +641,11 @@ static void Translate(void) {
     }
 }
 
+static bool g_box_shown;
+bool GameText_MessageBoxShown(void) { return g_box_shown; }
+
 static void Hook(int shown) {
+  g_box_shown = shown != 0;
   if (shown) Translate();
   else RestoreChars();
 }

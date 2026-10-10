@@ -49,3 +49,14 @@ bool Cheats_SetMax(bool on);
 // Every item and beam, collected and equipped (Plasma rather than Spazer). Capacities
 // are MAX's job.
 bool Cheats_GiveAll(void);
+
+// Not a cheat: what SELECT does, for a tap on the bottom screen (and one day the buttons of a
+// modern control scheme, issue #32). Asks the game to select `item` in its next frame
+// (g_rtl_hud_select): one it would skip with SELECT (no ammo, not equipped) is left alone.
+// False outside of a room.
+enum { kSmHudNone, kSmHudMissiles, kSmHudSupers, kSmHudPowerBombs, kSmHudGrapple, kSmHudXray };
+bool Hud_RequestSelect(int item);
+
+// The reserve tanks' mode, AUTO <-> MANUAL, as the pause menu's tanks screen switches it (the HUD's
+// AUTO mark goes with it). False outside of a room or without reserve tanks.
+bool Hud_ToggleReserveMode(void);
