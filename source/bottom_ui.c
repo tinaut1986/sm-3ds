@@ -1766,15 +1766,24 @@ static uint16_t SnesMaskOfPadBit(int bit) { return (uint16_t)(0x8000 >> bit); }
 
 bool BottomUi_CapturingButton(void) { return g_modal == MODAL_CONTROLS && g_ctl_capture != kEditNone; }
 
-// The pad bit a face button has (A B X Y), or -1.
+// The modern button a pad bit is (A B X Y, and ZL ZR on a New 3DS), or -1.
 static int FaceOfPadBit(int bit) {
   switch (bit) {
   case 8: return kFaceA;
   case 0: return kFaceB;
   case 9: return kFaceX;
   case 1: return kFaceY;
+  case 12: return g_is_new3ds ? kFaceZL : -1;
+  case 13: return g_is_new3ds ? kFaceZR : -1;
   default: return -1;
   }
+}
+
+// A weapon put on a button: a toast saying why not, when it cannot go there.
+static bool AssignWeapon(ModernWeapon w, ModernFace face) {
+  if (ModernControls_SetWeaponButton(w, face)) return true;
+  BottomUi_Toast(Tr(face == ModernControls_ButtonOf(kModernJump) ? kStrCtlNoWeaponOnJump : kStrCtlMissileNotRun));
+  return false;
 }
 
 void BottomUi_ButtonCaptured(int pad_bit) {
@@ -1782,7 +1791,7 @@ void BottomUi_ButtonCaptured(int pad_bit) {
   const int edit = g_ctl_capture;
   if (edit >= kEditClassic) {
     // The original's buttons: any of A B X Y L R SELECT, and the action that had it takes this one's old one.
-    if (pad_bit == 3 || (pad_bit >= 4 && pad_bit <= 7)) return;   // START and the D-pad are not assignable
+    if (pad_bit == 3 || (pad_bit >= 4 && pad_bit <= 7) || pad_bit > 11) return;   // START, the D-pad, ZL and ZR are not assignable
     uint16_t *mine = ClassicConfig(edit - kEditClassic);
     const uint16_t mask = SnesMaskOfPadBit(pad_bit);
     for (int i = 0; i < 7; i++) {
@@ -1791,12 +1800,11 @@ void BottomUi_ButtonCaptured(int pad_bit) {
     }
     *mine = mask;
   } else {
+    // The modern scheme's buttons are the four on the right, and for a weapon ZL and ZR too.
     const int face = FaceOfPadBit(pad_bit);
-    if (face < 0) return;   // the modern scheme's buttons are the four on the right
+    if (face < 0 || (face >= kFaceButtons && edit < kEditWeapon)) return;
     if (edit >= kEditWeapon) {
-      if (!ModernControls_SetWeaponButton((ModernWeapon)(edit - kEditWeapon), (ModernFace)face)) {
-        BottomUi_Toast(Tr(kStrCtlMissileNotRun));
-      }
+      AssignWeapon((ModernWeapon)(edit - kEditWeapon), (ModernFace)face);
     } else {
       ModernControls_SetButton((ModernAction)(edit - kEditAction), (ModernFace)face);
     }
@@ -1828,7 +1836,7 @@ static int ControlsRows(ControlsRow rows[kControlsRows]) {
     char b[kModernActions][4], w[kModernWeapons][8];
     for (int a = 0; a < kModernActions; a++) snprintf(b[a], sizeof(b[a]), "%s", ModernControls_FaceName(ModernControls_ButtonOf((ModernAction)a)));
     for (int i = 0; i < kModernWeapons; i++)
-      snprintf(w[i], sizeof(w[i]), "R+%s", ModernControls_FaceName(ModernControls_WeaponButton((ModernWeapon)i)));
+      snprintf(w[i], sizeof(w[i]), "%s", ModernControls_WeaponKeys((ModernWeapon)i, "+"));
     const ControlsRow kModern[] = {
       { "DPAD", kStrCtlMove, kEditNone },
       { "", kStrCtlJump, kEditAction + kModernJump }, { "", kStrCtlRun, kEditAction + kModernRun },
@@ -1947,8 +1955,8 @@ static void DrawStatusHelpModal(Surface s) {
       UiFillRect(s, 16, y + 2, 3, 3, COL_DIM);
       char para[256];
       const char *text = Tr(kParts[i].paras[k]);
-      if (kParts[i].paras[k] == kStrStHelpModernTap) {   // names the button the missile is held with (R + that one)
-        snprintf(para, sizeof(para), text, ModernControls_FaceName(ModernControls_WeaponButton(kModernMissile)));
+      if (kParts[i].paras[k] == kStrStHelpModernTap) {   // names what the missile is fired with (R + a button, or ZL / ZR)
+        snprintf(para, sizeof(para), text, ModernControls_WeaponKeys(kModernMissile, " + "));
         text = para;
       }
       y += DrawWrapped(s, 24, y, 47, 6, COL_TEXT, text) * 10 + 2;
@@ -3044,12 +3052,13 @@ static void SaveConfig(void) {
           o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
           o.controls ? "modern" : "classic", o.missile, o.auto_bomb);
-  // The modern buttons: each action's face button, and the action each weapon rides on (R + that button).
+  // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
+  // or its trigger (ZL, ZR).
   for (int a = 0; a < kModernActions; a++)
     fprintf(f, "modern_%s=%s\n", ModernControls_ActionName((ModernAction)a), ModernControls_FaceName(ModernControls_ButtonOf((ModernAction)a)));
   static const char *const kWeaponKeys[kModernWeapons] = { "missile", "xray", "grapple" };
   for (int w = 0; w < kModernWeapons; w++)
-    fprintf(f, "modern_with_%s=%s\n", kWeaponKeys[w], ModernControls_ActionName(ModernControls_WeaponAction((ModernWeapon)w)));
+    fprintf(f, "modern_with_%s=%s\n", kWeaponKeys[w], ModernControls_WeaponPlaceName((ModernWeapon)w));
 #if DEBUG_TOOLS
   fprintf(f, "debug_log=%d\ndebug_log_direct=%d\ndebug_ftp=%d\n", o.debug_log, o.debug_log_direct, o.debug_ftp);
 #endif
@@ -3065,8 +3074,9 @@ static bool TabVisible(Tab t) {
 }
 
 // One `modern_*` line of config.ini: an action's button ("modern_jump=B") or the action a weapon
-// rides on ("modern_with_xray=run"). An invalid line, or one that would put the missile on run,
-// is ignored. Weapons are read after the buttons because the file lists them so.
+// rides on ("modern_with_xray=run"), or its trigger ("modern_with_missile=ZR", New 3DS only). An
+// invalid line, or one that would put a weapon on jump or the missile on run, is ignored. Weapons are
+// read after the buttons because the file lists them so.
 static bool LoadModernMapping(const char *key, const char *value) {
   static const char *const kWeaponKeys[kModernWeapons] = { "missile", "xray", "grapple" };
   ModernAction a;
@@ -3075,10 +3085,9 @@ static bool LoadModernMapping(const char *key, const char *value) {
     char want[24];
     snprintf(want, sizeof(want), "modern_with_%s", kWeaponKeys[i]);
     if (!strcmp(key, want)) {
-      if (ModernControls_ActionFromName(value, &a)) {
-        for (int j = 0; j < kFaceButtons; j++)
-          if (ModernControls_ButtonOf(a) == (ModernFace)j) ModernControls_SetWeaponButton((ModernWeapon)i, (ModernFace)j);
-      }
+      if (ModernControls_ActionFromName(value, &a)) ModernControls_SetWeaponButton((ModernWeapon)i, ModernControls_ButtonOf(a));
+      else if (g_is_new3ds && ModernControls_FaceFromName(value, &f) && f >= kFaceButtons)
+        ModernControls_SetWeaponButton((ModernWeapon)i, f);
       return true;
     }
   }
@@ -3626,20 +3635,23 @@ static void ControlsMenuSetModern(bool on) {
   g_dirty = 2;
 }
 // The game's CONTROLLER SETTING MODE, MODERN's rows (game_text_screens.c ControllerList): a face button
-// pressed on a row that can change goes to the table. Row 6 (POWER BOMB) is the missile's button.
+// (or for a weapon ZL / ZR, which the game asks for through `trigger`) pressed on a row that can change
+// goes to the table. Row 6 (POWER BOMB) is the missile's button.
 static bool ControlsMenuAssign(int row, int face) {
+  if (face >= kFaceButtons && row < 5) return false;
   switch (row) {
   case 0: ModernControls_SetButton(kModernJump, (ModernFace)face); return true;
   case 1: ModernControls_SetButton(kModernRun, (ModernFace)face); return true;
   case 2: ModernControls_SetButton(kModernShoot, (ModernFace)face); return true;
   case 3: ModernControls_SetButton(kModernMorph, (ModernFace)face); return true;
-  case 5: case 6: return ModernControls_SetWeaponButton(kModernMissile, (ModernFace)face);
-  case 7: return ModernControls_SetWeaponButton(kModernGrapple, (ModernFace)face);
-  case 8: return ModernControls_SetWeaponButton(kModernXray, (ModernFace)face);
+  case 5: case 6: return AssignWeapon(kModernMissile, (ModernFace)face);
+  case 7: return AssignWeapon(kModernGrapple, (ModernFace)face);
+  case 8: return AssignWeapon(kModernXray, (ModernFace)face);
   default: return false;
   }
 }
-static const RtlControlsMenu kControlsMenu = { ControlsMenuModern, ControlsMenuSetModern, ControlsMenuAssign };
+static int ControlsMenuTrigger(void) { return g_is_new3ds ? ModernControls_TriggerPressed() : -1; }
+static const RtlControlsMenu kControlsMenu = { ControlsMenuModern, ControlsMenuSetModern, ControlsMenuAssign, ControlsMenuTrigger };
 
 // ---- Init -------------------------------------------------------------------
 

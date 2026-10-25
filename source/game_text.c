@@ -76,11 +76,21 @@ static const char *const kModernLines[kMsgCount] = {
   [6] = "{} hold {R} and {B}.",
   [13] = "hold {B} to run.",
 };
+// The same boxes when the weapon is alone on ZL or ZR (New 3DS, "KEY (trigger line)"): {ZR} is the
+// trigger it is on, whichever.
+static const char *const kTriggerLines[kMsgCount] = {
+  [2] = "{} press {ZR}.",
+  [3] = "{} {SELECT} picks it, then {ZR}.",
+  [4] = "{} in morph ball, press {ZR}.",
+  [5] = "{} press {ZR}.",
+  [6] = "{} hold {ZR}.",
+};
 
 static bool g_modern_lines;
 // The face button the one A / B / X / Y letter of the box's modern line stands for (by what the
 // letter is in the default scheme: X is where the missile is, Y the grapple, B the X-ray or running),
-// so a remapped scheme reads right; -1 keeps the letters as written (the original's lines).
+// so a remapped scheme reads right, or the trigger (kFaceZL / kFaceZR) {ZR} stands for in a trigger
+// line; -1 keeps the letters as written (the original's lines).
 static int g_line_face = -1;
 
 static int ModernLineFace(int index) {
@@ -123,8 +133,9 @@ static bool MessageText(int index, MsgText *m) {
   }
   m->instr = BoxText(index, "line");
   if (g_modern_lines && kModernLines[index]) {
-    const char *t = BoxText(index, "modern line");
-    m->instr = t ? t : kModernLines[index];
+    const bool trigger = kTriggerLines[index] && ModernLineFace(index) >= kFaceButtons;
+    const char *t = BoxText(index, trigger ? "trigger line" : "modern line");
+    m->instr = t ? t : trigger ? kTriggerLines[index] : kModernLines[index];
   }
   m->yes = BoxText(index, "yes");
   m->no = BoxText(index, "no");
@@ -145,6 +156,10 @@ void GameText_ForEachKey(LangKeyFn *fn) {
     if (kModernLines[i]) {
       snprintf(key, sizeof(key), "%s (modern line)", kMsgKeys[i]);
       fn("message boxes", key, "modern controls: lowercase, {} the item's picture, {R} {X} {Y} {B} {SELECT} buttons");
+    }
+    if (kTriggerLines[i]) {
+      snprintf(key, sizeof(key), "%s (trigger line)", kMsgKeys[i]);
+      fn("message boxes", key, "modern controls, the weapon on ZL or ZR (New 3DS): as the modern line, {ZR} the trigger");
     }
     if (i == 23) {
       snprintf(key, sizeof(key), "%s (yes)", kMsgKeys[i]);
@@ -469,6 +484,8 @@ static void ChoicesRow(Box *b, int row, const char *yes, const char *no) {
 static const struct { const char *name; uint16_t cell; } kButtonCells[] = {
   { "A", 0x28e0 }, { "B", 0x3ce1 }, { "X", 0x2cf7 }, { "Y", 0x38f8 }, { "SELECT", 0x38d0 }, { "L", 0x38eb }, { "R", 0x38f1 },
 };
+// ZL and ZR, which the game never names: a Z in L's and R's colour, then that letter.
+enum { kCellZ = 0x38f9, kCellL = 0x38eb, kCellR = 0x38f1 };
 
 // One stretch of an instruction line: text, then the picture after it (none on the last).
 typedef struct {
@@ -476,13 +493,14 @@ typedef struct {
   int len;
   int block;       // the English picture (index into the line's blocks), or -1
   uint16_t cell;   // a button by name (one cell), or 0
+  uint16_t cell2;  // its second cell (ZL, ZR), or 0
 } LinePart;
 
 static int ParseLine(const char *format, LinePart *parts, int max, int blocks) {
   int np = 0, next_block = 0;
   for (const char *s = format; np < max;) {
     LinePart *p = &parts[np++];
-    p->text = s, p->block = -1, p->cell = 0;
+    p->text = s, p->block = -1, p->cell = p->cell2 = 0;
     const char *open = strchr(s, '{'), *close = open ? strchr(open, '}') : NULL;
     if (!close) {
       p->len = (int)strlen(s);
@@ -496,7 +514,10 @@ static int ParseLine(const char *format, LinePart *parts, int max, int blocks) {
     }
     for (size_t k = 0; k < sizeof(kButtonCells) / sizeof(kButtonCells[0]) && n > 0; k++)
       if ((int)strlen(kButtonCells[k].name) == n && !memcmp(open + 1, kButtonCells[k].name, n))
-        p->cell = g_line_face >= 0 && k < 4 ? kButtonCells[g_line_face].cell : kButtonCells[k].cell;   // A B X Y are the first four
+        p->cell = g_line_face >= 0 && g_line_face < kFaceButtons && k < 4 ? kButtonCells[g_line_face].cell
+                                                                          : kButtonCells[k].cell;   // A B X Y are the first four
+    if (n == 2 && open[1] == 'Z' && (open[2] == 'L' || open[2] == 'R'))
+      p->cell = kCellZ, p->cell2 = (g_line_face == kFaceZL || (g_line_face < 0 && open[2] == 'L')) ? kCellL : kCellR;
     s = close + 1;
   }
   return np;
@@ -538,7 +559,7 @@ static void InstructionRow(Box *b, int row, const char *format) {
   for (int i = 0; i < np; i++) {
     cells += (TextWidth(parts[i].text, parts[i].len) + 7) / 8;
     if (parts[i].block >= 0) cells += blocks[parts[i].block].x1 - blocks[parts[i].block].x0;
-    else if (parts[i].cell) cells++;
+    else if (parts[i].cell) cells += parts[i].cell2 ? 2 : 1;
   }
   Widen(b, cells + 2);
   // The English rows, to copy the pictures from once the rows are cleared.
@@ -578,6 +599,7 @@ static void InstructionRow(Box *b, int row, const char *format) {
         for (int r = first; r <= row; r++) b->map[r][x] = wide[r][c];
     } else if (p->cell && x < b->x1) {
       b->map[row][x++] = p->cell;
+      if (p->cell2 && x < b->x1) b->map[row][x++] = p->cell2;
     }
   }
 }

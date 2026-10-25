@@ -884,6 +884,16 @@ int main(int argc, char** argv) {
         }
         if (up & BIT(b)) HandleCommand(b, false);
       }
+      // ZL and ZR (New 3DS) are no SNES buttons: only the modern scheme's weapons use them
+      // (modern_controls.h), and the CONTROLS window can put a weapon on them.
+      static const struct { int button, pad; } kTriggers[] = { { BTN_ZL, kModernPadZL }, { BTN_ZR, kModernPadZR } };
+      for (int t = 0; t < 2; t++) {
+        if (down & BIT(kTriggers[t].button)) {
+          if (capturing) BottomUi_ButtonCaptured(__builtin_ctz(kTriggers[t].pad));
+          else g_input1_state |= kTriggers[t].pad;
+        }
+        if (up & BIT(kTriggers[t].button)) g_input1_state &= ~kTriggers[t].pad;
+      }
       // The touch screen is 320x240, the bottom UI's own coordinates.
       static bool touching;
       touchPosition tp;

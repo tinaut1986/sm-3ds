@@ -33,3 +33,4 @@ size_t Updater_CopyNotes(char *out, size_t cap) {
   out[c] = 0;
   return c;
 }
+bool Updater_QuitsToLauncher(void) { return false; }

@@ -141,7 +141,7 @@ value, read the game state and read or write memory. `tools/sm-link/sm-link.py` 
 tools/sm-link/sm-link.py wait                 # until the game answers (after an install)
 tools/sm-link/sm-link.py state                # frame=... state=08 area=0 room=91F8 x=... health=99/99 ...
 tools/sm-link/sm-link.py press LEFT 120       # hold LEFT 120 logic frames and wait for them
-tools/sm-link/sm-link.py keys A+B 2           # buttons by their 3DS names, joined by +
+tools/sm-link/sm-link.py keys A+B 2           # buttons by their 3DS names (ZL and ZR too), joined by +
 tools/sm-link/sm-link.py touch 160 120        # a bottom-screen tap
 tools/sm-link/sm-link.py savestate            # a new save state; `savestate 2` saves over number 2
 tools/sm-link/sm-link.py loadstate            # the newest; `loadstate 3` loads number 3

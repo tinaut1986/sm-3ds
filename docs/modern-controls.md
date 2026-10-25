@@ -11,7 +11,8 @@ the CONTROLLER SETTING note (below, "The option").
 ## Mapping (MODERN)
 
 The scheme is complete on an Old 3DS / 2DS (A B X Y L R START SELECT, D-pad, circle pad as the
-D-pad). ZL, ZR and the C-stick may add shortcuts on a New 3DS later, never something needed.
+D-pad). On a New 3DS a weapon can sit on ZL or ZR instead (Remapping, P4.21), never something needed; the
+C-stick is unused.
 
 | Physical | Does |
 |---|---|
@@ -25,6 +26,7 @@ D-pad). ZL, ZR and the C-stick may add shortcuts on a New 3DS later, never somet
 | R + Y | grapple beam; once hooked, Y alone keeps it (proposed, to try) |
 | SELECT | switch the chosen missile kind: missile / super missile |
 | START | pause, as always |
+| ZL, ZR (New 3DS) | nothing by default; a weapon put on one works with it alone, in place of R + its button (Remapping) |
 
 | Y | into the morph ball, or out of it to standing (the owner's, 2026-10-10: the original's item cancel had nothing left to cancel) |
 
@@ -155,7 +157,8 @@ The title screen's demos replay recorded SNES input and show no buttons: unaffec
 `tools/gpu-ppu-test/run.sh ROM rooms N ROOM` with `MODERN=1` plays `ROOM_SEQ`'s buttons through
 the translation as physical buttons; `MODERN_TRACE=1` prints the HUD item, the marked mask, the
 ammo, the grapple and Samus's pose each frame; `AMMO=1` gives ammunition with its HUD icons and
-`HUD_MARKED=mask` draws the marked look. Checked that way in the Landing Site: R + X fires a
+`HUD_MARKED=mask` draws the marked look; `MODERN_WITH` also takes `ZL` / `ZR`, which are `1000` / `2000` in
+`ROOM_SEQ`. Checked that way in the Landing Site: R + X fires a
 missile (also with both pressed on the same frame), SELECT then R + X a super missile, L aims up, Down
 with L held aims down and stays down after Down is let go until Up, without crouching, R + B starts the X-ray and letting go ends it, R + Y
 fires the grapple, R + X in morph ball lays a power bomb.
@@ -167,11 +170,22 @@ Two small tables, both frontend state in `config.ini`:
 - **Actions**: jump, run, shoot, morph ball, each on one of A / B / X / Y. A permutation: giving an action a
   taken button swaps the two actions. Default A, B, X, Y.
 - **Weapons**: missile kind, X-ray, grapple, each riding on one action's button, one weapon per action, held
-  with R. Default shoot's, run's and morph's (R + X, R + B, R + Y). Rule: the missile is never on the run
-  action's button (R + run is another weapon's shortcut, so there are no missiles while running: R + run + shoot
-  is not practical to press). A button with a weapon does that weapon while R is held instead of its action; with no
-  weapon on it, it does its action (R + the jump button is a jump with the missile selected). Because weapons
-  ride on actions, moving an action moves its weapon with it and the rule cannot break that way.
+  with R, or (New 3DS) alone on ZL or ZR. Default shoot's, run's and morph's (R + X, R + B, R + Y). Rules: no
+  weapon rides on jump (R held must still jump, so R + jump + shoot jumps and fires a missile; 2026-10-26), and
+  the missile is never on the run action's button (R + run is another weapon's shortcut, so there are no missiles
+  while running: R + run + shoot is not practical to press). A button with a weapon does that weapon while R is held
+  instead of its action; with no weapon on it, it does its action (R + the jump button is a jump with the missile
+  selected, while the missile is held with R). Because weapons ride on actions, moving an action moves its weapon
+  with it and the rules cannot break that way.
+- **ZL / ZR** (P4.21, New 3DS only): R + ZR cannot be pressed, so a trigger *replaces* a weapon's R + button, it is
+  not a combination with it. The weapon then works with the trigger alone, as it did with R + its button: the missile
+  fires on the press (the power bomb in morph ball), the X-ray lasts while the trigger is held (the run bit the game
+  needs is sent while it is), the hooked grapple stays while it is held. The button it rode on is free and does its
+  action with R too. With the missile on a trigger, R alone selects nothing (otherwise R + a free button would still
+  fire missiles); in morph ball R still selects the power bomb. Two weapons can be on triggers; the third stays on R.
+  Putting a weapon on a trigger another one has swaps them (that one takes the first one's old place, if the rules
+  allow it). ZL and ZR never reach the game: they are pad bits 12 and 13 of the frontend's input, which
+  `ModernControls_Translate` strips in both schemes.
 
 The translation (`ModernControls_Translate`) stops naming physical buttons: it resolves each action and weapon
 through the tables. Two things already done by it now have to follow the table, not B and Y: the run bit the X-ray
@@ -179,16 +193,21 @@ needs (sent while R and the X-ray's button are held, wherever that button is) an
 R + the jump button, with no weapon there, is a jump with the missile selected, as today.
 
 Saved as `modern_jump=B`, `modern_run=`, `modern_shoot=`, `modern_morph=` (the button) and
-`modern_with_missile=shoot`, `modern_with_xray=run`, `modern_with_grapple=morph` (the action) in `config.ini`;
-what does not read as a valid name is ignored.
+`modern_with_missile=shoot`, `modern_with_xray=run`, `modern_with_grapple=morph` (the action, or `ZL` / `ZR`) in
+`config.ini`; what does not read as a valid name, a weapon on jump, and `ZL` / `ZR` on an Old 3DS / 2DS are ignored.
 
 UI, both writing the same table: the rows of CONTROLLER SETTING MODE (JUMP, DASH, SHOT / BOMB, MORPH BALL, MISSILE,
-GRAPPLING BEAM and X-RAY SCOPE take the face button pressed on them; AIM, POWER BOMB (it is the missile's) and
-MISSILE / SUPER stay dim), and OPTIONS -> CONTROLS -> "?" on the bottom screen (tap a row, press the button: the main
+GRAPPLING BEAM and X-RAY SCOPE take the face button pressed on them, the three weapons ZL / ZR too on a New 3DS, which
+the game learns of through `RtlControlsMenu.trigger` since they are no SNES buttons, and written as letters: the ROM has
+no icon for them; AIM, POWER BOMB (it is the missile's) and MISSILE / SUPER stay dim), and OPTIONS -> CONTROLS -> "?" on the bottom screen (tap a row, press the button: the main
 loop gives that press to the window, `BottomUi_CapturingButton`, and the game does not see it; RESET puts the
 scheme's defaults back). The same window remaps CLASSIC's seven buttons by writing the game's `button_config_*`
-(A B X Y L R SELECT, the one that had the button takes this one's old one). Button names in the item boxes (`{X}`, `{B}`...) mean the action
-that button has by default and resolve to the button in use; the "?" window and STATUS's help read the tables.
+(A B X Y L R SELECT, the one that had the button takes this one's old one). A weapon refused (on jump, the missile on
+run) shows a toast saying why, from either UI. Button names in the item boxes (`{X}`, `{B}`...) mean the action
+that button has by default and resolve to the button in use; with the weapon on a trigger the box shows its
+`(trigger line)` key instead ("{} press {ZR}.", `kTriggerLines` in `source/game_text.c`), where `{ZR}` is the
+trigger in use, drawn as a Z in the L / R letter's colour beside that letter. The "?" window and STATUS's help read the
+tables ("ZR" for a weapon on a trigger, "R+X" otherwise).
 
 ## Open, to settle while trying it
 
@@ -196,4 +215,4 @@ that button has by default and resolve to the button in use; the "?" window and 
 - What R + X does with no missiles of the marked kind: fire the beam (as the original's skip
   rules give) or fall back to the other kind.
 - The marked look in the HUD: a palette or a blink.
-- New 3DS shortcuts (ZL, ZR, C-stick).
+- The C-stick (New 3DS): unused.

@@ -174,6 +174,7 @@ static const char *const kText[kStrCount] = {
   [kStrCtlConfigNote] = "TAP A ROW, THEN PRESS A BUTTON",
   [kStrCtlPressButton] = "PRESS THE NEW BUTTON",
   [kStrCtlMissileNotRun] = "THE MISSILE CANNOT GO ON THE RUN BUTTON",
+  [kStrCtlNoWeaponOnJump] = "NO WEAPON CAN GO ON THE JUMP BUTTON",
   // Its button for the automatic bomb jump (the bomb button held in the morph ball climbs), with ": ON" / ": OFF"
   // after it: about 26 characters of room.
   [kStrAutoBomb] = "AUTO BOMB JUMP",
@@ -186,7 +187,7 @@ static const char *const kText[kStrCount] = {
   [kStrStHelpClassic] = "CLASSIC CONTROLS",
   [kStrStHelpClassicTap] = "MISSILES, SUPER MISSILES, POWER BOMBS, GRAPPLING BEAM AND X-RAY SCOPE: TAP ONE TO SELECT IT, AS SELECT DOES, AND AGAIN TO PUT IT AWAY.",
   [kStrStHelpModern] = "MODERN CONTROLS",
-  [kStrStHelpModernTap] = "MISSILES AND SUPER MISSILES: TAP ONE TO CHOOSE WHAT R + %s FIRES. THE OTHER WEAPONS ARE ON THE BUTTONS.",
+  [kStrStHelpModernTap] = "MISSILES AND SUPER MISSILES: TAP ONE TO CHOOSE WHAT %s FIRES. THE OTHER WEAPONS ARE ON THE BUTTONS.",
 };
 
 static const char *g_tr[kStrCount];   // the current language's, resolved by UiLang_Set

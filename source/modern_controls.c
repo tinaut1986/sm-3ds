@@ -1,5 +1,6 @@
 #include "modern_controls.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "cheats.h"
@@ -15,9 +16,14 @@ enum {
 };
 enum { kGrappleInactive = 0xC4F0 };   // grapple_beam_function: GrappleBeamFunc_Inactive
 
-static const int kFacePad[kFaceButtons] = { kPadA, kPadB, kPadX, kPadY };
+enum { kPadGame = (1 << 12) - 1 };   // the twelve bits the game may see
+
+static const int kFacePad[kWeaponButtons] = { kPadA, kPadB, kPadX, kPadY, kModernPadZL, kModernPadZR };
 static ModernFace g_face[kModernActions] = { kFaceA, kFaceB, kFaceX, kFaceY };   // action -> button
-static ModernAction g_weapon_action[kModernWeapons] = { kModernShoot, kModernRun, kModernMorph };
+// Where each weapon is: the action it rides on (R + that action's button), or alone on a trigger.
+enum { kOnZL = kModernActions, kOnZR };
+static int g_weapon_place[kModernWeapons] = { kModernShoot, kModernRun, kModernMorph };
+static int g_trigger_pressed = -1;
 
 static bool g_on;
 static int g_missile = kSmHudMissiles;
@@ -48,16 +54,22 @@ void ModernControls_SetMissile(int item) {
 }
 
 ModernFace ModernControls_ButtonOf(ModernAction a) { return g_face[a]; }
-ModernAction ModernControls_WeaponAction(ModernWeapon w) { return g_weapon_action[w]; }
-ModernFace ModernControls_WeaponButton(ModernWeapon w) { return g_face[g_weapon_action[w]]; }
+bool ModernControls_WeaponWithR(ModernWeapon w) { return g_weapon_place[w] < kModernActions; }
+int ModernControls_TriggerPressed(void) { return g_trigger_pressed; }
+
+ModernFace ModernControls_WeaponButton(ModernWeapon w) {
+  const int p = g_weapon_place[w];
+  return p == kOnZL ? kFaceZL : p == kOnZR ? kFaceZR : g_face[p];
+}
 
 int ModernControls_ActionWeapon(ModernAction a) {
   for (int w = 0; w < kModernWeapons; w++)
-    if (g_weapon_action[w] == a) return w;
+    if (g_weapon_place[w] == (int)a) return w;
   return -1;
 }
 
 void ModernControls_SetButton(ModernAction a, ModernFace face) {
+  if (face >= kFaceButtons) return;
   for (int o = 0; o < kModernActions; o++) {
     if (o != (int)a && g_face[o] == face) {
       g_face[o] = g_face[a];
@@ -68,44 +80,57 @@ void ModernControls_SetButton(ModernAction a, ModernFace face) {
 }
 
 bool ModernControls_SetWeaponButton(ModernWeapon w, ModernFace face) {
-  ModernAction a = kModernJump;
-  for (int i = 0; i < kModernActions; i++)
-    if (g_face[i] == face) a = (ModernAction)i;
-  if (g_weapon_action[w] == a) return true;
-  if (w == kModernMissile && a == kModernRun) return false;
+  int place = face == kFaceZL ? kOnZL : face == kFaceZR ? kOnZR : kModernJump;
+  for (int i = 0; i < kModernActions && face < kFaceButtons; i++)
+    if (g_face[i] == face) place = i;
+  if (g_weapon_place[w] == place) return true;
+  if (place == kModernJump || (w == kModernMissile && place == kModernRun)) return false;
   for (int o = 0; o < kModernWeapons; o++) {
-    if (o != (int)w && g_weapon_action[o] == a) {
-      if (o == kModernMissile && g_weapon_action[w] == kModernRun) return false;
-      g_weapon_action[o] = g_weapon_action[w];
+    if (o != (int)w && g_weapon_place[o] == place) {
+      if (o == kModernMissile && g_weapon_place[w] == kModernRun) return false;
+      g_weapon_place[o] = g_weapon_place[w];
       break;
     }
   }
-  g_weapon_action[w] = a;
+  g_weapon_place[w] = place;
   return true;
 }
 
 void ModernControls_ResetMapping(void) {
   for (int i = 0; i < kModernActions; i++) g_face[i] = (ModernFace)i;
-  g_weapon_action[kModernMissile] = kModernShoot;
-  g_weapon_action[kModernXray] = kModernRun;
-  g_weapon_action[kModernGrapple] = kModernMorph;
+  g_weapon_place[kModernMissile] = kModernShoot;
+  g_weapon_place[kModernXray] = kModernRun;
+  g_weapon_place[kModernGrapple] = kModernMorph;
 }
 
 unsigned ModernControls_MappingKey(void) {
   unsigned k = 0;
   for (int i = 0; i < kModernActions; i++) k = k << 2 | g_face[i];
-  for (int i = 0; i < kModernWeapons; i++) k = k << 2 | g_weapon_action[i];
+  for (int i = 0; i < kModernWeapons; i++) k = k << 3 | (unsigned)g_weapon_place[i];
   return k;
 }
 
-static const char *const kFaceNames[kFaceButtons] = { "A", "B", "X", "Y" };
+static const char *const kFaceNames[kWeaponButtons] = { "A", "B", "X", "Y", "ZL", "ZR" };
 static const char *const kActionNames[kModernActions] = { "jump", "run", "shoot", "morph" };
 
 const char *ModernControls_FaceName(ModernFace f) { return kFaceNames[f]; }
 const char *ModernControls_ActionName(ModernAction a) { return kActionNames[a]; }
 
+const char *ModernControls_WeaponPlaceName(ModernWeapon w) {
+  const int p = g_weapon_place[w];
+  return p < kModernActions ? kActionNames[p] : kFaceNames[p == kOnZL ? kFaceZL : kFaceZR];
+}
+
+const char *ModernControls_WeaponKeys(ModernWeapon w, const char *sep) {
+  static char buf[kModernWeapons][16];
+  const char *face = kFaceNames[ModernControls_WeaponButton(w)];
+  if (ModernControls_WeaponWithR(w)) snprintf(buf[w], sizeof(buf[w]), "R%s%s", sep, face);
+  else snprintf(buf[w], sizeof(buf[w]), "%s", face);
+  return buf[w];
+}
+
 bool ModernControls_FaceFromName(const char *name, ModernFace *out) {
-  for (int i = 0; i < kFaceButtons; i++)
+  for (int i = 0; i < kWeaponButtons; i++)
     if (!strcmp(name, kFaceNames[i])) { *out = (ModernFace)i; return true; }
   return false;
 }
@@ -144,16 +169,22 @@ static bool InMorphBall(void) {
   }
 }
 
+// Whether a weapon's button is down: R and its action's button, or its trigger alone.
+static bool WeaponHeld(int in, ModernWeapon w) {
+  return (!ModernControls_WeaponWithR(w) || (in & kPadR)) && (in & kFacePad[ModernControls_WeaponButton(w)]);
+}
+
 int ModernControls_Translate(int in) {
   const int pressed = in & ~g_prev_inputs;
   g_prev_inputs = in;
-  if (!g_on) return in;
+  g_trigger_pressed = (pressed & kModernPadZL) ? kFaceZL : (pressed & kModernPadZR) ? kFaceZR : -1;
+  if (!g_on) return in & kPadGame;
   // Gameplay only: the game's menus, the pause screen and its message boxes (B is "no") keep
   // the buttons as they are.
   if (game_state != 0x08 || GameText_MessageBoxShown()) {
     g_aim_down = false;
     g_morph_goal = 0;
-    return in;
+    return in & kPadGame;
   }
 
   if ((pressed & kPadSelect) && HasKind(g_missile == kSmHudMissiles ? kSmHudSupers : kSmHudMissiles)) {
@@ -166,15 +197,16 @@ int ModernControls_Translate(int in) {
   const bool r = in & kPadR;
   const int shoot_pad = kFacePad[g_face[kModernShoot]], run_pad = kFacePad[g_face[kModernRun]];
   const int morph_pad = kFacePad[g_face[kModernMorph]], jump_pad = kFacePad[g_face[kModernJump]];
-  // The face button each weapon is held with, and whether it is down.
-  const bool missile_held = r && (in & kFacePad[ModernControls_WeaponButton(kModernMissile)]);
-  const bool xray_held = r && (in & kFacePad[ModernControls_WeaponButton(kModernXray)]);
-  const bool grapple_held = r && (in & kFacePad[ModernControls_WeaponButton(kModernGrapple)]);
+  // Whether each weapon's button is down (R + it, or its trigger).
+  const bool missile_held = WeaponHeld(in, kModernMissile);
+  const bool xray_held = WeaponHeld(in, kModernXray);
+  const bool grapple_held = WeaponHeld(in, kModernGrapple);
 
   int out = in & (kPadUp | kPadDown | kPadLeft | kPadRight | kPadStart);
-  // A button carrying a weapon does that weapon while R is held, not its action (below).
+  // A button carrying a weapon does that weapon while R is held, not its action (below). Jump never
+  // carries one.
   const bool weapon_on[kModernActions] = {
-    r && ModernControls_ActionWeapon(kModernJump) >= 0, r && ModernControls_ActionWeapon(kModernRun) >= 0,
+    false, r && ModernControls_ActionWeapon(kModernRun) >= 0,
     r && ModernControls_ActionWeapon(kModernShoot) >= 0, r && ModernControls_ActionWeapon(kModernMorph) >= 0 };
   if ((in & jump_pad) && !weapon_on[kModernJump]) out |= Pad(button_config_jump_a);
   if ((in & shoot_pad) && !weapon_on[kModernShoot]) out |= Pad(button_config_shoot_x);
@@ -210,22 +242,27 @@ int ModernControls_Translate(int in) {
     }
   }
 
-  // The item the buttons want. While R is held: the power bomb in morph ball, else the grapple, the
-  // X-ray or the missile kind, by the button held. A hooked grapple stays while its button is held.
-  // A weapon Samus does not have leaves the item as none (not the missile selected by holding R): its
-  // button then fires nothing.
+  // The item the buttons want. In morph ball, the power bomb while R or the missile's button is held;
+  // else the grapple, the X-ray or the missile kind, by the button held. R alone also asks for the
+  // missile when that is held with R (so R and its button pressed on the same frame fire it). A hooked
+  // grapple stays while its button is held. A weapon Samus does not have leaves the item as none (not
+  // the missile selected by holding R): its button then fires nothing.
   const bool has_grapple = equipped_items & 0x4000, has_xray = equipped_items & 0x8000;
+  const int grapple_pad = kFacePad[ModernControls_WeaponButton(kModernGrapple)];
   int want = kSmHudNone;
-  if (r) {
-    if (InMorphBall()) want = kSmHudPowerBombs;
-    else if (grapple_held) want = has_grapple ? kSmHudGrapple : kSmHudNone;
-    else if (xray_held) want = has_xray ? kSmHudXray : kSmHudNone;
-    else want = missile;
-  } else if ((in & kFacePad[ModernControls_WeaponButton(kModernGrapple)]) && hud_item_index == kSmHudGrapple &&
-           grapple_beam_function != kGrappleInactive)
+  if (InMorphBall()) {
+    if (r || missile_held) want = kSmHudPowerBombs;
+  } else if (grapple_held) {
+    want = has_grapple ? kSmHudGrapple : kSmHudNone;
+  } else if (xray_held) {
+    want = has_xray ? kSmHudXray : kSmHudNone;
+  } else if (missile_held || (r && ModernControls_WeaponWithR(kModernMissile))) {
+    want = missile;
+  } else if (!r && (in & grapple_pad) && hud_item_index == kSmHudGrapple && grapple_beam_function != kGrappleInactive) {
     want = kSmHudGrapple;
+  }
   // Firing: the missile's button, and the grapple's once it is the item.
-  if (missile_held || ((want == kSmHudGrapple) && (in & kFacePad[ModernControls_WeaponButton(kModernGrapple)])))
+  if (missile_held || (want == kSmHudGrapple && (in & grapple_pad)))
     out |= Pad(button_config_shoot_x);
   // Asked again every frame it differs: that also covers morphing with R held and coming back from
   // the pause screen. One the game skips (no ammo) leaves the selection as it was.
