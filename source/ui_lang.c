@@ -217,6 +217,16 @@ static const char *const kText[kStrCount] = {
   [kStrOptInfoUpdates] = "LOOKS FOR A NEW VERSION NOW, AND OFFERS TO INSTALL IT IF THERE IS ONE.",
   [kStrOptInfoNotes] = "WHAT THE NEWEST VERSION FOUND BRINGS.",
   [kStrOptInfoReset] = "STARTS THE GAME AGAIN FROM ITS TITLE SCREEN (IT ASKS FIRST): WHAT IS NOT SAVED IS LOST.",
+  [kStrDspTitle] = "SOUND FIRMWARE NEEDED",
+  [kStrDspMissing] = "THE DSP FIRMWARE IS NOT ON THE SD CARD.",
+  [kStrDspDamaged] = "THE DSP FIRMWARE ON THE SD CARD IS DAMAGED.",
+  [kStrDspWhy1] = "WITHOUT IT THE GAME RUNS, BUT SILENT.",
+  [kStrDspWhy2] = "TO PLAY WITH SOUND, EXTRACT IT NOW.",
+  [kStrDspExtract] = "EXTRACT",
+  [kStrDspSkip] = "NO SOUND",
+  [kStrDspWorking] = "EXTRACTING...",
+  [kStrDspDone] = "DONE. THE SOUND WILL WORK.",
+  [kStrDspFailed] = "COULD NOT EXTRACT IT.",
   [kStrIntroSkipKeys] = "UP / DOWN: CHOOSE   A: GO   B: BACK TO THE INTRO",
 };
 

@@ -180,6 +180,8 @@ build if a `.smc`/`.sfc` is present in `romfs/`.
 ## ROM and legal
 
 - Never commit, package or upload a ROM, nor any build that contains one.
+- Never ship the DSP firmware (`sdmc:/3ds/dspfirm.cdc`) either: the game checks it at start and
+  extracts it from the console's own Home Menu on request (`source/dsp_firm.c`, PLAN P4.24).
 - Supported ROM: Super Metroid (Japan, USA), headerless, sha1
   `da957f0d63d14cb441d215462904c4fa8519c613`.
 - Code license: MIT (sm-3ds), plus snesrev's own license for `sm/`. Keep both.

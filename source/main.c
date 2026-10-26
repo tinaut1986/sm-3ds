@@ -36,6 +36,7 @@
 #include "gpu_ppu.h"
 #include "gpu_ppu_3ds.h"
 #include "rom_loader.h"
+#include "dsp_firm_ui.h"
 #include "ui_draw.h"
 #include "retro_ach.h"
 #include "game_text.h"
@@ -648,6 +649,8 @@ static void ShowRomError(const RomInfo *info) {
   gfxExit();
 }
 
+static const char *g_dspfirm_note = "not checked";   // for the debug log (Debug_Init comes later)
+
 // Notes exit progress (see the cleanup at the end of main). Kept open so a step costs
 // one write and a flush.
 static FILE *g_exit_file;
@@ -760,6 +763,8 @@ int main(int argc, char** argv) {
   Updater_Init(g_ui.auto_update, g_ui.update_beta);
   GameText_Init();
 
+  g_dspfirm_note = DspFirmUi_Ensure();   // before the audio starts: the sound needs the firmware
+
   // Setup audio
   RecursiveLock_Init(&g_audio_mutex);
   RecursiveLock_Init(&g_apu_queue_mutex);
@@ -798,6 +803,7 @@ int main(int argc, char** argv) {
     Debug_Log("console %s, audio %s (%d Hz, %d frames x %d buffers)", n3ds ? "New 3DS" : "Old 3DS/2DS",
               g_audio_ok ? "open" : "FAILED", kAudioRate, kAudioBufFrames, kAudioBufs);
     if (!g_audio_ok) Debug_Log("audio failed: ndspInit %08lX", (unsigned long)g_ndsp_rc);
+    Debug_Log("dsp firmware: %s", g_dspfirm_note);
     Debug_Log("core 1 time limit: asked 30 -> %08lX; granted %lu %%", (unsigned long)core1_rc, (unsigned long)core1_limit);
     Debug_LogStorage();
   }
