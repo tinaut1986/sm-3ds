@@ -88,7 +88,7 @@ static void OptEnd(void) {   // the list ends at y 204: two drags reach its end
 }
 enum { kOptLanguageX = 20, kOptAudioX = 95, kOptSpoilersX = 170, kOptGeneralY = 55 };   // at the top
 enum { kOptDisplayX = 20, kOptViewX = 95, kOptHudX = 200, kOptScreenY = 105 };
-enum { kOptFpsX = 20, kOptFramesX = 95, kOptCpuX = 170, kOptScreen2Y = 140 };
+enum { kOptFpsX = 20, kOptFramesX = 95, kOptScreen2Y = 140 };
 enum { kOptControlsX = 40, kOptHelpX = 140, kOptAutoBombX = 200, kOptPlayY = 192 };
 enum { kOptChargeX = 40, kOptChargeEndY = 50 };   // at the end
 enum { kOptUpdateX = 20, kOptChannelX = 95, kOptUpdatesX = 170, kOptNotesX = 245, kOptUpdatesY = 100, kOptResetY = 152 };

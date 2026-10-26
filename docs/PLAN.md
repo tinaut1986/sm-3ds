@@ -869,11 +869,13 @@ Lessons from mzm that apply directly:
   Checked by the owner on the New 3DS (2026-10-26) and merged into `release/v0.8.4`.
 - [ ] **P4.23** OPTIONS grouped by what the settings are about (owner's request, 2026-10-26, before the next stable). The tab is a
   list that scrolls (dragging it or its bar, as the save states), each group under a title and a line: GENERAL (language,
-  audio, spoilers), SCREEN (image, view, HUD, FPS, frames, CPU), PLAY (controls and their "?", AUTO BOMB JUMP, CHARGE PULLS
+  audio, spoilers), SCREEN (image, view, HUD, FPS, frames), PLAY (controls and their "?", AUTO BOMB JUMP, CHARGE PULLS
   DROPS: the two play aids move here from the "?" window, whose rows go back to 12 px), UPDATES AND NEWS, then RESET GAME
   after a line, and the version in two lines. A tap acts on release, unless the touch scrolled (`OptLayout`,
   `source/bottom_ui.c`). Under the list, a fixed strip says what the setting last tapped does (`kOptInfo`, up to three
-  lines; a hint until the first tap), in every language, naming the values as the cells show them.
+  lines; a hint until the first tap), in every language, naming the values as the cells show them. The CPU cell is gone
+  (the owner's: nobody wants to play slower; it was a test switch): a New 3DS always runs at 804 MHz, and an old
+  `config.ini`'s `new3ds_speedup` is ignored.
   Branch `feat/options-categories`. *Done when:* the owner has used it on the console: every cell reachable and doing what
   it did, the scroll by page and by bar, in every language.
 

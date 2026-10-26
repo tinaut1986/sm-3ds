@@ -1476,14 +1476,14 @@ void BottomUi_GameReset(void) {
 //
 //   GENERAL   LANGUAGE | AUDIO      SPOILERS
 //   SCREEN    IMAGE | VIEW         HUD
-//             FPS | FRAMES         CPU
+//             FPS | FRAMES
 //   PLAY      CONTROLS [?]         AUTO BOMB JUMP
 //             CHARGE PULLS DROPS
 //   UPDATES   UPDATE | CHANNEL     UPDATES | WHAT'S NEW
 //             RESET GAME (the whole width), then the version
 
 typedef enum {
-  OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
+  OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
   OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_RESET, OPT_COUNT
 } OptCell;
 
@@ -1503,8 +1503,7 @@ enum {
 typedef struct { OptCell cell; bool full; } OptItem;
 static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
   { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
-  { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false },
-                     { OPT_SPEEDUP, false } }, 6 },
+  { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false } }, 5 },
   { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true } }, 3 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
   { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
@@ -1516,7 +1515,7 @@ static int g_opt_scroll;
 enum { kOptHelpInfo = OPT_COUNT };
 static int g_opt_info = -1;
 static const UiStr kOptInfo[OPT_COUNT + 1] = {
-  [OPT_PACING] = kStrOptInfoPacing, [OPT_AUDIO] = kStrOptInfoAudio, [OPT_FPS] = kStrOptInfoFps, [OPT_SPEEDUP] = kStrOptInfoCpu,
+  [OPT_PACING] = kStrOptInfoPacing, [OPT_AUDIO] = kStrOptInfoAudio, [OPT_FPS] = kStrOptInfoFps,
   [OPT_LANGUAGE] = kStrOptInfoLanguage, [OPT_DISPLAY] = kStrOptInfoDisplay, [OPT_WIDE] = kStrOptInfoView,
   [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
@@ -1660,9 +1659,6 @@ static void DrawOptions(Surface s) {
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
   DrawFpsCornerIcon(s, fr, g_ui.fps_overlay);
-  if (g_is_new3ds) DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", g_ui.new3ds_speedup ? "804 MHZ" : "268 MHZ",
-                               g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
-  else DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", "268 MHZ", COL_FAINT);
   DrawOptCell(s, OptRect(OPT_LANGUAGE), Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
   DrawOnOffCell(s, OPT_SPOILERS, kStrSpoilers, g_show_spoilers);
   DrawOptCell(s, OptRect(OPT_DISPLAY), Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelP : kStrScaled), COL_GOOD);
@@ -1746,11 +1742,6 @@ static void OptionsTap(int x, int y) {
       break;
     case OPT_AUDIO: g_ui.audio_on = !g_ui.audio_on; break;
     case OPT_FPS: g_ui.fps_overlay = (g_ui.fps_overlay + 1) % 5; break;
-    case OPT_SPEEDUP:
-      if (!g_is_new3ds) return;
-      g_ui.new3ds_speedup = !g_ui.new3ds_speedup;
-      osSetSpeedupEnable(g_ui.new3ds_speedup);
-      break;
     case OPT_DISPLAY: g_ui.pixel_perfect = !g_ui.pixel_perfect; break;
     case OPT_WIDE: g_ui.wide = !g_ui.wide; break;
     case OPT_LANGUAGE: UiLang_Set((g_ui_lang + 1) % UiLang_Count()); break;
@@ -3162,7 +3153,7 @@ static void DrawUnlockNotice(Surface s) {
 #define CONFIG_PATH "config.ini"
 
 typedef struct {
-  int tab, pacing, audio, fps_overlay, speedup, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
+  int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
       controls, missile, auto_bomb, charge_pull;
   unsigned mapping;   // ModernControls_MappingKey
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
@@ -3170,7 +3161,7 @@ typedef struct {
 } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay, g_ui.new3ds_speedup,
+  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
                          g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
                          g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, ModernControls_MappingKey(),
                          g_debug_log, g_debug_log_direct, g_debug_ftp };
@@ -3184,9 +3175,9 @@ static void SaveConfig(void) {
   SavedOptions o = CurrentOptions();
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
-  fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\nnew3ds_speedup=%d\npixel_perfect=%d\nwide=%d\n"
+  fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
           "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\n",
-          o.tab, o.pacing, o.audio, o.fps_overlay, o.speedup, o.pixel_perfect, o.wide,
+          o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
           o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
@@ -3270,7 +3261,6 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "frameskip")) g_ui.pacing = v ? kPaceAuto : kPaceNoSkip;   // the old on/off setting
     else if (!strcmp(key, "audio")) g_ui.audio_on = v != 0;
     else if (!strcmp(key, "fps_overlay") && v >= 0 && v <= 4) g_ui.fps_overlay = (int)v;   // 1 was "on": the top-left corner
-    else if (!strcmp(key, "new3ds_speedup")) g_ui.new3ds_speedup = v != 0;
     else if (!strcmp(key, "pixel_perfect")) g_ui.pixel_perfect = v != 0;
     else if (!strcmp(key, "wide")) g_ui.wide = v != 0;
     else if (!strcmp(key, "auto_update")) g_ui.auto_update = v != 0;
@@ -3843,14 +3833,13 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   SmMap_Init();
   SmWarp_Init();
   APT_CheckNew3DS(&g_is_new3ds);
-  g_ui.new3ds_speedup = g_is_new3ds;
+  g_ui.new3ds_speedup = g_is_new3ds;   // always the fast mode where there is one (an old config.ini's choice is ignored)
   UiLang_Set(UiLang_FromSystem());   // until config.ini says otherwise
   LoadConfig();
   g_saved_options = CurrentOptions();
   g_ui_lang_on_change = OnGameLanguage;
   g_rtl_controls_menu = &kControlsMenu;
-  if (!g_is_new3ds) g_ui.new3ds_speedup = false;
-  if (g_is_new3ds) osSetSpeedupEnable(g_ui.new3ds_speedup);
+  if (g_is_new3ds) osSetSpeedupEnable(true);
   g_ptmu = R_SUCCEEDED(ptmuInit());
   if (g_ptmu) {
     PTMU_GetBatteryLevel(&g_battery);

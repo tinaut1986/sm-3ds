@@ -21,7 +21,7 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
   - **Map Tab:** Detailed vector map with room outlines, zoom levels (1X, 2X, 3X), doors, map stations, and an **item tracker window** counting items found per area (with optional SPOILERS mode).
   - **Save States Tab:** Unlimited save states with in-game screenshot thumbnails, gameplay stats (time, energy, missiles, area), and color marks.
   - **RetroAchievements Tab:** Full RetroAchievements support (softcore) with achievement cards, progress tracking, and on-screen popups (customizable to top or bottom screen).
-  - **Options Tab:** Controls scheme, audio toggle, frame pacing (AUTO, LOCK 30, NO SKIP), CPU 804 MHz mode (New 3DS), display modes (Pixel Perfect / Scaled), view modes (Original / WIDE), FPS counter, and language selector.
+  - **Options Tab:** grouped by topic (general, screen, play, updates), scrolling, with a description of each setting at the bottom: language, audio, spoilers, display modes (Pixel Perfect / Scaled), view modes (Original / WIDE), HUD, FPS counter, frame pacing (AUTO, LOCK 30, NO SKIP), controls scheme and play aids, updates. A New 3DS always runs in its 804 MHz mode.
 - **Self-Updater:** Check and install the latest updates directly from the console (OPTIONS -> UPDATES), complete with version notes.
 - **Multilingual Support:** English, Spanish, Catalan, French, Portuguese, and Japanese. Custom translations can also be loaded from the SD card (`lang/` folder).
 - **Sound:** Authentic emulated SNES SPC700 sound chip playback.
