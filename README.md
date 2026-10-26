@@ -76,7 +76,10 @@ You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA instal
    `da957f0d63d14cb441d215462904c4fa8519c613`. A 512-byte copier header is
    stripped automatically. PAL and translation-patched ROMs are rejected; the
    game shows an error screen with the expected hash if no valid ROM is found.
-4. Start "Super Metroid 3DS Port" from the HOME menu.
+4. Start "Super Metroid 3DS Port" from the HOME menu. The sound needs your console's DSP firmware
+   (`sdmc:/3ds/dspfirm.cdc`, the file other homebrew uses too). If it is missing or damaged the game
+   says so and offers to extract it from the console itself (EXTRACT); without it the game runs, silent.
+   It is Nintendo's, so it is never part of a download.
 
 **Homebrew Launcher instead of a CIA:** every release also has `sm-3ds-<version>.3dsx`. Copy it to
 `sdmc:/3ds/` (any name), put the ROM in the same folder as in step 3 and open it from the Homebrew
