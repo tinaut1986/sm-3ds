@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <malloc.h>
 #include <3ds.h>
 
 #include "src/snes/ppu.h"
@@ -282,6 +283,17 @@ uint64_t AudioProf_Now(void) {
 static float TicksToMs(u64 ticks) {
   return (float)((double)ticks * 1000.0 / SYSCLOCK_ARM11);
 }
+
+#if DEBUG_TOOLS
+// One log line per save or load state: where a slow one spends its time (state file, screenshot, RA progress).
+static void LogStateTiming(const char *what, int slot, bool ok, const char *state_file, u64 t_state, u64 t_shot,
+                           u64 t_ra) {
+  struct stat st;
+  const long size = stat(state_file, &st) == 0 ? (long)st.st_size : -1;
+  Debug_Log("state %s: slot %d ok=%d size=%ld state=%.1fms shot=%.1fms ra=%.1fms", what, slot, ok, size,
+            TicksToMs(t_state), TicksToMs(t_shot), TicksToMs(t_ra));
+}
+#endif
 
 // gfxFlushBuffers without GSP (see FlushCache in gpu_ppu_3ds.c: the GSP request waits for core 1), and only
 // for the screens about to be swapped.
@@ -683,6 +695,8 @@ static void LogPeriodic(const UiPerf *p) {
               TicksToMs(st->t_lines), TicksToMs(st->t_diff), TicksToMs(st->t_sprites), TicksToMs(st->t_bg),
               TicksToMs(st->t_shadow), g_gpu_frame.band_count, g_gpu_frame.quad_count);
   }
+  Debug_Log("memory: heap free %lu KB, linear free %lu KB", (unsigned long)(mallinfo().fordblks >> 10),
+            (unsigned long)(linearSpaceFree() >> 10));
   Debug_Log("audio: block %.1f ms (dsp %.1f spc %.1f lock %.1f) | callbacks %d, slowest %.1f ms, slower than "
             "their buffer %d, late starts %d, underruns %d",
             p->audio_ms, p->audio_part_ms[2], p->audio_part_ms[1], p->audio_part_ms[0], g_cb_count, g_cb_max_ms,
@@ -777,6 +791,7 @@ int main(int argc, char** argv) {
               g_audio_ok ? "open" : "FAILED", kAudioRate, kAudioBufFrames, kAudioBufs);
     if (!g_audio_ok) Debug_Log("audio failed: ndspInit %08lX", (unsigned long)g_ndsp_rc);
     Debug_Log("core 1 time limit: asked 30 -> %08lX; granted %lu %%", (unsigned long)core1_rc, (unsigned long)core1_limit);
+    Debug_LogStorage();
   }
 
   PpuBeginDrawing(snes->snes_ppu, g_pixels, 256 * 4, 0);
@@ -869,6 +884,16 @@ int main(int argc, char** argv) {
         }
         if (up & BIT(b)) HandleCommand(b, false);
       }
+      // ZL and ZR (New 3DS) are no SNES buttons: only the modern scheme's weapons use them
+      // (modern_controls.h), and the CONTROLS window can put a weapon on them.
+      static const struct { int button, pad; } kTriggers[] = { { BTN_ZL, kModernPadZL }, { BTN_ZR, kModernPadZR } };
+      for (int t = 0; t < 2; t++) {
+        if (down & BIT(kTriggers[t].button)) {
+          if (capturing) BottomUi_ButtonCaptured(__builtin_ctz(kTriggers[t].pad));
+          else g_input1_state |= kTriggers[t].pad;
+        }
+        if (up & BIT(kTriggers[t].button)) g_input1_state &= ~kTriggers[t].pad;
+      }
       // The touch screen is 320x240, the bottom UI's own coordinates.
       static bool touching;
       touchPosition tp;
@@ -896,10 +921,20 @@ int main(int argc, char** argv) {
       GameTextScreens_PutBack();
       char state_file[48];
       snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+#if DEBUG_TOOLS
+      const u64 ts0 = svcGetSystemTick();
+#endif
       const bool ok = RtlSaveLoadFile(kSaveLoad_Save, state_file, g_ui.save_slot);
-      BottomUi_StateSaved(g_ui.save_slot, ok, ok && CaptureStateShot() ? g_state_shot : NULL);
+#if DEBUG_TOOLS
+      const u64 ts1 = svcGetSystemTick();
+#endif
+      BottomUi_StateSaved(g_ui.save_slot, ok, ok && CaptureStateShot() ? g_state_shot : NULL);   // writes the screenshot
+#if DEBUG_TOOLS
+      const u64 ts2 = svcGetSystemTick();
+#endif
       if (ok) RetroAch_StateSaved(g_ui.save_slot);
 #if DEBUG_TOOLS
+      LogStateTiming("save", g_ui.save_slot, ok, state_file, ts1 - ts0, ts2 - ts1, svcGetSystemTick() - ts2);
       DebugLink_StateDone(ok);
 #endif
     }
@@ -907,10 +942,17 @@ int main(int argc, char** argv) {
       BottomUi_Busy();
       char state_file[48];
       snprintf(state_file, sizeof(state_file), "saves/save%d.sav", g_ui.save_slot);
+#if DEBUG_TOOLS
+      const u64 tl0 = svcGetSystemTick();
+#endif
       const bool ok = RtlSaveLoadFile(kSaveLoad_Load, state_file, g_ui.save_slot);
+#if DEBUG_TOOLS
+      const u64 tl1 = svcGetSystemTick();
+#endif
       BottomUi_StateLoaded(g_ui.save_slot, ok);
       if (ok) RetroAch_StateLoaded(g_ui.save_slot);
 #if DEBUG_TOOLS
+      LogStateTiming("load", g_ui.save_slot, ok, state_file, tl1 - tl0, 0, svcGetSystemTick() - tl1);
       DebugLink_StateDone(ok);
 #endif
     }
@@ -1173,6 +1215,16 @@ int main(int argc, char** argv) {
     float work_ms = TicksToMs(now - frame_start);
     perf.frame_ms += (work_ms - perf.frame_ms) * 0.1f;
     px.ui_ms = TicksToMs(t_ui), px.present_ms = TicksToMs(t_pres), px.present_wait_ms = UiDraw_TakeWaitMs();
+#if DEBUG_TOOLS
+    // A frame that took over 100 ms, with where the time went (at most 30 lines per run).
+    static int slow_logged;
+    if (work_ms > 100.0f && slow_logged < 30) {
+      slow_logged++;
+      Debug_Log("slow frame: %.0f ms | logic %.1f draw %.1f ui %.1f present %.1f (wait %.1f) | heap free %lu KB, linear free %lu KB",
+                work_ms, TicksToMs(t_logic), TicksToMs(t_draw), TicksToMs(t_ui), TicksToMs(t_pres), px.present_wait_ms,
+                (unsigned long)(mallinfo().fordblks >> 10), (unsigned long)(linearSpaceFree() >> 10));
+    }
+#endif
     if (!g_ui.paused)
       Debug_PerfFrame(TicksToMs(t_logic), TicksToMs(t_draw), perf.audio_ms, work_ms, presented, perf.audio_part_ms, &px);
     float window_ms = TicksToMs(now - fps_window_start);

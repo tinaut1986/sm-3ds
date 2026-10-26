@@ -25,6 +25,7 @@ void Debug_LogFlush(void);
 bool Debug_LogEnabled(void);
 const char *Debug_LogName(void);   // current log file name, "" if none
 void Debug_Log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void Debug_LogStorage(void);       // SD free space, a timed 512 KB write/read, files and size of debug/, saves/ and the data folder
 void Debug_LogMark(void);          // "USER MARK" line with frame and room
 
 // --- Dumps -----------------------------------------------------------------

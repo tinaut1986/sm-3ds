@@ -32,3 +32,8 @@ typedef enum { SWKBD_BUTTON_LEFT, SWKBD_BUTTON_MIDDLE, SWKBD_BUTTON_RIGHT, SWKBD
 static inline void swkbdInit(SwkbdState *s, SwkbdType t, int buttons, int max) { (void)s; (void)t; (void)buttons; (void)max; }
 static inline void swkbdSetHintText(SwkbdState *s, const char *t) { (void)s; (void)t; }
 static inline SwkbdButton swkbdInputText(SwkbdState *s, char *buf, size_t n) { (void)s; (void)buf; (void)n; return SWKBD_BUTTON_NONE; }
+
+// The SD card's free space (debug_tools.c): the preview has no card, the stub fails.
+typedef struct { u32 sectorSize, clusterSize, totalClusters, freeClusters; } FS_ArchiveResource;
+typedef enum { SYSTEM_MEDIATYPE_NAND, SYSTEM_MEDIATYPE_SD } FS_SystemMediaType;
+static inline Result FSUSER_GetArchiveResource(FS_ArchiveResource *r, FS_SystemMediaType m) { (void)r; (void)m; return -1; }

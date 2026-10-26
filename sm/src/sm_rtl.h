@@ -198,8 +198,10 @@ static inline int RtlLanguageMenuRow(int i, int n) { return n <= 6 ? 6 + 3 * i :
 typedef struct {
   bool (*modern)(void);
   void (*set_modern)(bool on);
-  // MODERN: row 0..9 of the list, button 0 A, 1 B, 2 X, 3 Y. False: that row does not take it.
+  // MODERN: row 0..9 of the list, button 0 A, 1 B, 2 X, 3 Y, 4 ZL, 5 ZR. False: that row does not take it.
   bool (*assign)(int row, int face);
+  // MODERN: ZL (4) or ZR (5) pressed this frame (they never reach the joypad), else -1. NULL: none.
+  int (*trigger)(void);
 } RtlControlsMenu;
 extern const RtlControlsMenu *g_rtl_controls_menu;
 extern bool g_rtl_controls_row_shown;

@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <3ds.h>
 #include <time.h>
 
 #include "src/types.h"
@@ -174,6 +177,74 @@ void Debug_LogSetEnabled(bool on) {
 
 bool Debug_LogEnabled(void) { return g_log != NULL; }
 const char *Debug_LogName(void) { return g_log ? g_log_name : ""; }
+
+// ---- SD card check ---------------------------------------------------------
+
+// Files and bytes in one folder (not recursive), with the time the scan took. Stops at
+// 20000 entries so a folder gone wild cannot hold the start-up for long.
+static void LogFolder(const char *dir) {
+  u64 t0 = svcGetSystemTick();
+  DIR *d = opendir(dir);
+  if (!d) {
+    Debug_Log("sd: folder %s: missing", dir);
+    return;
+  }
+  int files = 0, dirs = 0;
+  unsigned long long bytes = 0;
+  struct dirent *e;
+  while ((e = readdir(d)) && files + dirs < 20000) {
+    char path[320];
+    struct stat st;
+    snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+    if (stat(path, &st) != 0) continue;
+    if (S_ISDIR(st.st_mode)) dirs++;
+    else files++, bytes += (unsigned long long)st.st_size;
+  }
+  closedir(d);
+  Debug_Log("sd: folder %s: %d files, %d folders, %llu KB, listed in %.0f ms%s", dir, files, dirs, bytes >> 10,
+            (double)(svcGetSystemTick() - t0) * 1000.0 / SYSCLOCK_ARM11, files + dirs >= 20000 ? " (stopped at 20000)" : "");
+}
+
+// Once at start-up: free space on the card, a timed write and read of 512 KB, and the size
+// of the folders the port writes to. Tells a slow or full card (or a folder with far too many
+// files) from a slowdown that is the port's own.
+void Debug_LogStorage(void) {
+  if (!g_log) return;
+  FS_ArchiveResource res;
+  if (R_SUCCEEDED(FSUSER_GetArchiveResource(&res, SYSTEM_MEDIATYPE_SD)))
+    Debug_Log("sd: %llu MB free of %llu MB (clusters of %lu bytes)",
+              (unsigned long long)res.freeClusters * res.clusterSize >> 20,
+              (unsigned long long)res.totalClusters * res.clusterSize >> 20, (unsigned long)res.clusterSize);
+  enum { kChunk = 32768, kChunks = 16 };
+  static char buf[kChunk];
+  memset(buf, 0xA5, sizeof(buf));
+  const char *path = DEBUG_DIR "/sd-speed.tmp";
+  u64 t0 = svcGetSystemTick();
+  FILE *f = fopen(path, "wb");
+  u64 t_open = svcGetSystemTick() - t0;
+  if (f) {
+    for (int i = 0; i < kChunks; i++) fwrite(buf, 1, kChunk, f);
+    fclose(f);
+    double w_ms = (double)(svcGetSystemTick() - t0) * 1000.0 / SYSCLOCK_ARM11;
+    t0 = svcGetSystemTick();
+    f = fopen(path, "rb");
+    size_t got = 0;
+    if (f) {
+      size_t n;
+      while ((n = fread(buf, 1, kChunk, f)) > 0) got += n;
+      fclose(f);
+    }
+    double r_ms = (double)(svcGetSystemTick() - t0) * 1000.0 / SYSCLOCK_ARM11;
+    remove(path);
+    Debug_Log("sd: wrote 512 KB in %.0f ms (open %.0f ms), read %lu KB in %.0f ms", w_ms,
+              (double)t_open * 1000.0 / SYSCLOCK_ARM11, (unsigned long)(got >> 10), r_ms);
+  } else {
+    Debug_Log("sd: cannot create %s", path);
+  }
+  LogFolder(DEBUG_DIR);
+  LogFolder("saves");
+  LogFolder(".");
+}
 
 void Debug_LogMark(void) {
   if (!g_log) return;

@@ -1277,7 +1277,8 @@ int main(int argc, char **argv) {
       if (getenv("MODERN")) {
         ModernControls_Set(true);
         // MODERN_MAP=B,A,Y,X: the faces of jump, run, shoot, morph; MODERN_WITH=shoot,run,morph: the
-        // actions the missile, X-ray and grapple ride on (docs/modern-controls.md, "Remapping").
+        // actions the missile, X-ray and grapple ride on, or ZL / ZR (docs/modern-controls.md, "Remapping";
+        // ROOM_SEQ's 1000 is ZL, 2000 ZR).
         static bool mapped;
         if (!mapped) {
           mapped = true;
@@ -1292,8 +1293,11 @@ int main(int argc, char **argv) {
           i = 0;
           for (char *t = strtok(buf, ","); t && i < kModernWeapons; t = strtok(NULL, ","), i++) {
             ModernAction act;
+            ModernFace f;
             if (ModernControls_ActionFromName(t, &act))
               ModernControls_SetWeaponButton((ModernWeapon)i, ModernControls_ButtonOf(act));
+            else if (ModernControls_FaceFromName(t, &f))
+              ModernControls_SetWeaponButton((ModernWeapon)i, f);
           }
         }
         g_input = ModernControls_Translate(raw_input);

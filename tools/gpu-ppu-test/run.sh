@@ -25,7 +25,7 @@
 # switches them as a long press on STATUS does (EQUIP_TRACE=1 prints the equipment every 5 frames); XRAY=1: the X-ray scope selected, hold Y with ROOM_SEQ=2@n). SHOTS=a-b writes tested frames a..b as shot-NNNN.ppm with vram-NNNN.bin, cgram-NNNN.bin (SHOTS_STEP=n: every n-th; MSGBOX=n queues
 # message box n first; GAME_LANG=n in UI language n, ui_lang.h; MODERN=1 their modern controls' lines, and ROOM_SEQ's buttons played
 # through the modern controls (MODERN_TRACE=1 prints the HUD item, ammo, grapple and pose each frame; MODERN_MAP=B,A,Y,X the
-# faces of jump, run, shoot, morph and MODERN_WITH=shoot,run,morph the actions the missile, X-ray and grapple ride on); HUD_MARKED=mask the HUD items
+# faces of jump, run, shoot, morph and MODERN_WITH=shoot,run,morph the actions the missile, X-ray and grapple ride on, or ZL / ZR: ROOM_SEQ's 1000 and 2000); HUD_MARKED=mask the HUD items
 # drawn as marked, bit 1 missiles, 2 supers; CONTROLS_MENU=1 the CONTROLS row of SPECIAL SETTING MODE). WRAM_TRACE=1 writes wram-NNNN.bin per frame. CERES_ESCAPE=1: the Ceres escape is on (DF45 tilts).
 # EPROJ_MARGIN=1 [EPROJ_ID=hex]: count the frames with an enemy projectile (of that id) outside the game's 256 px window
 # (WIDE keeps them alive in the margins); EPROJ_LIST=n lists every projectile each n-th tested frame.

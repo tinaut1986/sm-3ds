@@ -60,6 +60,7 @@ static const struct { const char *name; uint32_t mask; } kKeys[] = {
   { "A", KEY_A },         { "B", KEY_B },           { "X", KEY_X },        { "Y", KEY_Y },
   { "L", KEY_L },         { "R", KEY_R },           { "START", KEY_START }, { "SELECT", KEY_SELECT },
   { "UP", KEY_DUP },      { "DOWN", KEY_DDOWN },    { "LEFT", KEY_DLEFT }, { "RIGHT", KEY_DRIGHT },
+  { "ZL", KEY_ZL },       { "ZR", KEY_ZR },
 };
 
 static bool ParseKeys(const char *text, uint32_t *mask) {
