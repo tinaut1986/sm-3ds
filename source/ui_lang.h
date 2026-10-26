@@ -44,7 +44,8 @@ typedef enum {
   kStrControls, kStrClassic, kStrModern,
   kStrCtlMove, kStrCtlJump, kStrCtlRun, kStrCtlFire, kStrCtlFireBomb, kStrCtlChoose, kStrCtlCancel, kStrCtlAimUp, kStrCtlAimDown, kStrCtlAimDownLock, kStrCtlPause, kStrCtlMorph, kStrCtlMissile, kStrCtlGrapple, kStrCtlXray, kStrCtlMissileKind, kStrCtlConfigNote, kStrCtlPressButton, kStrCtlMissileNotRun, kStrCtlNoWeaponOnJump, kStrAutoBomb,
   kStrStHelpTitle, kStrStHelpBoth, kStrStHelpReserve, kStrStHelpEquip, kStrStHelpClassic, kStrStHelpClassicTap, kStrStHelpModern, kStrStHelpModernTap,
-  kStrIntroSkipHint, kStrIntroSkipTitle, kStrIntroSkipCeres, kStrIntroSkipCeresNote, kStrIntroSkipZebes, kStrIntroSkipZebesNote, kStrIntroSkipKeys, kStrChargePull,
+  kStrIntroSkipHint, kStrIntroSkipTitle, kStrIntroSkipCeres, kStrIntroSkipCeresNote, kStrIntroSkipZebes, kStrIntroSkipZebesNote, kStrIntroSkipKeys, kStrChargePull, kStrOptGeneral, kStrOptScreen, kStrOptPlay, kStrOptUpdates,
+  kStrOptInfoNone, kStrOptInfoLanguage, kStrOptInfoAudio, kStrOptInfoSpoilers, kStrOptInfoDisplay, kStrOptInfoView, kStrOptInfoHud, kStrOptInfoFps, kStrOptInfoPacing, kStrOptInfoCpu, kStrOptInfoControls, kStrOptInfoHelp, kStrOptInfoAutoBomb, kStrOptInfoChargePull, kStrOptInfoAutoUpdate, kStrOptInfoChannel, kStrOptInfoUpdates, kStrOptInfoNotes, kStrOptInfoReset,
   kStrCount
 } UiStr;
 

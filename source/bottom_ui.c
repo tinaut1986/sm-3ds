@@ -1469,51 +1469,124 @@ void BottomUi_GameReset(void) {
 }
 
 // ---- Options tab ----------------------------------------------------------------
-// Two columns of slots. A slot is one button, or two half buttons that share its width
-// (each shows its own setting and its current value, a tap changes it).
+// The settings grouped by what they are about, each group under its title and a line, in a list
+// that scrolls (dragging it or its bar, like the save states). In a group the cells flow in rows
+// of four half buttons; a full one takes two halves of one column. A cell shows its setting and
+// its value, a tap (on release, if the touch did not scroll) changes it.
 //
-//   FRAMES | AUDIO    CONTROLS [?]
-//   FPS | CPU         LANGUAGE | SPOILERS
-//   IMAGE | VIEW      HUD
-//   UPDATE | CHANNEL  UPDATES | WHAT'S NEW
-//   RESET GAME (the whole width)
+//   GENERAL   LANGUAGE | AUDIO      SPOILERS
+//   SCREEN    IMAGE | VIEW         HUD
+//             FPS | FRAMES         CPU
+//   PLAY      CONTROLS [?]         AUTO BOMB JUMP
+//             CHARGE PULLS DROPS
+//   UPDATES   UPDATE | CHANNEL     UPDATES | WHAT'S NEW
+//             RESET GAME (the whole width), then the version
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_SPEEDUP, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_RESET, OPT_COUNT
 } OptCell;
 
-enum { kOptHudSlot = 5, kOptUpdateSlot = 6, kOptNewsSlot = 7, kOptResetRow = 8, kOptSpeakerW = 34 };
+enum {
+  kOptY0 = 26, kOptY1 = 204,                  // the list's part of the screen; under it the setting's description
+  kOptInfoY = 206, kOptInfoLines = 3, kOptInfoChars = 51,
+  kOptX = 6, kOptColW = 148, kOptGap = 4,      // two columns of 148 px, 4 apart: up to x 306
+  kOptHalfW = (kOptColW - kOptGap) / 2,
+  kOptRowH = 30, kOptPitch = 34, kOptHeadH = 16,
+  kOptSpeakerW = 34,
+  kOptBarX = 310, kOptBarW = 4, kOptBarHitX = 306, kOptDragSlop = 6,
+  kOptInfoH = 26,                              // the version's two lines under RESET GAME
+};
 
-static Rect OptSlot(int slot) { return (Rect){ 8 + (slot % 2) * 154, 30 + (slot / 2) * 34, 150, 30 }; }
-static Rect OptHalf(int slot, int half) {
-  const Rect r = OptSlot(slot);
-  return (Rect){ r.x + half * 77, r.y, 73, r.h };
-}
+// The groups in order: a title (kStrCount: just the line), then its cells (half or full width). RESET
+// GAME, the whole width, is the last one.
+typedef struct { OptCell cell; bool full; } OptItem;
+static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
+  { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
+  { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false },
+                     { OPT_SPEEDUP, false } }, 6 },
+  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true } }, 3 },
+  { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
+  { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
+};
+enum { kOptGroupCount = sizeof(kOptGroups) / sizeof(kOptGroups[0]) };
 
-static Rect OptRect(OptCell c) {
-  switch (c) {
-  case OPT_PACING: return OptHalf(0, 0);
-  case OPT_AUDIO: return OptHalf(0, 1);
-  case OPT_CONTROLS: { const Rect r = OptSlot(1); return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h }; }
-  case OPT_FPS: return OptHalf(2, 0);
-  case OPT_SPEEDUP: return OptHalf(2, 1);
-  case OPT_LANGUAGE: return OptHalf(3, 0);
-  case OPT_SPOILERS: return OptHalf(3, 1);
-  case OPT_DISPLAY: return OptHalf(4, 0);
-  case OPT_WIDE: return OptHalf(4, 1);
-  case OPT_AUTO_UPDATE: return OptHalf(kOptUpdateSlot, 0);
-  case OPT_CHANNEL: return OptHalf(kOptUpdateSlot, 1);
-  case OPT_HUD: return OptSlot(kOptHudSlot);
-  case OPT_NOTES: return OptHalf(kOptNewsSlot, 1);
-  default: return OptHalf(kOptNewsSlot, 0);   // OPT_UPDATES
+static int g_opt_scroll;
+// The cell last tapped, whose description the bottom of the tab shows (kOptHelpInfo: the "?"; -1 none yet).
+enum { kOptHelpInfo = OPT_COUNT };
+static int g_opt_info = -1;
+static const UiStr kOptInfo[OPT_COUNT + 1] = {
+  [OPT_PACING] = kStrOptInfoPacing, [OPT_AUDIO] = kStrOptInfoAudio, [OPT_FPS] = kStrOptInfoFps, [OPT_SPEEDUP] = kStrOptInfoCpu,
+  [OPT_LANGUAGE] = kStrOptInfoLanguage, [OPT_DISPLAY] = kStrOptInfoDisplay, [OPT_WIDE] = kStrOptInfoView,
+  [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
+  [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
+  [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull,
+  [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
+};
+static struct { bool active, dragging, bar; int start_x, start_y, last_y; } g_opt_touch;
+
+// Where everything is, in the list's own coordinates (y 0 at its top): each cell, each group's title
+// row, and the list's height.
+static Rect g_opt_cell[OPT_COUNT];
+static int g_opt_head_y[kOptGroupCount], g_opt_height;
+
+static void OptLayout(void) {
+  int y = 2;
+  for (int g = 0; g < kOptGroupCount; g++) {
+    g_opt_head_y[g] = y;
+    y += kOptHeadH;
+    int half = 0;   // of the row's four
+    for (int i = 0; i < kOptGroups[g].n; i++) {
+      const OptItem it = kOptGroups[g].items[i];
+      if (it.cell == OPT_RESET) {   // the whole width, in a row of its own
+        if (half) y += kOptPitch, half = 0;
+        g_opt_cell[it.cell] = (Rect){ kOptX, y, 2 * kOptColW + kOptGap, kOptRowH };
+        y += kOptPitch;
+        continue;
+      }
+      if (it.full && (half & 1)) half++;   // a full one starts a column
+      if (half >= 4) y += kOptPitch, half = 0;
+      const int col = half / 2, sub = half & 1;
+      g_opt_cell[it.cell] = it.full ? (Rect){ kOptX + col * (kOptColW + kOptGap), y, kOptColW, kOptRowH }
+                                    : (Rect){ kOptX + col * (kOptColW + kOptGap) + sub * (kOptHalfW + kOptGap), y, kOptHalfW, kOptRowH };
+      half += it.full ? 2 : 1;
+    }
+    if (half) y += kOptPitch;
+    y += 2;
   }
+  g_opt_height = y + kOptInfoH;
 }
-// The "?" beside CONTROLS: the window with both schemes' buttons.
-static Rect ControlsHelpRect(void) { const Rect r = OptSlot(1); return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h }; }
-static Rect ResetRect(void) {
-  const Rect l = OptSlot(kOptResetRow), r = OptSlot(kOptResetRow + 1);
-  return (Rect){ l.x, l.y, r.x + r.w - l.x, l.h };
+
+static int OptMaxScroll(void) {
+  OptLayout();
+  const int view = kOptY1 - kOptY0;
+  return g_opt_height > view ? g_opt_height - view : 0;
+}
+
+static void OptClampScroll(void) {
+  const int max = OptMaxScroll();
+  if (g_opt_scroll > max) g_opt_scroll = max;
+  if (g_opt_scroll < 0) g_opt_scroll = 0;
+}
+
+static void OptScrollToBar(int y) {
+  g_opt_scroll = (y - kOptY0) * OptMaxScroll() / (kOptY1 - kOptY0);
+  OptClampScroll();
+}
+
+// A cell on the screen, as it is scrolled now.
+static Rect OptRect(OptCell c) {
+  const Rect r = g_opt_cell[c];
+  return (Rect){ r.x, kOptY0 + r.y - g_opt_scroll, r.w, r.h };
+}
+// The "?" at the end of CONTROLS: the window with both schemes' buttons.
+static Rect ControlsHelpRect(void) {
+  const Rect r = OptRect(OPT_CONTROLS);
+  return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h };
+}
+static Rect ControlsCellRect(void) {
+  const Rect r = OptRect(OPT_CONTROLS);
+  return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h };
 }
 
 static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
@@ -1550,7 +1623,25 @@ static void DrawFpsCornerIcon(Surface s, Rect r, int corner) {
   UiFillRect(s, bx, by, 8, 4, COL_GOOD);
 }
 
+static int DrawWrapped(Surface s, int x, int y, int chars, int lines, uint32_t col, const char *text);
+
+// A group's title, with a line from it to the list's right edge (only the line without a title).
+static void DrawOptHead(Surface s, int y, const char *title) {
+  if (title) UiDrawText(s, kOptX + 2, y + 4, 1, COL_ACCENT, title);
+  const int x = title ? kOptX + 2 + UiTextWidth(title, 1) + 6 : kOptX;
+  UiFillRect(s, x, y + 7, kOptX + 2 * kOptColW + kOptGap - x, 1, RGB(50, 80, 130));
+}
+
+static void DrawOnOffCell(Surface s, OptCell c, UiStr label, bool on) {
+  DrawOptCell(s, OptRect(c), Tr(label), Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
+}
+
 static void DrawOptions(Surface s) {
+  OptClampScroll();   // lays the list out too
+  UiClipY(kOptY0, kOptY1);
+  for (int g = 0; g < kOptGroupCount; g++) DrawOptHead(s, kOptY0 + g_opt_head_y[g] - g_opt_scroll,
+                                                          kOptGroups[g].title == kStrCount ? NULL : Tr(kOptGroups[g].title));
+
   static const UiStr kPaceNames[kPaceCount] = { kStrAuto, kStrPaceLock, kStrPaceNoSkip };
   DrawOptCell(s, OptRect(OPT_PACING), Tr(kStrPacing), Tr(kPaceNames[g_ui.pacing]), g_ui.pacing == kPaceNoSkip ? COL_WARN : COL_GOOD);
 
@@ -1559,8 +1650,12 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, ar, Tr(kStrAudio), Tr(g_ui.audio_on ? kStrOn : kStrOff), g_ui.audio_on ? COL_GOOD : COL_DIM);
   DrawSpeaker(s, ar.x + ar.w - 14, ar.y + 20, g_ui.audio_on, g_ui.audio_on ? COL_GOOD : COL_DIM);
   // CONTROLS, and beside it "?": what each button does in both schemes (MODAL_CONTROLS).
-  DrawOptCell(s, OptRect(OPT_CONTROLS), Tr(kStrControls), Tr(ModernControls_On() ? kStrModern : kStrClassic), COL_GOOD);
+  DrawOptCell(s, ControlsCellRect(), Tr(kStrControls), Tr(ModernControls_On() ? kStrModern : kStrClassic), COL_GOOD);
   UiDrawBoxLabel(s, ControlsHelpRect(), RGB(24, 32, 50), RGB(50, 80, 130), COL_ACCENT, Pressed(ControlsHelpRect()), "?");
+  // The play aids, both schemes: the bomb button held in the morph ball climbs by itself (auto_bomb.c), and
+  // the charge beam pulls in the drops (sm_rtl.h, g_rtl_charge_pull; off by default).
+  DrawOnOffCell(s, OPT_AUTO_BOMB, kStrAutoBomb, AutoBomb_On());
+  DrawOnOffCell(s, OPT_CHARGE_PULL, kStrChargePull, g_rtl_charge_pull);
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1569,8 +1664,7 @@ static void DrawOptions(Surface s) {
                                g_ui.new3ds_speedup ? COL_GOOD : COL_DIM);
   else DrawOptCell(s, OptRect(OPT_SPEEDUP), "CPU", "268 MHZ", COL_FAINT);
   DrawOptCell(s, OptRect(OPT_LANGUAGE), Tr(kStrLanguage), UiLang_Name(g_ui_lang), COL_GOOD);
-  DrawOptCell(s, OptRect(OPT_SPOILERS), Tr(kStrSpoilers), Tr(g_show_spoilers ? kStrOn : kStrOff),
-              g_show_spoilers ? COL_GOOD : COL_DIM);
+  DrawOnOffCell(s, OPT_SPOILERS, kStrSpoilers, g_show_spoilers);
   DrawOptCell(s, OptRect(OPT_DISPLAY), Tr(kStrDisplay), Tr(g_ui.pixel_perfect ? kStrPixelP : kStrScaled), COL_GOOD);
   DrawOptCell(s, OptRect(OPT_WIDE), Tr(kStrView), Tr(g_ui.wide ? kStrViewWide : kStrViewOriginal), g_ui.wide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_AUTO_UPDATE), Tr(kStrUpdate), Tr(g_ui.auto_update ? kStrAuto : kStrNo),
@@ -1595,17 +1689,32 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
-  UiDrawBoxLabel(s, ResetRect(), RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(ResetRect()),
-                 Tr(kStrResetGame));
+  const Rect rr = OptRect(OPT_RESET);
+  UiDrawBoxLabel(s, rr, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(rr), Tr(kStrResetGame));
 
-  UiDrawTextCentered(s, SCREEN_W / 2, 200, RGB(90, 115, 145), "SUPER METROID 3DS");
-  UiDrawTextCentered(s, SCREEN_W / 2, 209, RGB(90, 115, 145), g_rom_info.version);
-  char buf[48];
-  snprintf(buf, sizeof(buf), "ROM %.8s%s", g_rom_info.rom_sha1, g_rom_info.rom_had_header ? " (HEADER)" : "");
-  UiDrawTextCentered(s, SCREEN_W / 2, 219, RGB(70, 90, 115), buf);
-#if DEBUG_TOOLS
-  UiDrawTextCentered(s, SCREEN_W / 2, 229, RGB(150, 110, 60), "DEBUG TOOLS BUILD");
-#endif
+  // The version in two lines: the port's, then the ROM's (and the debug build's mark).
+  const int iy = rr.y + kOptPitch + 2, cx = kOptX + kOptColW + kOptGap / 2;
+  char buf[96];
+  snprintf(buf, sizeof(buf), "SUPER METROID 3DS %s", g_rom_info.version);
+  UiDrawTextCentered(s, cx, iy, RGB(90, 115, 145), buf);
+  snprintf(buf, sizeof(buf), "ROM %.8s%s%s", g_rom_info.rom_sha1, g_rom_info.rom_had_header ? " (HEADER)" : "",
+           DEBUG_TOOLS ? "   DEBUG TOOLS BUILD" : "");
+  UiDrawTextCentered(s, cx, iy + 10, DEBUG_TOOLS ? RGB(150, 110, 60) : RGB(70, 90, 115), buf);
+  UiNoClip();
+
+  // What the cell last tapped does (a hint until then), under a line.
+  UiFillRect(s, kOptX, kOptInfoY - 2, 2 * kOptColW + kOptGap, 1, RGB(50, 80, 130));
+  DrawWrapped(s, kOptX + 2, kOptInfoY + 2, kOptInfoChars, kOptInfoLines, g_opt_info < 0 ? COL_DIM : COL_TEXT,
+              Tr(g_opt_info < 0 ? kStrOptInfoNone : kOptInfo[g_opt_info]));
+
+  const int max = OptMaxScroll();
+  if (max > 0) {   // the bar, as the save states' list has it
+    const int track = kOptY1 - kOptY0;
+    int thumb = track * track / (track + max);
+    if (thumb < 16) thumb = 16;
+    UiFillRect(s, kOptBarX, kOptY0, kOptBarW, track, RGB(60, 24, 36));
+    UiFillRect(s, kOptBarX, kOptY0 + g_opt_scroll * (track - thumb) / max, kOptBarW, thumb, RGB(80, 160, 240));
+  }
 }
 
 static void OpenNotes(void);
@@ -1618,17 +1727,18 @@ static void SetControls(bool modern) {
   GameText_SetModernLines(modern);
 }
 
-static void OptionsTouch(int x, int y) {
-  if (UiIn(ResetRect(), x, y)) {
-    g_modal = MODAL_RESET;
-    return;
-  }
+// A tap on the list, once it is known not to be a drag.
+static void OptionsTap(int x, int y) {
+  if (y < kOptY0 || y >= kOptY1) return;
   if (UiIn(ControlsHelpRect(), x, y)) {
+    g_opt_info = kOptHelpInfo;
     OpenControlsHelp();
     return;
   }
   for (int i = 0; i < OPT_COUNT; i++) {
-    if (!UiIn(OptRect((OptCell)i), x, y)) continue;
+    const Rect r = i == OPT_CONTROLS ? ControlsCellRect() : OptRect((OptCell)i);
+    if (!UiIn(r, x, y)) continue;
+    g_opt_info = i;
     switch ((OptCell)i) {
     case OPT_PACING:
       g_ui.pacing = (g_ui.pacing + 1) % kPaceCount;
@@ -1651,13 +1761,50 @@ static void OptionsTouch(int x, int y) {
       break;
     case OPT_HUD: g_ui.hud_auto_hide = !g_ui.hud_auto_hide; break;
     case OPT_CONTROLS: SetControls(!ModernControls_On()); break;
+    case OPT_AUTO_BOMB: AutoBomb_Set(!AutoBomb_On()); break;
+    case OPT_CHARGE_PULL: g_rtl_charge_pull = !g_rtl_charge_pull; break;
     case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
+    case OPT_RESET: g_modal = MODAL_RESET; break;
     default: break;
     }
     return;
   }
+}
+
+// Down on the list: the bar scrolls at once; elsewhere it is a tap or a drag, told apart on the way.
+static void OptionsTouch(int x, int y) {
+  if (y < kOptY0 || y >= kOptY1) return;
+  g_opt_touch.active = true;
+  g_opt_touch.dragging = false;
+  g_opt_touch.bar = x >= kOptBarHitX && OptMaxScroll() > 0;
+  g_opt_touch.start_x = x;
+  g_opt_touch.start_y = g_opt_touch.last_y = y;
+  if (g_opt_touch.bar) OptScrollToBar(y);
+}
+
+static bool OptionsTouchMove(int y) {
+  if (!g_opt_touch.active) return false;
+  const int before = g_opt_scroll;
+  if (g_opt_touch.bar) {
+    OptScrollToBar(y);
+  } else if (g_opt_touch.dragging || abs(y - g_opt_touch.start_y) >= kOptDragSlop) {
+    if (!g_opt_touch.dragging) g_tap_ms = 0;   // a drag: no cell lights up
+    g_opt_touch.dragging = true;
+    g_opt_scroll += g_opt_touch.last_y - y;
+    OptClampScroll();
+  } else {
+    return false;
+  }
+  g_opt_touch.last_y = y;
+  return g_opt_scroll != before;
+}
+
+static void OptionsTouchUp(void) {
+  if (!g_opt_touch.active) return;
+  g_opt_touch.active = false;
+  if (!g_opt_touch.dragging && !g_opt_touch.bar) OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
 }
 
 // ---- Modals ---------------------------------------------------------------------
@@ -1692,9 +1839,7 @@ static void ResetModalTouch(int x, int y) {
 
 static bool g_controls_help_modern;   // the tab shown
 static Rect ControlsTabRect(int i) { return (Rect){ 150 + i * 80, 30, 76, 16 }; }
-static Rect ControlsCloseRect(void) { return (Rect){ 216, 216, 88, 16 }; }
-static Rect ControlsAutoBombRect(void) { return (Rect){ 16, 197, 192, 16 }; }     // AUTO BOMB JUMP: ON / OFF
-static Rect ControlsChargePullRect(void) { return (Rect){ 16, 216, 192, 16 }; }   // CHARGE PULL: ON / OFF (g_rtl_charge_pull)
+static Rect ControlsCloseRect(void) { return (Rect){ 216, 214, 88, 18 }; }
 
 static void OpenControlsHelp(void) {
   g_controls_help_modern = ModernControls_On();
@@ -1817,7 +1962,7 @@ void BottomUi_ButtonCaptured(int pad_bit) {
 
 // The window's rows for the tab shown, as keys and what they do, with what each one changes.
 typedef struct { char keys[16]; UiStr what; int edit; } ControlsRow;
-enum { kControlsRows = 12, kControlsY0 = 54, kControlsPitch = 11 };
+enum { kControlsRows = 12, kControlsY0 = 54, kControlsPitch = 12 };
 
 static int ControlsRows(ControlsRow rows[kControlsRows]) {
   int n = 0;
@@ -1884,18 +2029,6 @@ static void DrawControlsModal(Surface s) {
     UiDrawText(s, kTextX, y + 2, 1, waiting ? COL_WARN : COL_TEXT, Tr(waiting ? kStrCtlPressButton : rows[i].what));
   }
   UiDrawText(s, 16, kControlsY0 + n * kControlsPitch + 3, 1, COL_DIM, Tr(kStrCtlConfigNote));
-  // Both schemes: the bomb button held in the morph ball climbs by itself (auto_bomb.c), and the
-  // charge beam pulls in the drops (sm_rtl.h, g_rtl_charge_pull; off by default).
-  const struct { Rect r; UiStr what; bool on; } kToggles[2] = {
-    { ControlsAutoBombRect(), kStrAutoBomb, AutoBomb_On() }, { ControlsChargePullRect(), kStrChargePull, g_rtl_charge_pull },
-  };
-  for (int i = 0; i < 2; i++) {
-    char label[64];
-    const bool on = kToggles[i].on;
-    snprintf(label, sizeof(label), "%s: %s", Tr(kToggles[i].what), Tr(on ? kStrOn : kStrOff));
-    UiDrawBoxLabel(s, kToggles[i].r, on ? RGB(28, 54, 44) : COL_BOX, on ? RGB(90, 220, 150) : COL_BOX_EDGE,
-                   on ? RGB(180, 255, 210) : COL_DIM, Pressed(kToggles[i].r), label);
-  }
   UiDrawBoxLabel(s, ControlsCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(ControlsCloseRect()), Tr(kStrClose));
 }
 
@@ -1903,10 +2036,6 @@ static void ControlsModalTouch(int x, int y) {
   if (UiIn(ControlsCloseRect(), x, y)) {
     g_modal = MODAL_NONE;
     g_ctl_capture = kEditNone;
-  } else if (UiIn(ControlsAutoBombRect(), x, y)) {
-    AutoBomb_Set(!AutoBomb_On());
-  } else if (UiIn(ControlsChargePullRect(), x, y)) {
-    g_rtl_charge_pull = !g_rtl_charge_pull;
   } else if (UiIn(ControlsResetRect(), x, y)) {
     g_ctl_capture = kEditNone;
     if (g_controls_help_modern) {
@@ -3241,12 +3370,19 @@ void BottomUi_TouchMove(int x, int y) {
   if (g_equip_hold.active && !UiIn(EquipHoldRect(), x, y)) g_equip_hold.active = false;
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_STATES && g_modal == MODAL_NONE && StatesTouchMove(y)) g_dirty = 2;
+  if (g_tab == TAB_OPTIONS && g_modal == MODAL_NONE && OptionsTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
   if (g_modal == MODAL_NOTES && NotesTouchMove(y)) g_dirty = 2;
 }
 
 void BottomUi_TouchUp(void) {
   g_equip_hold.active = false;
+  if (g_tab == TAB_OPTIONS && g_modal == MODAL_NONE) {   // its taps act on release: the options may change here
+    SavedOptions before = CurrentOptions();
+    OptionsTouchUp();
+    SavedOptions after = CurrentOptions();
+    if (memcmp(&before, &after, sizeof(before)) != 0) SaveConfig();
+  }
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE) AchievementsTouchUp();
   if (g_tab == TAB_STATES && g_modal == MODAL_NONE) StatesTouchUp();
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE) MapTouchUp();

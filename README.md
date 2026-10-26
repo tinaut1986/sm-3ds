@@ -103,9 +103,9 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 
 **Skipping the intro:** while the intro plays, START opens a choice at the bottom of the screen: go to Ceres station (only the story is skipped) or straight to planet Zebes (Ceres, its tutorial, boss and escape are skipped too). B goes back to the intro.
 
-**Charge beam pulls drops** (off by default; the second button at the bottom of the "?" window switches it): while the charge beam charges, the health and ammo enemies drop near Samus fly to her and are picked up.
+**Charge beam pulls drops** (off by default; OPTIONS -> PLAY -> CHARGE PULLS DROPS): while the charge beam charges, the health and ammo enemies drop near Samus fly to her and are picked up.
 
-**Auto bomb jump** (both schemes, on by default; the button at the bottom of the "?" window switches it): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
+**Auto bomb jump** (both schemes, on by default; OPTIONS -> PLAY -> AUTO BOMB JUMP): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
 
 The bottom screen is operated entirely by touch:
 - **STATUS:** Tap weapons to equip them. **Hold down (0.5s)** on any item or beam to toggle it on/off without pausing. Tap reserve tanks to switch AUTO / MANUAL.
