@@ -185,6 +185,9 @@ done
 INTRO_SKIP=1@300 run_gpu intro-skip-ceres boot "$OUT/empty.srm" 1500 &
 INTRO_SKIP=2@300 run_gpu intro-skip-zebes boot "$OUT/empty.srm" 1500 &
 CHARGE_PULL=1 PICKUP_TEST=10 AMMO=1 BEAMS=1000 ROOM_SEQ=0@0,200@5 run_gpu charge-pull rooms 50 A011 &
+# The lava of AF14 (Lava Dive) with the camera going up and down through it, PIXEL PERFECT's extra rows
+# (issue #50: there the FX layer read the HUD's rows of their shared BG3 map, or the surface's, and showed no lava).
+SCROLLS_OPEN=1 SAMUS_SWEEP=300,620,2,722 WIDE=72 WIDE_Y=8 run_gpu lava-rows rooms 400 AF14 &
 WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=-48,0 run_gpu samus-edge-above rooms 60 91F8 &
 WIDE=72 WIDE_Y=8 EDGE_CHECK=1 SAMUS_PIN=270,0 run_gpu samus-edge-below rooms 60 91F8 &
 MUSIC_CHECK=1 MUSIC_CHAIN=1 MUSIC_SETTLE=30 run_gpu warp-music rooms 1 &
@@ -314,6 +317,10 @@ done
 echo "charge-pull: a drop 70 px from Samus flies to her while the charge beam charges, and is picked up"
 check charge-pull "the drop moved towards Samus" "$(grep -q " k30 samus 1240,395 flare 25 missiles 1 drops: 1298," "$OUT/charge-pull.log"; echo $?)"
 check charge-pull "and was picked up (missiles 1 -> 3)" "$(grep -q " k45 .* missiles 3 drops:" "$OUT/charge-pull.log"; echo $?)"
+echo "lava-rows: the camera through AF14's lava, WIDE PIXEL PERFECT: lava in the extra rows above and below"
+gpu_checks lava-rows
+wide_checks lava-rows
+expect lava-rows.image "$(field "$OUT/lava-rows.log" 'WIDE image hash [0-9a-f]*' | cut -d' ' -f4)"
 for side in above below; do
   echo "samus-edge-$side: Samus pinned $side the view, PIXEL PERFECT's extra rows"
   r=$(field "$OUT/samus-edge-$side.log" "EDGE frames.*")

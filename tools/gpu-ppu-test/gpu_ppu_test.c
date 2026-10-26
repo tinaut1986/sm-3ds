@@ -1240,6 +1240,21 @@ int main(int argc, char **argv) {
         if (n >= 1) samus_y_pos = samus_prev_y_pos = (uint16)(layer1_y_pos + dy);
         if (n >= 2) samus_pose = (uint16)pose;
       }
+      // SAMUS_SWEEP=y0,y1,step[,x]: from frame 3 on Samus is put at y0 + step a frame, up to y1 (and back down,
+      // and so on; at x if given), so the camera scrolls up and down through the room (issue #50, the lava's rows).
+      if (getenv("SAMUS_SWEEP") && k >= 3) {
+        int y0, y1, step, x;
+        const int got = sscanf(getenv("SAMUS_SWEEP"), "%d,%d,%d,%d", &y0, &y1, &step, &x);
+        if (got == 4) samus_x_pos = (uint16)x;
+        if (got >= 3 && y1 != y0 && step > 0) {
+          const int span = y1 > y0 ? y1 - y0 : y0 - y1, t = ((k - 3) * step) % (2 * span);
+          const int d = t < span ? t : 2 * span - t;
+          samus_y_pos = (uint16)(y1 > y0 ? y0 + d : y0 - d);
+        }
+        if (getenv("SWEEP_TRACE") && k % 10 == 0)
+          printf("  k%d samus %d,%d camera %d,%d room %dx%d blocks fx_y %d bg3 vofs %d\n", k, samus_x_pos, samus_y_pos, layer1_x_pos,
+                 layer1_y_pos, room_width_in_blocks, room_height_in_blocks, fx_y_pos, reg_BG3VOFS);
+      }
       // ITEMS=hex: these items collected and equipped from frame 1 (4 = morph ball: the eyes).
       if (getenv("ITEMS") && k == 1) {
         const int it = (int)strtol(getenv("ITEMS"), 0, 16);

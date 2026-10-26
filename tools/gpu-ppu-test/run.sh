@@ -31,6 +31,8 @@
 # PICKUP_TEST=frame (rooms mode, with AMMO=1): from that frame on, every 40 frames an enemy drop of enemy slot 0's
 # kind 70 px right of Samus, and where the drops are every 5 frames; CHARGE_PULL=1 turns g_rtl_charge_pull on
 # (BEAMS=1000 for the charge beam, held with ROOM_SEQ=200@n); PICKUP_TRACE=1 lists the projectiles spawned.
+# SAMUS_SWEEP=y0,y1,step[,x]: from frame 3 Samus goes from y0 to y1 and back, step px a frame (at x if given), so the
+# camera scrolls through the room (with SCROLLS_OPEN=1 where scroll screens would stop it); SWEEP_TRACE=1 prints it.
 # EPROJ_MARGIN=1 [EPROJ_ID=hex]: count the frames with an enemy projectile (of that id) outside the game's 256 px window
 # (WIDE keeps them alive in the margins); EPROJ_LIST=n lists every projectile each n-th tested frame.
 # ENEMY_LIST=n lists every enemy slot (pointer, place, screen x, properties) each n-th tested frame; ENEMY_MARGIN=ptr counts
