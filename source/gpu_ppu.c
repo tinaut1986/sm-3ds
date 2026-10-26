@@ -1716,11 +1716,44 @@ static bool EmitCwRects(GpuFrame *out, int l0, int l1) {
   return true;
 }
 
+// The part of SM's BG3 map a tile row is in: the HUD (rows 0-3), the FX layer's first page (4-31: in a
+// liquid room the air, then its surface) or the second page of a 64-row map (32-63: the liquid's body).
+static int Bg3Part(int row) { return row < 4 ? 0 : row < 32 ? 1 : 2; }
+
 // The extra rows above (`up`) or below the 224: BG quads and colour window rectangles
 // touching that edge grow by `n` rows with the same scroll (their texel rows go on).
 // Sprites were emitted over the extra rows already; mode 7 rows and composed layers are
-// left as they are (backdrop there).
-static void ExtendBand(GpuFrame *out, const GpuBand *b, bool up, int n, bool keep_bg3) {
+// left as they are (backdrop there). `fx_rows` (up only, the band's last quads): BG3 is the FX layer
+// in the HUD's map, that many rows (FxSharesHudMap); where the rows above its first line belong to
+// another part of the map (Bg3Part), the quad gets one more over the extra rows that repeats its own
+// first tile row instead (the FX's body is one tile repeated, issue #50).
+static void ExtendBand(GpuFrame *out, GpuBand *b, bool up, int n, bool keep_bg3, int fx_rows) {
+  if (up && fx_rows && !keep_bg3) {
+    for (int q = b->main_first, end = b->main_first + b->main_count; q < end; q++) {
+      GpuQuad *qd0 = &out->quads[q];
+      if ((qd0->flags & (kGpuQuadObj | kGpuQuadAffine)) || qd0->y != 0 ||
+          (qd0->level != kBgLevel[2][0] && qd0->level != kBgLevel[2][1]) ||
+          (out->tex[qd0->tex] >= &g_screen_tex[0][0] && out->tex[qd0->tex] <= &g_screen_tex[2][1]))
+        continue;
+      const int edge = Bg3Part((qd0->sy >> 3) & (fx_rows - 1));
+      bool crosses = false;
+      for (int k = 1; k <= n; k++) crosses |= Bg3Part(((qd0->sy - k) >> 3) & (fx_rows - 1)) != edge;
+      if (!crosses) {   // goes on as it is
+        qd0->y -= n, qd0->h += n, qd0->sy -= n;
+        continue;
+      }
+      if (out->quad_count >= kGpuMaxQuads) break;
+      const GpuQuad qd = *qd0;
+      // In the main list, after its quads: the sub screen's move up one.
+      const int at = b->main_first + b->main_count;
+      memmove(&out->quads[at + 1], &out->quads[at], (size_t)(out->quad_count - at) * sizeof(GpuQuad));
+      out->quad_count++, b->main_count++, b->sub_first++;
+      GpuQuad *extra = &out->quads[at];
+      *extra = qd;
+      extra->y = (int16_t)-n, extra->h = (int16_t)n, extra->sy = (int16_t)(qd.sy + 8 - n);
+    }
+    keep_bg3 = true;   // BG3's quads are done
+  }
   const int firsts[2] = { b->main_first, b->sub_first }, counts[2] = { b->main_count, b->sub_count };
   for (int s = 0; s < 2; s++)
     for (int q = firsts[s]; q < firsts[s] + counts[s]; q++) {
@@ -1804,14 +1837,30 @@ static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLi
 // The extra rows above the HUD's band carry the FX layer on (ExtendBand), but SM keeps the HUD in the first 4 rows
 // of the FX layer's own tilemap: when the layer's scroll puts those rows just above the first line, the extension
 // would draw the HUD again at the top (energy, ammo and map repeated in the first row).
-static bool FxAboveReadsHud(const PpuLineCapture *cap, const PpuLineCapture *orig) {
-  if (!g_hud_synth) return false;
+// BG3 above the view in gameplay: the FX layer in the HUD's map (SM keeps both in one), its rows (32 or
+// 64), else 0.
+static int FxSharesHudMap(const PpuLineCapture *cap, const PpuLineCapture *orig) {
+  if (!g_hud_synth) return 0;
   const BgLayer *fx = &cap->line[1].bgLayer[2], *hb = &orig->line[1].bgLayer[2];
-  if (fx->tilemapAdr != hb->tilemapAdr) return false;
-  const int map_rows = fx->tilemapHigher ? 64 : 32;
-  for (int r = 1 - g_extra_top; r <= 0; r++)   // the lines above line 1, which the extension repeats
-    if ((((r + fx->vScroll) >> 3) & (map_rows - 1)) < 4) return true;
-  return false;
+  if (fx->tilemapAdr != hb->tilemapAdr) return 0;
+  return fx->tilemapHigher ? 64 : 32;
+}
+
+// The extra rows below the 224 are copies of line 224, its BG3 scroll carried on. SM keeps the FX layer
+// (lava, water, fog) and the HUD in one BG3 map, the HUD in its first 4 rows: carried on, the FX layer
+// can reach those rows and show the HUD's blank cells (see-through over the room) instead of lava, row by
+// row as the camera moves (issue #50). Those lines repeat line 224's tile row instead: the FX's body is
+// one tile repeated, so it goes on seamlessly.
+static void BottomRowsSkipHud(PpuLineCapture *work, const PpuLineState *hud) {
+  const BgLayer *last = &work->line[kGpuRows].bgLayer[2];
+  if (last->tilemapAdr != hud->bgLayer[2].tilemapAdr) return;
+  const int map_rows = last->tilemapHigher ? 64 : 32, row224 = ((kGpuRows + last->vScroll) >> 3) & (map_rows - 1);
+  if (row224 < 4) return;   // line 224 itself shows the HUD's rows: nothing to repeat
+  for (int l = kGpuRows + 1; l <= kGpuRows + g_extra_bottom; l++) {
+    BgLayer *fx = &work->line[l].bgLayer[2];
+    const int row = ((l + fx->vScroll) >> 3) & (map_rows - 1);
+    if (row < 4) fx->vScroll = (uint16_t)(fx->vScroll - 8 * (((l + fx->vScroll) >> 3) - ((kGpuRows + fx->vScroll) >> 3)));
+  }
 }
 
 bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out, const char **reason) {
@@ -1850,6 +1899,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     work.last_line = orig->last_line;
     work.midframe_data_writes = orig->midframe_data_writes;
     for (int l = kGpuRows + 1; l <= last; l++) work.line[l] = orig->line[kGpuRows];
+    if (last > kGpuRows) BottomRowsSkipHud(&work, &orig->line[1]);
     const int src = g < kGpuRows ? g + 1 : g;   // the line whose BG3 scroll and colour math the HUD's rows copy
     for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[src], l);
     if (g_hud_synth && src != g && orig->line[g].bgLayer[2].vScroll != orig->line[src].bgLayer[2].vScroll) SynthHudLine(&work.line[g], &orig->line[g], &orig->line[src], g);
@@ -1933,7 +1983,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
           (*reason = EmitScreen(ppu, cap, inf->sub, l0, l1, false, &sprites_built))) { ok = false; break; }
       b->sub_count = out->quad_count - b->sub_first;
       const bool hud = NarrowBg3(cap, l0, l1);
-      if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud || FxAboveReadsHud(cap, orig));
+      if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud, FxSharesHudMap(cap, orig));
     }
     if (l0 == 1) b->y0 = -g_extra_top;
     l0 = l1 + 1;

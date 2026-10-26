@@ -11,18 +11,21 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 
 ---
 
-## Status & Features (v0.6.1)
+## Status & Features (v1.0.0)
+
+**The whole game can be played from start to finish on the console**: players have finished it on this port.
 
 - **Stereoscopic 3D:** True per-layer depth using the 3DS parallax barrier hardware. Runs at a rock-solid **60 fps on New 3DS** and **60 fps in gameplay on Old 3DS / 2DS**.
 - **Widescreen Mode (VIEW: WIDE):** Expands the playfield laterally to 336 px, filling the native 5:3 400x240 top screen of the 3DS while keeping enemies and projectiles alive in the extended margins. Original 4:3 (256x224) aspect ratio is also selectable (`VIEW: ORIGINAL`).
-- **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout.
+- **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR.
+- **Play aids:** skip the intro (to Ceres station, or straight to planet Zebes), the automatic bomb jump, and the charge beam pulling in health and ammo drops (optional).
 - **Touchscreen Bottom UI:**
   - **Status Tab:** Real-time energy, reserve tanks (AUTO / MANUAL), touch weapon selection, and **long-press to equip / unequip items and beams** directly without entering the pause menu. Includes a dedicated "?" help window.
   - **Map Tab:** Detailed vector map with room outlines, zoom levels (1X, 2X, 3X), doors, map stations, and an **item tracker window** counting items found per area (with optional SPOILERS mode).
   - **Save States Tab:** Unlimited save states with in-game screenshot thumbnails, gameplay stats (time, energy, missiles, area), and color marks.
   - **RetroAchievements Tab:** Full RetroAchievements support (softcore) with achievement cards, progress tracking, and on-screen popups (customizable to top or bottom screen).
-  - **Options Tab:** Controls scheme, audio toggle, frame pacing (AUTO, LOCK 30, NO SKIP), CPU 804 MHz mode (New 3DS), display modes (Pixel Perfect / Scaled), view modes (Original / WIDE), FPS counter, and language selector.
-- **Self-Updater:** Check and install the latest updates directly from the console (OPTIONS -> UPDATES), complete with version notes.
+  - **Options Tab:** grouped by topic (general, screen, play, updates), scrolling, with a description of each setting at the bottom: language, audio, spoilers, display modes (Pixel Perfect / Scaled), view modes (Original / WIDE), HUD, FPS counter, frame pacing (AUTO, LOCK 30, NO SKIP), controls scheme and play aids, updates. A New 3DS always runs in its 804 MHz mode.
+- **Self-Updater:** Check and install the latest updates directly from the console (OPTIONS -> UPDATES), complete with version notes. Both the installed CIA and the Homebrew Launcher `.3dsx` update themselves.
 - **Multilingual Support:** English, Spanish, Catalan, French, Portuguese, and Japanese. Custom translations can also be loaded from the SD card (`lang/` folder).
 - **Sound:** Authentic emulated SNES SPC700 sound chip playback.
 
@@ -101,7 +104,11 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 - **CLASSIC:** Maps 3DS buttons directly to original SNES buttons (D-pad/Circle Pad moves, B runs, A jumps, X fires, Select switches weapon, Y cancels weapon, R/L aim diagonally).
 - **MODERN:** B runs (as in the original), L aims diagonally, R + X / Y / B fires missiles / super missiles / special weapons, Y rolls into morph ball. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR instead of R + a button.
 
-**Auto bomb jump** (both schemes, on by default; the button at the bottom of the "?" window switches it): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
+**Skipping the intro:** while the intro plays, START opens a choice at the bottom of the screen: go to Ceres station (only the story is skipped) or straight to planet Zebes (Ceres, its tutorial, boss and escape are skipped too). B goes back to the intro.
+
+**Charge beam pulls drops** (off by default; OPTIONS -> PLAY -> CHARGE PULLS DROPS): while the charge beam charges, the health and ammo enemies drop near Samus fly to her and are picked up.
+
+**Auto bomb jump** (both schemes, on by default; OPTIONS -> PLAY -> AUTO BOMB JUMP): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
 
 The bottom screen is operated entirely by touch:
 - **STATUS:** Tap weapons to equip them. **Hold down (0.5s)** on any item or beam to toggle it on/off without pausing. Tap reserve tanks to switch AUTO / MANUAL.

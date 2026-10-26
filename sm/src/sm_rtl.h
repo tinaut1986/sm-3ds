@@ -220,6 +220,15 @@ int RtlCtlBinding(int action);
 // handling the HUD selection: a cutscene, the pause menu) is dropped. item < 0 = none.
 typedef struct { int8 item; uint16 frame; } RtlHudSelect;
 extern RtlHudSelect g_rtl_hud_select;
+// 3DS port: the intro skipped from the frontend (source/intro_skip.c). Set while game_state is the
+// intro (0x1E); its next frame goes straight to black and on as if the intro had ended
+// (kRtlIntroSkipCeres: the new game in Ceres) or as if Ceres had been escaped (kRtlIntroSkipZebes:
+// the landing on Zebes, saved so). Cleared when taken; ignored in any other game state.
+enum { kRtlIntroSkipNone, kRtlIntroSkipCeres, kRtlIntroSkipZebes };
+extern int g_rtl_intro_skip;
+// 3DS port, an option (OPTIONS -> CHARGE PULL, off by default): while the charge beam charges, the
+// health and ammo enemies drop that are near Samus fly to her and are picked up as if touched.
+extern bool g_rtl_charge_pull;
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
 // bottom screen's STATUS tab), as the pause menu's equipment screen would: GameState_8_MainGameplay
 // takes it at the start of its next frame, toggles only what Samus has and the equipment screen

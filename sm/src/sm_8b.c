@@ -2066,7 +2066,54 @@ uint16 CinematicSetPal4(uint16 k, uint16 j) {  // 0x8BA2A6
   return j;
 }
 
+int g_rtl_intro_skip;   // 3DS port, see sm_rtl.h
+void CinematicFunction_Intro_Func73(void);
+
+// 3DS port: the intro skipped (g_rtl_intro_skip). The screen goes black and the intro's state is
+// put away as its own end (CinematicFunction_Intro_Func72) and the blackout from Ceres
+// (GameState_33_BlackoutFromCeres) do, then the game goes on from where one of them leads.
+static void RtlSkipIntro(int to) {
+  reg_INIDISP = 0x80;
+  EnableNMI();
+  WaitUntilEndOfVblankAndClearHdma();
+  DisableIrqInterrupts();
+  fx_layer_blending_config_a = 0;
+  cur_irq_handler = 0;
+  next_gameplay_CGWSEL = 0;
+  next_gameplay_CGADSUB = 0;
+  screen_fade_delay = 0;
+  screen_fade_counter = 0;
+  reg_BG2HOFS = reg_BG3HOFS = reg_BG2VOFS = reg_BG3VOFS = 0;
+  for (int i = 656; i >= 0; i -= 2)
+    *(uint16 *)((uint8 *)&cinematic_var5 + (uint16)i) = 0;
+  // Before the end of the Samus-and-larva scene (CinematicFunction_Intro_Func34) Samus still has
+  // the intro's 900 missiles and the default buttons (CinematicFunction_Intro_Initial): undone as there.
+  if (samus_max_missiles == 900) {
+    RevertButtonConfig();
+    samus_max_missiles = 0;
+    samus_missiles = 0;
+  }
+  if (to == kRtlIntroSkipZebes) {   // as at the end of Ceres exploding (CinematicFunction_Intro_Func95)
+    loading_game_state = kLoadingGameState_22_EscapingCeres;
+    game_state = kGameState_6_LoadingGameData;
+    ceres_status = 0;
+    timer_status = 0;
+    samus_health = samus_max_health;
+    SaveToSram(selected_save_slot);
+  } else {
+    CinematicFunction_Intro_Func73();
+  }
+}
+
 CoroutineRet GameState_37_CeresGoesBoomWithSamus_(void) {  // 0x8BA35B
+  if (g_rtl_intro_skip) {   // 3DS port
+    const int to = g_rtl_intro_skip;
+    g_rtl_intro_skip = kRtlIntroSkipNone;
+    if (game_state == kGameState_30_IntroCinematic) {
+      RtlSkipIntro(to);
+      return kCoroutineNone;
+    }
+  }
   CallCinematicFunction(cinematic_function | 0x8B0000);
   if ((cinematic_var11 & 0x8000) == 0)
     ++cinematic_var11;
