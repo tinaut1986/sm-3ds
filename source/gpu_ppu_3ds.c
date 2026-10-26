@@ -899,6 +899,22 @@ void GpuPpu3ds_SetToast(const uint32_t *px) {
   FlushCache(dst, kToastW * kToastH * 4);
 }
 
+static C3D_Tex g_prompt_tex;
+static bool g_prompt_on;
+static int g_prompt_w, g_prompt_h;
+
+void GpuPpu3ds_SetPrompt(const uint32_t *px, int w, int h) {
+  g_prompt_on = px && g_ready;
+  if (!g_prompt_on) return;
+  g_prompt_w = w, g_prompt_h = h;
+  uint32_t *dst = (uint32_t *)g_prompt_tex.data;
+  for (int x = 0; x < kGpuPromptW; x++) {
+    const uint32_t *col = px + x * kGpuPromptH + (kGpuPromptH - 1);
+    for (int y = 0; y < kGpuPromptH; y++) dst[GpuTexelIndex(x, y, kGpuPromptW)] = col[-y];
+  }
+  FlushCache(dst, kGpuPromptW * kGpuPromptH * 4);
+}
+
 // The options menu and the file select (SmWide_MenuView): the game's starfield repeats by itself, so the pattern of one
 // margin shows in the other; these stars are drawn over the margins instead, a fixed set (seeded once), with the shapes
 // and colours the game's own stars have: a pixel, and a diamond of four steps.
@@ -1079,6 +1095,17 @@ static void DrawEye(const GpuFrame *f, bool pixel_perfect, C3D_RenderTarget *rt_
     PushQuad(x0, y0, x0 + kToastBoxW, y0 + kToastBoxH, 0, 0, 1, (float)kToastBoxW / kToastW,
              1.0f - (float)kToastBoxH / kToastH);
     BatchDraw();
+  }
+  if (g_prompt_on) {
+    C3D_TexBind(0, &g_prompt_tex);
+    EnvTexture();
+    C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ZERO);
+    const float x0 = (400 - g_prompt_w) / 2 + text_dx, y0 = 240 - 6 - g_prompt_h;
+    BatchBegin();
+    PushQuad(x0, y0, x0 + g_prompt_w, y0 + g_prompt_h, 0, 0, 1, (float)g_prompt_w / kGpuPromptW,
+             1.0f - (float)g_prompt_h / kGpuPromptH);
+    BatchDraw();
+    BlendOff();
   }
 }
 
@@ -1294,6 +1321,8 @@ bool GpuPpu3ds_Init(void) {
   C3D_TexSetFilter(&g_overlay_tex, GPU_NEAREST, GPU_NEAREST);
   if (!C3D_TexInit(&g_toast_tex, kToastW, kToastH, GPU_RGBA8)) return false;
   C3D_TexSetFilter(&g_toast_tex, GPU_NEAREST, GPU_NEAREST);
+  if (!C3D_TexInit(&g_prompt_tex, kGpuPromptW, kGpuPromptH, GPU_RGBA8)) return false;
+  C3D_TexSetFilter(&g_prompt_tex, GPU_NEAREST, GPU_NEAREST);
   g_rt_main = C3D_RenderTargetCreateFromTex(&g_main_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_sub = C3D_RenderTargetCreateFromTex(&g_sub_tex, GPU_TEXFACE_2D, 0, GPU_RB_DEPTH24_STENCIL8);
   g_rt_top = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH16);
@@ -1381,6 +1410,7 @@ static void TeardownThread(void *arg) {
   C3D_TexDelete(&g_sub_tex);
   C3D_TexDelete(&g_overlay_tex);
   C3D_TexDelete(&g_toast_tex);
+  C3D_TexDelete(&g_prompt_tex);
   ExitStepLog("shader");
   shaderProgramFree(&g_prog);
   DVLB_Free(g_dvlb);

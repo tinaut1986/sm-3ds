@@ -1079,6 +1079,18 @@ int main(int argc, char **argv) {
           if (*q == ',') q++;
         }
       }
+      // INTRO_SKIP=n@k: k frames into the intro (game state 0x1E), skip it as the frontend does
+      // (g_rtl_intro_skip: 1 to Ceres, 2 to Zebes, source/intro_skip.c).
+      static int intro_from = -1;
+      if (getenv("INTRO_SKIP") && game_state == 0x1E) {
+        int to = 0, at = 0;
+        sscanf(getenv("INTRO_SKIP"), "%d@%d", &to, &at);
+        if (intro_from < 0) intro_from = i;
+        if (i - intro_from == at) {
+          printf("frame %d: intro skipped to %d\n", i, to);
+          g_rtl_intro_skip = to;
+        }
+      }
       // CERES_BOOM: once in the Ceres elevator room (DF45), jump to "made it to the
       // elevator" so the escape cutscene (Ceres explodes) plays.
       if (getenv("CERES_BOOM") && game_state == 8 && room_ptr == 0xDF45) {
@@ -1181,6 +1193,25 @@ int main(int argc, char **argv) {
     g_input = getenv("ROOM_INPUT") ? (int)strtol(getenv("ROOM_INPUT"), 0, 16) : 0;
     for (int k = 0; k < frames; k++) {
       samus_health = getenv("SAMUS_HEALTH") ? (uint16)atoi(getenv("SAMUS_HEALTH")) : 99;
+      // PICKUP_TEST=frame (with AMMO=1, BEAMS=1000 for the charge beam): from that tested frame on, every 40
+      // frames an enemy drop of enemy slot 0's kind 70 px right of Samus, and each 5 frames where the drops
+      // are (CHARGE PULL: g_rtl_charge_pull is on with CHARGE_PULL=1).
+      if (getenv("PICKUP_TEST")) {
+        const int from = atoi(getenv("PICKUP_TEST"));
+        g_rtl_charge_pull = getenv("CHARGE_PULL") != NULL;
+        if (k >= from && (k - from) % 40 == 0 && enemy_data[0].enemy_ptr) {
+          samus_missiles = 1;
+          eproj_spawn_pt = (Point16U){ samus_x_pos + 70, samus_y_pos };
+          SpawnEnemyDrops(enemy_data[0].enemy_ptr, 0, 0);
+          if (getenv("PICKUP_TRACE")) for (int e = 0; e < 18; e++) if (eproj_id[e]) printf("  k%d enemy %04x eproj %d id %04x pre %04x\n", k, enemy_data[0].enemy_ptr, e, eproj_id[e], eproj_pre_instr[e]);
+        }
+        if (k >= from && k % 5 == 0) {
+          printf("  k%d samus %d,%d flare %d missiles %d drops:", k, samus_x_pos, samus_y_pos, (int16)flare_counter, samus_missiles);
+          for (int e = 0; e < 18; e++)
+            if (eproj_id[e] && eproj_pre_instr[e] == FUNC16(EprojPreInstr_Pickup)) printf(" %d,%d", eproj_x_pos[e], eproj_y_pos[e]);
+          printf("\n");
+        }
+      }
       // EARTHQUAKE=type: the room shakes (HandleRoomShaking) for every tested frame.
       if (getenv("EARTHQUAKE")) earthquake_type = (uint16)atoi(getenv("EARTHQUAKE")), earthquake_timer = 30;
       // CERES_ESCAPE: the escape is on (ceres_status bit 15): the elevator shaft (DF45) tilts,

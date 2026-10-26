@@ -188,6 +188,14 @@ static const char *const kText[kStrCount] = {
   [kStrStHelpClassicTap] = "MISSILES, SUPER MISSILES, POWER BOMBS, GRAPPLING BEAM AND X-RAY SCOPE: TAP ONE TO SELECT IT, AS SELECT DOES, AND AGAIN TO PUT IT AWAY.",
   [kStrStHelpModern] = "MODERN CONTROLS",
   [kStrStHelpModernTap] = "MISSILES AND SUPER MISSILES: TAP ONE TO CHOOSE WHAT %s FIRES. THE OTHER WEAPONS ARE ON THE BUTTONS.",
+  [kStrIntroSkipHint] = "START: SKIP THE INTRO",
+  [kStrIntroSkipTitle] = "SKIP THE INTRO",
+  [kStrIntroSkipCeres] = "GO TO CERES STATION",
+  [kStrIntroSkipCeresNote] = "ONLY THE STORY IS SKIPPED: THE GAME STARTS AS ALWAYS.",
+  [kStrIntroSkipZebes] = "GO STRAIGHT TO PLANET ZEBES",
+  [kStrIntroSkipZebesNote] = "CERES IS SKIPPED TOO: THE FIRST AREA, WITH THE TUTORIAL, ITS BOSS AND THE ESCAPE.",
+  [kStrChargePull] = "CHARGE PULLS DROPS",
+  [kStrIntroSkipKeys] = "UP / DOWN: CHOOSE   A: GO   B: BACK TO THE INTRO",
 };
 
 static const char *g_tr[kStrCount];   // the current language's, resolved by UiLang_Set

@@ -101,6 +101,10 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 - **CLASSIC:** Maps 3DS buttons directly to original SNES buttons (D-pad/Circle Pad moves, B runs, A jumps, X fires, Select switches weapon, Y cancels weapon, R/L aim diagonally).
 - **MODERN:** B runs (as in the original), L aims diagonally, R + X / Y / B fires missiles / super missiles / special weapons, Y rolls into morph ball. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR instead of R + a button.
 
+**Skipping the intro:** while the intro plays, START opens a choice at the bottom of the screen: go to Ceres station (only the story is skipped) or straight to planet Zebes (Ceres, its tutorial, boss and escape are skipped too). B goes back to the intro.
+
+**Charge beam pulls drops** (off by default; the second button at the bottom of the "?" window switches it): while the charge beam charges, the health and ammo enemies drop near Samus fly to her and are picked up.
+
 **Auto bomb jump** (both schemes, on by default; the button at the bottom of the "?" window switches it): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
 
 The bottom screen is operated entirely by touch:
