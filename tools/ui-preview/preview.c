@@ -80,6 +80,19 @@ static void Drag(int x0, int y0, int x1, int y1) {
 enum { kMap = 0, kStatus = 1, kStates = 2, kAchievements = 3, kOptions = 4, kDebug = 5 };
 static void TapTab(int slot) { Tap(4 + slot * 34 + 15, 12); }
 
+// The OPTIONS list (OptLayout in bottom_ui.c) scrolled to its top or its end by a drag, and a point in
+// each cell there.
+static void OptTop(void) { BottomUi_TouchDown(160, 40), BottomUi_TouchMove(160, 239), BottomUi_TouchUp(); }
+static void OptEnd(void) {   // the list ends at y 204: two drags reach its end
+  for (int i = 0; i < 2; i++) BottomUi_TouchDown(160, 200), BottomUi_TouchMove(160, 30), BottomUi_TouchUp();
+}
+enum { kOptLanguageX = 20, kOptAudioX = 95, kOptSpoilersX = 170, kOptGeneralY = 55 };   // at the top
+enum { kOptDisplayX = 20, kOptViewX = 95, kOptHudX = 200, kOptScreenY = 105 };
+enum { kOptFpsX = 20, kOptFramesX = 95, kOptScreen2Y = 140 };
+enum { kOptControlsX = 40, kOptHelpX = 140, kOptAutoBombX = 200, kOptPlayY = 192 };
+enum { kOptChargeX = 40, kOptChargeEndY = 50 };   // at the end
+enum { kOptUpdateX = 20, kOptChannelX = 95, kOptUpdatesX = 170, kOptNotesX = 245, kOptUpdatesY = 100, kOptResetY = 152 };
+
 int main(int argc, char **argv) {
   if (!SnesInit(argv[1])) { fprintf(stderr, "cannot load %s\n", argv[1]); return 1; }
   UiRomInfo rom = { "Super Metroid (Japan, USA).sfc", "da957f0d63d14cb441d215462904c4fa8519c613", false,
@@ -212,7 +225,8 @@ int main(int argc, char **argv) {
     Shot("items window, spoilers off");
     Tap(160, 220);                     // CLOSE
     TapTab(kOptions);
-    Tap(239 + 5, 64 + 5);              // SPOILERS: on
+    OptTop();
+    Tap(kOptSpoilersX, kOptGeneralY);  // SPOILERS: on
     Shot("options, spoilers on");
     TapTab(kStatus);
     Shot("status, spoilers on");
@@ -225,22 +239,24 @@ int main(int argc, char **argv) {
     Tap(192 + 15, 198 + 6), Tap(192 + 15, 198 + 6);   // back to 1X
     Tap(226 + 20, 198 + 6);            // FOLLOW on again
     TapTab(kOptions);
-    Tap(239 + 5, 64 + 5);              // SPOILERS: off again
+    OptTop();
+    Tap(kOptSpoilersX, kOptGeneralY);  // SPOILERS: off again
   }
   {   // The CONTROLS window: both schemes, a row waiting for its button, then changed (P4.18).
     TapTab(kOptions);
-    Tap(300, 45);                      // the "?" beside CONTROLS
+    OptTop();
+    Tap(kOptHelpX, kOptPlayY);         // the "?" beside CONTROLS
     Shot("controls window");
     Tap(150 + 80 + 5, 30 + 5);         // the other tab
     Shot("controls window, the other scheme");
-    Tap(40, 54 + 11 * 2 + 5);          // the RUN row
+    Tap(40, 54 + 12 * 2 + 5);          // the RUN row
     Shot("controls window, modern: RUN row waiting for its button");
     BottomUi_ButtonCaptured(1);        // Y (pad bit 1): run on Y, morph on B, X-ray and grapple follow
     Shot("controls window, modern: RUN on Y");
-    Tap(40, 54 + 11 * 7 + 5);          // the MISSILE row
+    Tap(40, 54 + 12 * 7 + 5);          // the MISSILE row
     BottomUi_ButtonCaptured(13);       // ZR (pad bit 13, New 3DS): the missile alone on ZR (P4.21)
     Shot("controls window, modern: MISSILE on ZR");
-    Tap(40, 54 + 11 * 9 + 5);          // the X-RAY row
+    Tap(40, 54 + 12 * 9 + 5);          // the X-RAY row
     BottomUi_ButtonCaptured(8);        // A, jump's button: refused, with a toast
     Shot("controls window, modern: X-RAY on jump refused");
     Tap(80 + 5, 30 + 5);               // RESET
@@ -291,18 +307,24 @@ int main(int argc, char **argv) {
   Tap(230, 95);                      // ORDER: next
   Shot("achievements, settings changed");
   TapTab(kOptions);
-  Tap(8 + 5, 30 + 2 * 34 + 5);       // DISPLAY -> PIXEL PERFECT
+  OptTop();
+  Tap(kOptDisplayX, kOptScreenY);    // DISPLAY -> PIXEL PERFECT
   Shot("options");
-  Tap(312 - 17, 30 + 5);             // "?" beside CONTROLS: the window
+  Tap(kOptAutoBombX, kOptPlayY);     // AUTO BOMB JUMP: OFF
+  BottomUi_TouchDown(160, 200), BottomUi_TouchMove(160, 140), BottomUi_TouchUp();   // dragged 60 px up
+  Shot("options, scrolled 60 px: auto bomb jump off, its description");
+  OptEnd();
+  Tap(kOptChargeX, kOptChargeEndY);  // CHARGE PULLS DROPS: ON
+  Shot("options, the end: charge pull on, its description");
+  Tap(kOptChargeX, kOptChargeEndY);  // and back
+  OptTop();
+  Tap(kOptAutoBombX, kOptPlayY);
+  Tap(kOptHelpX, kOptPlayY);         // "?" beside CONTROLS: the window
   Shot("controls window, English");
-  Tap(100, 205);                     // AUTO BOMB JUMP: OFF
-  Shot("controls window, auto bomb jump off");
-  Tap(100, 224);                     // CHARGE PULLS DROPS: ON
-  Shot("controls window, charge pull on");
-  Tap(100, 224);                     // and off again
-  Tap(100, 220);                     // and ON again
   Tap(260, 220);                     // CLOSE
-  Tap(160, 180);                     // RESET GAME
+  BottomUi_TouchDown(312, 203), BottomUi_TouchUp();   // the bar's bottom: the end of the list
+  Shot("options, the end (the bar)");
+  Tap(160, kOptResetY);              // RESET GAME
   Shot("options, reset window");
   Tap(216, 148);                     // cancel
   // The updater: its cell in every state, and the prompts over the tab.
@@ -312,24 +334,27 @@ int main(int argc, char **argv) {
   extern bool g_preview_upd_kept;
   extern const char *g_preview_upd_message;
   // The half buttons: a tap changes each.
-  Tap(8 + 5, 64 + 5);                // FPS: top-left
-  Tap(8 + 5, 64 + 5);                // top-right
-  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound off
-  Tap(8 + 5, 30 + 5);                // FRAMES: LOCK 30
-  Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: + BETAS
-  Tap(8 + 77 + 5, 98 + 5);           // VIEW: WIDE
-  Shot("options, half buttons changed (FPS corner, sound off, LOCK 30, + BETAS, WIDE)");
-  Tap(8 + 5, 30 + 5);                // FRAMES: NO SKIP (the toast)
+  OptTop();
+  Tap(kOptFpsX, kOptScreen2Y);       // FPS: top-left
+  Tap(kOptFpsX, kOptScreen2Y);       // top-right
+  Tap(kOptAudioX, kOptGeneralY);     // AUDIO: sound off
+  Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: LOCK 30
+  Tap(kOptViewX, kOptScreenY);       // VIEW: WIDE
+  Shot("options, half buttons changed (FPS corner, sound off, LOCK 30, WIDE)");
+  Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: NO SKIP (the toast)
   Shot("options, NO SKIP toast");
-  Tap(8 + 5, 30 + 5);                // FRAMES: AUTO again
-  Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5), Tap(8 + 5, 64 + 5);   // FPS back to NO
-  Tap(8 + 77 + 5, 30 + 5);           // AUDIO: sound on
-  Tap(8 + 77 + 5, 132 + 5);          // CHANNEL: back
-  Tap(8 + 77 + 5, 98 + 5);           // VIEW: back
-  Tap(162 + 77 + 5, 132 + 5);        // WHAT'S NEW before any check
+  Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: AUTO again
+  Tap(kOptFpsX, kOptScreen2Y), Tap(kOptFpsX, kOptScreen2Y), Tap(kOptFpsX, kOptScreen2Y);   // FPS back to NO
+  Tap(kOptAudioX, kOptGeneralY);     // AUDIO: sound on
+  Tap(kOptViewX, kOptScreenY);       // VIEW: back
+  OptEnd();
+  Tap(kOptChannelX, kOptUpdatesY);   // CHANNEL: + BETAS
+  Shot("options, the end: CHANNEL tapped");
+  Tap(kOptChannelX, kOptUpdatesY);   // CHANNEL: back
+  Tap(kOptNotesX, kOptUpdatesY);     // WHAT'S NEW before any check
   Shot("what's new, nothing yet");
   Tap(160, 220);                     // CLOSE
-  Tap(162 + 5, 132 + 5);              // UPDATES: check
+  Tap(kOptUpdatesX, kOptUpdatesY);   // UPDATES: check
   if (g_preview_upd_state != UPD_CHECKING) { fprintf(stderr, "UPDATES did not start a check\n"); return 1; }
   Shot("options, checking for updates");
   g_preview_upd_state = UPD_UP_TO_DATE;
@@ -362,21 +387,26 @@ int main(int argc, char **argv) {
   // last option cell (left column, fourth row) and cycles.
   for (int lang = 1; lang < UiLang_Count(); lang++) {
     TapTab(kOptions);
-    Tap(162 + 5, 64 + 5);            // LANGUAGE
+    OptTop();
+    Tap(kOptLanguageX, kOptGeneralY);   // LANGUAGE
     if (g_ui_lang != lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
-    Tap(162 + 5, 30 + 5);            // CONTROLS: MODERN in one language, CLASSIC in the next
+    Tap(kOptControlsX, kOptPlayY);   // CONTROLS: MODERN in one language, CLASSIC in the next
     // The game marks the missile kind each frame of gameplay (modern_controls.c); here by hand.
     g_rtl_hud_marked = ModernControls_On() ? 1 << kSmHudMissiles : 0;
-    Tap(8 + 5, 30 + 5), Tap(8 + 5, 30 + 5);   // FRAMES: LOCK 30, then NO SKIP: its toast
+    Tap(kOptFramesX, kOptScreen2Y), Tap(kOptFramesX, kOptScreen2Y);   // FRAMES: LOCK 30, then NO SKIP: its toast
     snprintf(what, sizeof(what), "options, frame skip off toast, %s", UiLang_Name(g_ui_lang));
     Shot(what);
-    Tap(8 + 5, 30 + 5);              // FRAMES: AUTO again
-    Tap(160, 180);                   // RESET GAME
+    Tap(kOptFramesX, kOptScreen2Y);  // FRAMES: AUTO again
+    OptEnd();
+    snprintf(what, sizeof(what), "options, the end, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    Tap(160, kOptResetY);            // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel
-    Tap(312 - 17, 30 + 5);           // "?" beside CONTROLS: the window, both tabs
+    OptTop();
+    Tap(kOptHelpX, kOptPlayY);       // "?" beside CONTROLS: the window, both tabs
     snprintf(what, sizeof(what), "controls window, scheme in use, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(ModernControls_On() ? 150 + 5 : 230 + 5, 30 + 5);

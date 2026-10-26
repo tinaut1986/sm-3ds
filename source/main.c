@@ -735,7 +735,7 @@ int main(int argc, char** argv) {
   chdir(ROM_DATA_DIR);
 
   g_start_tick = svcGetSystemTick();
-  osSetSpeedupEnable(true);   // New 3DS 804 MHz from the start; the Options toggle takes over later
+  osSetSpeedupEnable(true);   // New 3DS: 804 MHz, always
   // 24-bit framebuffers: HOME shows black instead of the game's screen when they are 32-bit (#20).
   gfxInit(GSP_BGR8_OES, GSP_BGR8_OES, false);
   hidInit();
