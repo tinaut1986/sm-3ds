@@ -187,7 +187,33 @@ static bool CharClear(const Ppu *ppu, int c) {
   return true;
 }
 
+// The minimap's top and right borders are the HUD's row 0 and column 31: chars 0x1D, 0x1C (the
+// corner) and 0x1E, whose dots are on their last row or first column and the other 7 px opaque black
+// (colour 3). Over the room that black showed as a band above the minimap and one right of it
+// (the status half is see-through), so while the HUD is over the room those 7 px are made colour 0.
+// Each char's 8 rows (2bpp words: plane 1 in the high byte), as the HUD's graphics hold them and see-through;
+// a char is only changed from one to the other, never when it holds something else.
+static const struct { uint16_t chr, solid[8], clear[8]; } kMinimapEdges[3] = {
+  { 0x1D, { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFF55 }, { 0, 0, 0, 0, 0, 0, 0, 0xFF55 } },
+  { 0x1C, { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFF7F }, { 0, 0, 0, 0, 0, 0, 0, 0x8000 } },
+  { 0x1E, { 0xFFFF, 0xFF7F, 0xFFFF, 0xFF7F, 0xFFFF, 0xFF7F, 0xFFFF, 0xFF7F },
+          { 0x8080, 0x8000, 0x8080, 0x8000, 0x8080, 0x8000, 0x8080, 0x8000 } },
+};
+
+static void MinimapEdges(Ppu *ppu, bool clear) {
+  for (int i = 0; i < 3; i++) {
+    const uint16_t base = (uint16_t)(Bg3Chars() + kMinimapEdges[i].chr * 8);
+    const uint16_t *from = clear ? kMinimapEdges[i].solid : kMinimapEdges[i].clear;
+    const uint16_t *to = clear ? kMinimapEdges[i].clear : kMinimapEdges[i].solid;
+    bool match = true;
+    for (int y = 0; y < 8; y++) match &= ppu->vram[(base + y) & 0x7fff] == from[y];
+    if (match)
+      for (int y = 0; y < 8; y++) VramPut(ppu, (uint16_t)(base + y), to[y]);
+  }
+}
+
 static void HudRestore(Ppu *ppu) {
+  MinimapEdges(ppu, false);
   if (!g_clear_entry) return;
   for (int i = 0; i < kHudCells; i++)
     if (ppu->vram[kHudMap + i] == g_clear_entry) VramPut(ppu, kHudMap + i, kHudBlank);
@@ -203,6 +229,7 @@ static void HudSeeThrough(Ppu *ppu) {
     for (int c = (0x5000 - Bg3Chars()) / 8 - 1; c > 0 && g_clear_char < 0; c--)
       if (CharClear(ppu, c)) g_clear_char = c;
   }
+  MinimapEdges(ppu, true);
   if (g_clear_char < 0) return;
   const uint16_t entry = (uint16_t)(0x2C00 | g_clear_char);
   if (g_clear_entry && g_clear_entry != entry) HudRestore(ppu);
@@ -615,6 +642,8 @@ void SmWide_SetView(int margin_x, int extra_top, int extra_bottom, bool hud_over
   if (!on) {
     g_filled = false;
     HudRestore(g_snes->ppu);
+  } else if (!hud_over_room) {
+    MinimapEdges(g_snes->ppu, false);   // the HUD in its own band: its black is wanted
   }
 }
 
