@@ -4678,10 +4678,26 @@ static Func_V *const off_86F0AD[7] = {  // 0x86EFE0
   0,
 };
 
+bool g_rtl_charge_pull;   // 3DS port, see sm_rtl.h
+
+// 3DS port: a drop near Samus while the charge beam charges (g_rtl_charge_pull) moves a few pixels
+// towards her each frame; touching her picks it up as always (below).
+enum { kRtlPullReach = 96, kRtlPullStep = 3 };
+static void RtlPullPickup(int v) {
+  const int dx = (int16)(samus_x_pos - eproj_x_pos[v]), dy = (int16)(samus_y_pos - eproj_y_pos[v]);
+  if (dx > kRtlPullReach || dx < -kRtlPullReach || dy > kRtlPullReach || dy < -kRtlPullReach)
+    return;
+  eproj_x_pos[v] += dx > kRtlPullStep ? kRtlPullStep : dx < -kRtlPullStep ? -kRtlPullStep : dx;
+  eproj_y_pos[v] += dy > kRtlPullStep ? kRtlPullStep : dy < -kRtlPullStep ? -kRtlPullStep : dy;
+}
+
 void EprojPreInstr_Pickup(uint16 k) {
   int v1 = k >> 1;
   if (!--eproj_F[v1])
     goto LABEL_7;
+  // The first 16 frames of a drop, as for the grapple below: it pops out of the enemy first.
+  if (g_rtl_charge_pull && (equipped_beams & 0x1000) && (int16)flare_counter >= 16 && sign16(eproj_F[v1] - 384))
+    RtlPullPickup(v1);
   if (CallSomeSamusCode(0xD)) {
     if (sign16(eproj_F[v1] - 384)) {
       uint16 v2, v3;

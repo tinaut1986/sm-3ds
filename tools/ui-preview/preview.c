@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include "ui_lang.h"
 #include "cheats.h"
+#include "intro_skip.h"
 #include "modern_controls.h"
 #include "debug_tools.h"
 #include "src/sm_cpu_infra.h"
@@ -232,14 +233,14 @@ int main(int argc, char **argv) {
     Shot("controls window");
     Tap(150 + 80 + 5, 30 + 5);         // the other tab
     Shot("controls window, the other scheme");
-    Tap(40, 54 + 12 * 2 + 5);          // the RUN row
+    Tap(40, 54 + 11 * 2 + 5);          // the RUN row
     Shot("controls window, modern: RUN row waiting for its button");
     BottomUi_ButtonCaptured(1);        // Y (pad bit 1): run on Y, morph on B, X-ray and grapple follow
     Shot("controls window, modern: RUN on Y");
-    Tap(40, 54 + 12 * 7 + 5);          // the MISSILE row
+    Tap(40, 54 + 11 * 7 + 5);          // the MISSILE row
     BottomUi_ButtonCaptured(13);       // ZR (pad bit 13, New 3DS): the missile alone on ZR (P4.21)
     Shot("controls window, modern: MISSILE on ZR");
-    Tap(40, 54 + 12 * 9 + 5);          // the X-RAY row
+    Tap(40, 54 + 11 * 9 + 5);          // the X-RAY row
     BottomUi_ButtonCaptured(8);        // A, jump's button: refused, with a toast
     Shot("controls window, modern: X-RAY on jump refused");
     Tap(80 + 5, 30 + 5);               // RESET
@@ -294,8 +295,11 @@ int main(int argc, char **argv) {
   Shot("options");
   Tap(312 - 17, 30 + 5);             // "?" beside CONTROLS: the window
   Shot("controls window, English");
-  Tap(100, 220);                     // AUTO BOMB JUMP: OFF
+  Tap(100, 205);                     // AUTO BOMB JUMP: OFF
   Shot("controls window, auto bomb jump off");
+  Tap(100, 224);                     // CHARGE PULLS DROPS: ON
+  Shot("controls window, charge pull on");
+  Tap(100, 224);                     // and off again
   Tap(100, 220);                     // and ON again
   Tap(260, 220);                     // CLOSE
   Tap(160, 180);                     // RESET GAME
@@ -402,6 +406,40 @@ int main(int argc, char **argv) {
     Shot(what);
     Tap(160, 220);
   }
+  // The intro's skip hint and choice (intro_skip.h) as the top screen shows them, over a grey picture:
+  // promptNN.ppm, 400 x 240, in English and in every UI language.
+  for (int lang = 0; lang < UiLang_Count(); lang++) {
+    UiLang_Set(lang);
+    const uint16 saved_state = game_state;
+    game_state = 0x1E;
+    for (int step = 0; step < 3; step++) {
+      IntroSkip_Frame(0);
+      if (step) IntroSkip_Frame(step == 1 ? 1 << 3 : 1 << 5);   // START opens the choice, Down picks Zebes
+      static uint32_t px[kTopPromptW * kTopPromptH];
+      int w = 0, h = 0;
+      if (!BottomUi_DrawTopPromptInto(px, &w, &h)) continue;
+      char name[64];
+      snprintf(name, sizeof(name), "prompt%02d.ppm", lang * 3 + step);
+      FILE *f = fopen(name, "wb");
+      fprintf(f, "P6\n400 240\n255\n");
+      const int x0 = (400 - w) / 2, y0 = 240 - 6 - h;
+      for (int y = 0; y < 240; y++) for (int x = 0; x < 400; x++) {
+        int c[3] = { 90, 70, 110 };
+        if (x >= x0 && x < x0 + w && y >= y0 && y < y0 + h) {
+          const uint32_t p = px[(x - x0) * kTopPromptH + (kTopPromptH - 1 - (y - y0))];   // RGBA8
+          const int a = p & 0xFF;
+          for (int k = 0; k < 3; k++) c[k] = (c[k] * (255 - a) + (int)(p >> (24 - 8 * k) & 0xFF) * a) / 255;
+        }
+        fputc(c[0], f); fputc(c[1], f); fputc(c[2], f);
+      }
+      fclose(f);
+      printf("%s: intro skip %s, %s\n", name, step ? "choice" : "hint", UiLang_Name(g_ui_lang));
+    }
+    IntroSkip_Frame(0);
+    IntroSkip_Frame(1 << 0);   // B closes it
+    game_state = saved_state;
+  }
+  UiLang_Set(kLangEn);
   // Translations must keep the English conversions (they go through snprintf).
   int bad = 0;
   for (int lang = 0; lang < UiLang_Count(); lang++) {

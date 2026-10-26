@@ -24,6 +24,12 @@ void GpuPpu3ds_SetOverlay(const uint32_t *px, int corner);
 // its top-left corner (BottomUi_DrawTopToastInto), drawn centred at the top; NULL hides it.
 void GpuPpu3ds_SetToast(const uint32_t *px);
 
+// The port's own prompt at the bottom of the top screen (the intro's skip hint and choice,
+// BottomUi_DrawTopPromptInto): 512x128 column-major RGBA8 with a w x h box in its top-left corner,
+// drawn centred near the bottom edge, its alpha kept (a translucent box); NULL hides it.
+enum { kGpuPromptW = 512, kGpuPromptH = 128 };
+void GpuPpu3ds_SetPrompt(const uint32_t *px, int w, int h);
+
 // The options menu and file select in WIDE: a fixed set of stars over the 72 px margins (their pattern would repeat).
 void GpuPpu3ds_SetMenuStars(bool on);
 

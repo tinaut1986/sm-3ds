@@ -133,3 +133,7 @@ bool BottomUi_DrawOverlayInto(uint32_t *px, int w, int h, const UiPerf *perf);
 // column-major RGBA8 buffer, box in its top-left corner; false when there is none
 // (GpuPpu3ds_SetToast).
 bool BottomUi_DrawTopToastInto(uint32_t *px);
+// The intro's skip hint or choice (intro_skip.h) for the bottom of the top screen: kTopPromptW x
+// kTopPromptH column-major RGBA8 (as the toast) with the box's size in *w x *h; false when none.
+enum { kTopPromptW = 512, kTopPromptH = 128 };
+bool BottomUi_DrawTopPromptInto(uint32_t *px, int *w, int *h);

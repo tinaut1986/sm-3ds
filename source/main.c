@@ -24,6 +24,7 @@
 
 #include "bottom_ui.h"
 #include "cheats.h"
+#include "intro_skip.h"
 #include "modern_controls.h"
 #include "auto_bomb.h"
 #include "sm_warp.h"
@@ -182,6 +183,13 @@ const uint32_t *Main_TopScreenPixels(void) {
 
 // The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
 // one 400x240 image per eye). The CPU path then shows the same image to both eyes.
+// The intro's skip hint or choice at the bottom of the top screen (GPU renderer only).
+static void SetTopPrompt(void) {
+  static uint32_t prompt_px[kTopPromptW * kTopPromptH];
+  int w = 0, h = 0;
+  GpuPpu3ds_SetPrompt(BottomUi_DrawTopPromptInto(prompt_px, &w, &h) ? prompt_px : NULL, w, h);
+}
+
 static float Stereo3dSlider(void) {
   const float slider = osGet3DSliderState();
   const bool want = slider > 0;
@@ -905,7 +913,9 @@ int main(int argc, char** argv) {
       touching = pressed;
     }
 
-    bool want_audio = g_ui.audio_on && !g_ui.paused;
+    // The intro's skip choice holds the game (intro_skip.h): no frame runs and the sound stops.
+    const bool intro_hold = IntroSkip_Frame(g_input1_state);
+    bool want_audio = g_ui.audio_on && !g_ui.paused && !intro_hold;
     if (want_audio != audio_running) {
       audio_running = want_audio;
       g_audio_paused = !audio_running;
@@ -967,7 +977,7 @@ int main(int argc, char** argv) {
     DebugPerfExtra px;   // what the perf recorder writes for this frame
     memset(&px, 0, sizeof(px));
     bool presented = false, gpu_presented = false;
-    if (!g_ui.paused) {
+    if (!g_ui.paused && !intro_hold) {
       // PPU drawing happens inside RtlRunFrame, so decide before running it.
       bool turbo_skip = (g_turbo ^ (is_replay & g_replay_turbo)) && (frameCtr & 0xf) != 0;
       // FRAMES: AUTO and LOCK 30 skip the drawing of a late frame, LOCK 30 also draws one frame in two.
@@ -1004,7 +1014,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
-      int inputs = AutoBomb_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad()));
+      int inputs = IntroSkip_Filter(AutoBomb_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad())));
       Cheats_BeforeFrame();
       {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
         const int hidden = BottomUi_HudHidden();
@@ -1110,6 +1120,7 @@ int main(int argc, char** argv) {
           GpuPpu3ds_SetOverlay(BottomUi_DrawOverlayInto(overlay_px, 64, 64, &perf) ? overlay_px : NULL, g_ui.fps_overlay);
           static uint32_t toast_px[512 * 64];
           GpuPpu3ds_SetToast(BottomUi_DrawTopToastInto(toast_px) ? toast_px : NULL);
+          SetTopPrompt();
           GpuPpu3ds_SetPlaneTint(g_ui.plane_tint);
           GpuPpu3ds_SetForceTwoEyes(g_ui.force_3d);
           GpuPpu3ds_SetGpuTest(g_ui.gpu_test);
@@ -1147,6 +1158,10 @@ int main(int argc, char** argv) {
       }
     } else {
       presented = true;   // keep the bottom screen alive while paused
+      if (intro_hold && g_top_by_gpu) {   // the intro's choice over its last frame, which stays as it was
+        SetTopPrompt();
+        GpuPpu3ds_DrawAndPresent(&g_gpu_frame, g_ui.pixel_perfect, Stereo3dSlider(), SmWide_Gameplay(), SmPlanes_Screen());
+      }
     }
 
     perf.frames = frameCtr;
