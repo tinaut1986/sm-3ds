@@ -75,12 +75,8 @@ static void Drag(int x0, int y0, int x1, int y1) {
   BottomUi_TouchUp();
 }
 
-// Tab x positions: 4 + slot * 34, slots in drawing order.
-#if DEBUG_TOOLS
-enum { kMap = 0, kStatus = 1, kDebug = 2, kStates = 3, kAchievements = 4, kOptions = 5 };
-#else
-enum { kMap = 0, kStatus = 1, kStates = 2, kAchievements = 3, kOptions = 4 };
-#endif
+// Tab x positions: 4 + slot * 34, slots in drawing order (DEBUG last, when built).
+enum { kMap = 0, kStatus = 1, kStates = 2, kAchievements = 3, kOptions = 4, kDebug = 5 };
 static void TapTab(int slot) { Tap(4 + slot * 34 + 15, 12); }
 
 int main(int argc, char **argv) {
@@ -240,6 +236,12 @@ int main(int argc, char **argv) {
     Shot("controls window, modern: RUN row waiting for its button");
     BottomUi_ButtonCaptured(1);        // Y (pad bit 1): run on Y, morph on B, X-ray and grapple follow
     Shot("controls window, modern: RUN on Y");
+    Tap(40, 54 + 12 * 7 + 5);          // the MISSILE row
+    BottomUi_ButtonCaptured(13);       // ZR (pad bit 13, New 3DS): the missile alone on ZR (P4.21)
+    Shot("controls window, modern: MISSILE on ZR");
+    Tap(40, 54 + 12 * 9 + 5);          // the X-RAY row
+    BottomUi_ButtonCaptured(8);        // A, jump's button: refused, with a toast
+    Shot("controls window, modern: X-RAY on jump refused");
     Tap(80 + 5, 30 + 5);               // RESET
     Tap(150 + 5, 30 + 5);              // the original's tab
     Shot("controls window, original");

@@ -851,12 +851,16 @@ static const char *OptionsText(const char *en) {
 }
 
 enum { kCtlLabelCol = 6, kCtlIconCol = 23 };
-enum { kBtnX, kBtnA, kBtnB, kBtnSelect, kBtnY, kBtnL, kBtnR, kBtnLeftRight = 10, kBtnUpDown };
+enum { kBtnX, kBtnA, kBtnB, kBtnSelect, kBtnY, kBtnL, kBtnR, kBtnLeftRight = 10, kBtnUpDown, kBtnZL, kBtnZR };
 
 // A 3x2 button icon (RtlCtlButtonIcon), or one of the font's 2x2 D-pads: its left and right arms
-// marked (SPECIAL SETTING MODE's "change"), or its up and down ones (the footer's "select"); at
-// (row, col). Returns its width.
+// marked (SPECIAL SETTING MODE's "change"), or its up and down ones (the footer's "select"); ZL and ZR,
+// which the ROM has no icon for, as letters; at (row, col). Returns its width.
 static int CtlIcon(const TextLayer *L, int row, int col, int button, bool dim) {
+  if (button >= kBtnZL) {
+    PutText(L, row, col, button == kBtnZL ? "ZL" : "ZR", dim ? kPalDim : kPalBright);
+    return 2;
+  }
   if (button >= kBtnLeftRight) {
     const uint16_t first = button == kBtnUpDown ? 0xb2 : 0xb4;
     const uint16_t attr = (uint16_t)((Cell(L, 1, 16) & 0x2000) | (dim ? kPalDim : kPalBright));
@@ -889,16 +893,23 @@ static void ControllerList(const TextLayer *big) {
   static const char *const kClassic[7] = { "SHOT", "JUMP", "DASH", "ITEM SELECT", "ITEM CANCEL", "ANGLE UP", "ANGLE DOWN" };
   // The modern scheme: the label (an [options] key) and its buttons (the frontend's table), a second
   // one after a "+". Rows the buttons can be changed on are bright, the others dim.
-  static const int8_t kFaceIcon[kFaceButtons] = { kBtnA, kBtnB, kBtnX, kBtnY };
+  static const int8_t kFaceIcon[kWeaponButtons] = { kBtnA, kBtnB, kBtnX, kBtnY, kBtnZL, kBtnZR };
   const int8_t jump = kFaceIcon[ModernControls_ButtonOf(kModernJump)], run = kFaceIcon[ModernControls_ButtonOf(kModernRun)];
   const int8_t shoot = kFaceIcon[ModernControls_ButtonOf(kModernShoot)], morph = kFaceIcon[ModernControls_ButtonOf(kModernMorph)];
-  const int8_t missile = kFaceIcon[ModernControls_WeaponButton(kModernMissile)];
-  const int8_t grapple = kFaceIcon[ModernControls_WeaponButton(kModernGrapple)];
-  const int8_t xray = kFaceIcon[ModernControls_WeaponButton(kModernXray)];
+  // A weapon: R + its button, or its trigger alone (b1 then, no b2).
+  int8_t wb1[kModernWeapons], wb2[kModernWeapons];
+  for (int w = 0; w < kModernWeapons; w++) {
+    const int8_t b = kFaceIcon[ModernControls_WeaponButton((ModernWeapon)w)];
+    const bool with_r = ModernControls_WeaponWithR((ModernWeapon)w);
+    wb1[w] = with_r ? kBtnR : b, wb2[w] = with_r ? b : -1;
+  }
   const struct { const char *en; int8_t b1, b2; bool edit; } kModern[10] = {
     { "JUMP", jump, -1, true }, { "DASH", run, -1, true }, { "SHOT / BOMB", shoot, -1, true },
-    { "MORPH BALL", morph, -1, true }, { "AIM", kBtnL, kBtnUpDown, false }, { "MISSILE", kBtnR, missile, true },
-    { "POWER BOMB", kBtnR, missile, false }, { "GRAPPLING BEAM", kBtnR, grapple, true }, { "X-RAY SCOPE", kBtnR, xray, true },
+    { "MORPH BALL", morph, -1, true }, { "AIM", kBtnL, kBtnUpDown, false },
+    { "MISSILE", wb1[kModernMissile], wb2[kModernMissile], true },
+    { "POWER BOMB", wb1[kModernMissile], wb2[kModernMissile], false },
+    { "GRAPPLING BEAM", wb1[kModernGrapple], wb2[kModernGrapple], true },
+    { "X-RAY SCOPE", wb1[kModernXray], wb2[kModernXray], true },
     { "MISSILE / SUPER", kBtnSelect, -1, false },
   };
   // The scheme: the left-right D-pad, then both names, the chosen one bright.

@@ -17,3 +17,4 @@ void FtpServer_Tick(void) {}
 bool FtpServer_TakeRelaunch(void) { return false; }
 bool FtpServer_InstallOnly(void) { return false; }
 void FtpServer_Cancel(void) {}
+int FtpServer_Progress(unsigned long long *done, unsigned long long *total) { (void)done; (void)total; return -1; }

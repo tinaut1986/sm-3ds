@@ -5027,6 +5027,10 @@ static void ControllerSettingsList(void) {
     const int face = (keys & kButton_A) ? 0 : (keys & kButton_B) ? 1 : (keys & kButton_X) ? 2 : 3;
     const bool took = g_rtl_controls_menu->assign && g_rtl_controls_menu->assign(g_rtl_ctl_cursor, face);
     QueueSfx1_Max6(took ? 0x38 : 0x37);
+  } else if (modern && g_rtl_controls_menu->trigger && g_rtl_controls_menu->trigger() >= 0) {
+    // ZL or ZR on a weapon row (New 3DS): they are not SNES buttons, the frontend says which.
+    const bool took = g_rtl_controls_menu->assign && g_rtl_controls_menu->assign(g_rtl_ctl_cursor, g_rtl_controls_menu->trigger());
+    QueueSfx1_Max6(took ? 0x38 : 0x37);
   } else if (!modern && keys) {   // a button row of the original: the button pressed goes there
     QueueSfx1_Max6(0x38);
     menu_option_index = g_rtl_ctl_cursor;
