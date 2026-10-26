@@ -11,18 +11,21 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 
 ---
 
-## Status & Features (v0.6.1)
+## Status & Features (v1.0.0)
+
+**The whole game can be played from start to finish on the console**: players have finished it on this port.
 
 - **Stereoscopic 3D:** True per-layer depth using the 3DS parallax barrier hardware. Runs at a rock-solid **60 fps on New 3DS** and **60 fps in gameplay on Old 3DS / 2DS**.
 - **Widescreen Mode (VIEW: WIDE):** Expands the playfield laterally to 336 px, filling the native 5:3 400x240 top screen of the 3DS while keeping enemies and projectiles alive in the extended margins. Original 4:3 (256x224) aspect ratio is also selectable (`VIEW: ORIGINAL`).
-- **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout.
+- **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR.
+- **Play aids:** skip the intro (to Ceres station, or straight to planet Zebes), the automatic bomb jump, and the charge beam pulling in health and ammo drops (optional).
 - **Touchscreen Bottom UI:**
   - **Status Tab:** Real-time energy, reserve tanks (AUTO / MANUAL), touch weapon selection, and **long-press to equip / unequip items and beams** directly without entering the pause menu. Includes a dedicated "?" help window.
   - **Map Tab:** Detailed vector map with room outlines, zoom levels (1X, 2X, 3X), doors, map stations, and an **item tracker window** counting items found per area (with optional SPOILERS mode).
   - **Save States Tab:** Unlimited save states with in-game screenshot thumbnails, gameplay stats (time, energy, missiles, area), and color marks.
   - **RetroAchievements Tab:** Full RetroAchievements support (softcore) with achievement cards, progress tracking, and on-screen popups (customizable to top or bottom screen).
   - **Options Tab:** grouped by topic (general, screen, play, updates), scrolling, with a description of each setting at the bottom: language, audio, spoilers, display modes (Pixel Perfect / Scaled), view modes (Original / WIDE), HUD, FPS counter, frame pacing (AUTO, LOCK 30, NO SKIP), controls scheme and play aids, updates. A New 3DS always runs in its 804 MHz mode.
-- **Self-Updater:** Check and install the latest updates directly from the console (OPTIONS -> UPDATES), complete with version notes.
+- **Self-Updater:** Check and install the latest updates directly from the console (OPTIONS -> UPDATES), complete with version notes. Both the installed CIA and the Homebrew Launcher `.3dsx` update themselves.
 - **Multilingual Support:** English, Spanish, Catalan, French, Portuguese, and Japanese. Custom translations can also be loaded from the SD card (`lang/` folder).
 - **Sound:** Authentic emulated SNES SPC700 sound chip playback.
 

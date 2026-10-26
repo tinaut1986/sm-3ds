@@ -903,6 +903,8 @@ Audio off on the 2DS (2026-10-03, WIDE on) changes little: A923 shown 44.3 (46.5
 
 ## Decisions log
 
+- 2026-10-26: the owner names the next stable `v1.0.0`: players have reported finishing the game on the port. P5.1 (the owner's
+  own 100% run on hardware) stays open; it is not what 1.0 waits for.
 - 2026-10-26: OPTIONS in groups (P4.23). The flat grid was full; groups need more height than the tab has, so it scrolls.
   The cells now act on release (a drag must not change a setting), and the play aids leave the CONTROLS window for
   OPTIONS -> PLAY now that there is room (the window was only their home for lack of a cell, P4.22).
