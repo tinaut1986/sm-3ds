@@ -860,7 +860,7 @@ Lessons from mzm that apply directly:
   station (only the story is skipped) or planet Zebes (Ceres too, said in its colour: the first area, its tutorial,
   boss and escape); A goes, B or START goes back. The game takes it through `g_rtl_intro_skip` (`sm/src/sm_rtl.h`,
   `RtlSkipIntro` in `sm_8b.c`): Ceres as the intro's own end, Zebes as the end of Ceres exploding (saved so). Charge
-  pull: an option, off by default (OPTIONS -> CONTROLS -> "?", under AUTO BOMB JUMP; `config.ini` `charge_pull`):
+  pull: an option, off by default (OPTIONS -> PLAY -> CHARGE PULLS DROPS, under AUTO BOMB JUMP, moved there from the CONTROLS "?" window by P4.23; `config.ini` `charge_pull`):
   while the charge beam charges (`flare_counter` 16 on), a drop within 96 px moves 3 px a frame towards Samus and is
   picked up as if touched (`g_rtl_charge_pull`, `EprojPreInstr_Pickup` in `sm_86.c`). Branch `feat/qol-intro-charge`.
   *Done when:* on the console the hint shows through the intro, both choices land where they say (with the player's
