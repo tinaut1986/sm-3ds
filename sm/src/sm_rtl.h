@@ -226,7 +226,7 @@ extern RtlHudSelect g_rtl_hud_select;
 // the landing on Zebes, saved so). Cleared when taken; ignored in any other game state.
 enum { kRtlIntroSkipNone, kRtlIntroSkipCeres, kRtlIntroSkipZebes };
 extern int g_rtl_intro_skip;
-// 3DS port, an option (OPTIONS -> CHARGE PULL, off by default): while the charge beam charges, the
+// 3DS port, an option (OPTIONS -> PLAY -> CHARGE PULLS DROPS, off by default): while the charge beam charges, the
 // health and ammo enemies drop that are near Samus fly to her and are picked up as if touched.
 extern bool g_rtl_charge_pull;
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
