@@ -453,7 +453,8 @@ static uint16_t g_xsnap_base;
 static int XIdx(int tc, int tr) { return ((tc & 63) >= 32 ? 1024 : 0) + (tr & 31) * 32 + (tc & 31); }
 
 static void XrayMargins(Ppu *ppu) {
-  if (!XrayActive()) {
+  // The scope starts a couple of frames before the game has its own BG2 map and cone up; the margins wait for the cone.
+  if (!XrayActive() || !g_win1_on) {
     if (g_xsaved)   // the scope is done: BG2 as it was
       for (int i = 0; i < 2048; i++) VramPut(ppu, (uint16_t)(g_xsnap_base + i), g_xsnap[i]);
     g_xsaved = false;
