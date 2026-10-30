@@ -1183,9 +1183,13 @@ static bool SameSpans(const WinSpans *a, const WinSpans *b) {
 // AddQuad for `layer` on screen `scr`: where a window hides that layer on part of the
 // lines, the quad is cut into the visible rectangles (rows with the same spans grouped),
 // each keeping the texels it showed, flips included.
-// The captured line a row of the picture takes its window settings from: the extra rows above and
-// below the 224 (negative rows, rows past the last) are the first and the last line's.
-static inline int WinLine(int row) { return (row < 0 ? 0 : row >= kGpuRows ? kGpuRows - 1 : row) + 1; }
+// The captured line a row of the picture takes its window settings from: the extra rows above the 224
+// (negative rows) are the first line's; the ones below are lines of their own (copies of the last, but a
+// window cone moves along them), up to the last one built.
+static inline int WinLine(int row) {
+  const int rows = kGpuRows + g_extra_bottom;
+  return (row < 0 ? 0 : row >= rows ? rows - 1 : row) + 1;
+}
 
 static bool AddQuadWin(GpuTex *t, int x, int y, int w, int h, int sx, int sy, int level, int flags, int scr,
                        int layer) {
