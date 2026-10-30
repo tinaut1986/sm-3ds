@@ -1034,7 +1034,13 @@ static void Xray_CombinedMove(uint16 dst_r22, uint16 r36, bool which_dir) {
   int step = (int8)BTS[r36];
   if (step) {
     uint16 *variable = which_dir ? &y : &x;
-    for (;;) {
+    for (int guard = 0;; ) {
+      // Level data can hold extension blocks that point at each other (room 9CB3, rows 13-14): the
+      // original walk never ends there, so give up after as many steps as the room has blocks.
+      if (++guard > room_width_in_blocks * room_height_in_blocks) {
+        Xray_Func13(dst_r22, 0xFF);   // as for a walk off the room's edge
+        return;
+      }
       if ((int16)(*variable + step) < 0) {
         Xray_Func13(dst_r22, 0xFF);
         return;
