@@ -88,12 +88,30 @@ static bool EndsWith(const char *s, const char *end) {
   return n >= m && strcmp(s + n - m, end) == 0;
 }
 
+// Where an install put the new 3dsx when that is not the running file (InstallTarget), so the
+// relaunch and the FTP server's reply name the new one.
+static char sInstalledPath[288];
+
 const char *HbInstall_Path(void) {
+  if (sInstalledPath[0]) return sInstalledPath;
   // The launcher passes "sdmc:/3ds/<file>.3dsx"; 3dslink passes "3dslink:/...", which is no file.
   if (__system_argc > 0 && __system_argv && __system_argv[0] && !strncmp(__system_argv[0], "sdmc:/", 6) &&
       EndsWith(__system_argv[0], ".3dsx"))
     return __system_argv[0];
   return HB_DEFAULT_PATH;
+}
+
+// The file an install writes. Releases up to v1.0.3 published the 3dsx as "sm-3ds-<tag>.3dsx" and
+// the update kept that name, so the file carried an old version forever and a new download sat
+// beside it (#61). A running file with that name is replaced by "sm-3ds.3dsx" in the same folder,
+// the name every release has used since; any other name is kept.
+static const char *InstallTarget(char *buf, size_t cap) {
+  const char *running = HbInstall_Path();
+  const char *slash = strrchr(running, '/');
+  const char *base = slash ? slash + 1 : running;
+  if (strncmp(base, "sm-3ds-v", 8) != 0 || !EndsWith(base, ".3dsx")) return running;
+  snprintf(buf, cap, "%.*ssm-3ds.3dsx", (int)(base - running), running);
+  return buf;
 }
 
 static bool Is3dsx(const char *path) {
@@ -105,9 +123,20 @@ static bool Is3dsx(const char *path) {
   return ok;
 }
 
+// A new 3dsx is in place at `target`. When that is not the running file, the old one goes (it is
+// a versioned copy of the same game) and the relaunch opens the new one. If the old file cannot
+// be removed (the romfs did not close) it stays: the new one is still the one that starts.
+static void Installed(const char *target, const char *running) {
+  if (target == running) return;
+  snprintf(sInstalledPath, sizeof(sInstalledPath), "%s", target);
+  remove(running);
+}
+
 bool HbInstall_File(const char *path, char *error, unsigned errorCap) {
-  const char *target = HbInstall_Path();
-  char bak[288];
+  const char *running = HbInstall_Path();
+  char targetBuf[288];
+  const char *target = InstallTarget(targetBuf, sizeof(targetBuf));
+  char bak[300];
   struct stat st;
 
   if (!Is3dsx(path)) {
@@ -121,6 +150,7 @@ bool HbInstall_File(const char *path, char *error, unsigned errorCap) {
   if (!had || rename(target, bak) == 0) {
     if (rename(path, target) == 0) {
       remove(bak);
+      Installed(target, running);
       return true;
     }
     if (had) rename(bak, target);
@@ -138,5 +168,6 @@ bool HbInstall_File(const char *path, char *error, unsigned errorCap) {
   }
   remove(path);
   remove(bak);
+  Installed(target, running);
   return true;
 }
