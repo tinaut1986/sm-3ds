@@ -212,8 +212,51 @@ static void MinimapEdges(Ppu *ppu, bool clear) {
   }
 }
 
+// The HUD's text: the digits (chars 0x00-0x09, kDigitTilesetsHealth / Weapon), ENERGY (0x0B-0x0D,
+// 0x32), the energy tanks (0x30 empty, 0x31 full) and the reserve's AUTO with its arrows (0x33,
+// 0x46-0x48, kHudTilemaps_AutoReserve) are drawn on an opaque black background
+// (colour 3, both planes set), a black box over the room under them (#62). While the HUD is over
+// the room those pixels are made colour 0; the char's words are kept to put them back. As with the
+// minimap's edges, a char is only changed back when it still holds what this wrote (a new HUD load
+// writes the originals again).
+static const uint8_t kHudTextChars[] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+                                         0x0B, 0x0C, 0x0D, 0x32, 0x30, 0x31, 0x33, 0x46, 0x47, 0x48 };
+enum { kHudTextCount = sizeof(kHudTextChars) };
+static uint16_t g_text_solid[kHudTextCount][8], g_text_clear[kHudTextCount][8];
+static bool g_text_cleared[kHudTextCount];
+
+static void HudText(Ppu *ppu, bool clear) {
+  for (int i = 0; i < kHudTextCount; i++) {
+    const uint16_t base = (uint16_t)(Bg3Chars() + kHudTextChars[i] * 8);
+    uint16_t *now = &ppu->vram[0];
+    bool is_clear = g_text_cleared[i];
+    if (is_clear)
+      for (int y = 0; y < 8; y++) is_clear &= now[(base + y) & 0x7fff] == g_text_clear[i][y];
+    if (clear && !is_clear) {
+      // The char as the game has it now: keep it and write it without its colour 3 pixels.
+      bool changed = false;
+      for (int y = 0; y < 8; y++) {
+        const uint16_t w = now[(base + y) & 0x7fff];
+        const uint16_t black = (uint16_t)((w & (w >> 8)) & 0xFF);
+        g_text_solid[i][y] = w;
+        g_text_clear[i][y] = (uint16_t)(w & ~(black | (black << 8)));
+        changed |= black != 0;
+      }
+      g_text_cleared[i] = changed;
+      if (changed)
+        for (int y = 0; y < 8; y++) VramPut(ppu, (uint16_t)(base + y), g_text_clear[i][y]);
+    } else if (!clear && is_clear) {
+      for (int y = 0; y < 8; y++) VramPut(ppu, (uint16_t)(base + y), g_text_solid[i][y]);
+      g_text_cleared[i] = false;
+    } else if (!clear) {
+      g_text_cleared[i] = false;
+    }
+  }
+}
+
 static void HudRestore(Ppu *ppu) {
   MinimapEdges(ppu, false);
+  HudText(ppu, false);
   if (!g_clear_entry) return;
   for (int i = 0; i < kHudCells; i++)
     if (ppu->vram[kHudMap + i] == g_clear_entry) VramPut(ppu, kHudMap + i, kHudBlank);
@@ -230,6 +273,7 @@ static void HudSeeThrough(Ppu *ppu) {
       if (CharClear(ppu, c)) g_clear_char = c;
   }
   MinimapEdges(ppu, true);
+  HudText(ppu, true);
   if (g_clear_char < 0) return;
   const uint16_t entry = (uint16_t)(0x2C00 | g_clear_char);
   if (g_clear_entry && g_clear_entry != entry) HudRestore(ppu);
