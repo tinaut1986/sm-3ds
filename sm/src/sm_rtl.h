@@ -164,6 +164,15 @@ static inline void RtlOamSetAnchor(int x, int y) {
   g_rtl_oam_anchor_y = (int16)y;
 }
 static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anchor_y = kRtlOamUnknown; }
+// 3DS port: the tilemap words the escape warnings wrote in this room: the typed letters
+// (HandleTypewriterText_Ext: the Ceres self-destruct warning after Ridley, the Zebes escape's after
+// Mother Brain) and Ceres' EMERGENCY and its rows (Ridley_Func_59, _62). They go straight into the
+// room's layer tilemap, which WIDE's fill (source/sm_wide.c) rewrites from the level data every
+// frame: that erased the text (#64). The fill leaves these words alone.
+// g_rtl_typewriter_room is the room they belong to (room_ptr); another room means none.
+enum { kRtlTypewriterMax = 256 };
+extern uint16 g_rtl_typewriter_vram[kRtlTypewriterMax];
+extern uint16 g_rtl_typewriter_count, g_rtl_typewriter_room;
 // 3DS port, translated message boxes (source/game_text.c): called with 1 once a message
 // box's tilemap is in VRAM (drawn, or rewritten by the save prompt's YES/NO toggle) and with
 // 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.

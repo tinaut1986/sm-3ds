@@ -2678,6 +2678,19 @@ void Ridley_Func_58(void) {  // 0xA6C117
   SetBossBitForCurArea(1);
 }
 
+uint16 g_rtl_typewriter_vram[kRtlTypewriterMax];   // 3DS port, see sm_rtl.h
+uint16 g_rtl_typewriter_count, g_rtl_typewriter_room;
+
+// 3DS port: `words` tilemap words from `vram` on, written by the escape warning (see sm_rtl.h).
+static void RtlTypewriterKeep(uint16 vram, int words) {
+  if (g_rtl_typewriter_room != room_ptr) {
+    g_rtl_typewriter_room = room_ptr;
+    g_rtl_typewriter_count = 0;
+  }
+  for (int i = 0; i < words && g_rtl_typewriter_count < kRtlTypewriterMax; i++)
+    g_rtl_typewriter_vram[g_rtl_typewriter_count++] = (uint16)(vram + i);
+}
+
 void Ridley_Func_59(void) {  // 0xA6C136
   VramWriteEntry *v2;
 
@@ -2688,6 +2701,7 @@ void Ridley_Func_59(void) {  // 0xA6C136
   *(VoidP *)((uint8 *)&v2->src.addr + 1) = GET_WORD(v1 + 3);
   v2->src.addr = GET_WORD(v1 + 2);
   v2->vram_dst = GET_WORD(v1 + 5);
+  RtlTypewriterKeep(v2->vram_dst, v2->size >> 1);   // 3DS port: EMERGENCY, see sm_rtl.h
   vram_write_queue_tail = v0 + 7;
 }
 
@@ -2799,6 +2813,7 @@ uint8 HandleTypewriterText_Ext(uint16 a) {  // 0xA6C2A7
       v12->src.addr = ADDR16_OF_RAM(*extra_enemy_ram8000) + 52;
       uint16 mbn_var_3C = E->mbn_var_3C;
       v12->vram_dst = mbn_var_3C;
+      RtlTypewriterKeep(mbn_var_3C, 1);   // 3DS port: WIDE's fill must not erase the letter
       E->mbn_var_3C = mbn_var_3C + 1;
       vram_write_queue_tail = v11 + 7;
       uint16 v14 = E->mbn_var_3F + 1;
@@ -2829,6 +2844,7 @@ void Ridley_Func_62(void) {  // 0xA6C383
     *(VoidP *)((uint8 *)&v3->src.addr + 1) = GET_WORD(v2 + 3);
     v3->src.addr = GET_WORD(v2 + 2);
     v3->vram_dst = GET_WORD(v2 + 5);
+    RtlTypewriterKeep(v3->vram_dst, v3->size >> 1);   // 3DS port, see sm_rtl.h
     v0 += 7;
   }
   vram_write_queue_tail = i;

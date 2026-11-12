@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "src/types.h"
 #include "src/variables.h"
@@ -101,6 +102,31 @@ static inline void VramPut(Ppu *ppu, uint16_t adr, uint16_t v) {
   if (g_ppu_vram_dirty) g_ppu_vram_dirty[adr >> 3] = 1;
 }
 
+// The tilemap words the game's typewriter text wrote in this room (g_rtl_typewriter_vram: the Ceres
+// and Zebes escape warnings, #64), as a bit per VRAM word; the fill keeps them.
+static uint8_t g_tw_keep[0x8000 / 8];
+static uint16_t g_tw_room, g_tw_synced;
+static bool g_tw_on;
+
+static void TypewriterSync(void) {
+  g_tw_on = g_rtl_typewriter_count && g_rtl_typewriter_room == room_ptr;
+  if (g_tw_room != g_rtl_typewriter_room || g_rtl_typewriter_count < g_tw_synced) {
+    memset(g_tw_keep, 0, sizeof(g_tw_keep));
+    g_tw_room = g_rtl_typewriter_room;
+    g_tw_synced = 0;
+  }
+  for (; g_tw_synced < g_rtl_typewriter_count; g_tw_synced++) {
+    const uint16_t adr = g_rtl_typewriter_vram[g_tw_synced] & 0x7fff;
+    g_tw_keep[adr >> 3] |= (uint8_t)(1 << (adr & 7));
+  }
+}
+
+static inline void FillPut(Ppu *ppu, uint16_t adr, uint16_t v) {
+  adr &= 0x7fff;
+  if (g_tw_on && (g_tw_keep[adr >> 3] & (1 << (adr & 7)))) return;
+  VramPut(ppu, adr, v);
+}
+
 // One block's four tilemap entries, as UpdateLevelOrBackgroundDataColumn (sm_80.c)
 // derives them from a level data word: tile table entry, bit 10 flips X, bit 11 flips Y.
 static void PutBlock(Ppu *ppu, uint16_t base, int vx, int vy, uint16_t block) {
@@ -125,10 +151,10 @@ static void PutBlock(Ppu *ppu, uint16_t base, int vx, int vy, uint16_t block) {
   }
   // 64x32 tilemap: two 32x32 screens; a block is 2x2 tiles.
   const uint16_t adr = base + (vy & 15) * 64 + (vx & 15) * 2 + ((vx & 16) ? 0x400 : 0);
-  VramPut(ppu, adr, tl);
-  VramPut(ppu, adr + 1, tr);
-  VramPut(ppu, adr + 32, bl);
-  VramPut(ppu, adr + 33, br);
+  FillPut(ppu, adr, tl);
+  FillPut(ppu, adr + 1, tr);
+  FillPut(ppu, adr + 32, bl);
+  FillPut(ppu, adr + 33, br);
 }
 
 // Fills one BG layer: `data` is its level data (room_width_in_blocks per row), `sc` its
@@ -603,7 +629,9 @@ static void BeforePpuDraw(void) {
   Bg2Shift();
   PublishView();
   // Every column, the game's own too: with WIDE on, the columns the game keeps up to date were left stale
-  // (a black column behind Samus in C98E, a BG2 pillar drawn ahead of her), so the fill owns them all.
+  // (a black column behind Samus in C98E, a BG2 pillar drawn ahead of her), so the fill owns them all,
+  // but for the typewriter text's words.
+  TypewriterSync();
   FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, bg1_x_offset + layer1_x_pos,
             bg1_y_offset + layer1_y_pos, layer1_x_pos, layer1_y_pos, true);
   // BG2 from the level's background data, when the game streams it like BG1 (otherwise it
