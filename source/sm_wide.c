@@ -82,6 +82,10 @@ bool SmWide_MenuView(void) {
   return game_state == kGameState_2_GameOptionsMenu || game_state == kGameState_4_FileSelectMenus;
 }
 
+// The game over screen: its colours are the backdrop's, a gradient by line, which the GPU renderer draws across the
+// margins by itself; nothing to fill or mask there, and its layers cut to the game's 256 columns.
+bool SmWide_GameOverView(void) { return game_state == kGameState_26_GameOverMenu; }
+
 // The title's picture is in the mode 7 plane (its tile map holds tiles in the first 32x32 cells): the generated art
 // goes under it. Not while the animation starts (after the file select's B the plane is empty and black for a while).
 bool SmWide_TitleArt(void) {
@@ -830,7 +834,7 @@ static void MaskMode1Lines(GpuFrame *f, const PpuLineCapture *cap) {
 }
 
 void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap) {
-  if (SmWide_MenuView()) return;   // nothing is filled or masked: BG2 repeats, BG1 is clipped
+  if (SmWide_MenuView() || SmWide_GameOverView()) return;   // nothing is filled or masked: the layers are clipped
   if (g_mode7 && room_ptr == kRoom_CeresRidley) {
     // The side margins (outside the room, black all fight); the extra rows above and below
     // keep the room's rows BG1 still holds from the last fill.

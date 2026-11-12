@@ -242,7 +242,7 @@ static bool GameplayView(void) {
 }
 
 static int WideMargin(void) {
-  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView())) return 0;
+  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView() || SmWide_GameOverView())) return 0;
   return g_ui.pixel_perfect ? 72 : 60;
 }
 
@@ -1089,6 +1089,8 @@ int main(int argc, char** argv) {
           else if (wide > 0 && SmWide_MenuView()) {   // the menu: its text and its starfield are not repeated
             GpuPpu_SetLayerClip(0, 0, 256, 0, 224);
             GpuPpu_SetLayerClip(1, 0, 256, 0, 224);
+          } else if (wide > 0 && SmWide_GameOverView()) {   // game over: only its backdrop goes to the edges
+            for (int layer = 0; layer < 3; layer++) GpuPpu_SetLayerClip(layer, 0, 256, 0, 224);
           }
         }
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only
