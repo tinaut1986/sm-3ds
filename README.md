@@ -115,6 +115,8 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 
 **Auto bomb jump** (both schemes, on by default; OPTIONS -> PLAY -> AUTO BOMB JUMP): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
 
+**Auto run** (both schemes, off by default; OPTIONS -> PLAY -> AUTO RUN): Samus runs without the run button, but only after a moment of walking in one direction, so a short press is still a step. Holding the run button walks instead.
+
 The bottom screen is operated entirely by touch:
 - **STATUS:** Tap weapons to equip them. **Hold down (0.5s)** on any item or beam to toggle it on/off without pausing. Tap reserve tanks to switch AUTO / MANUAL.
 - **MAP:** Tap and drag to explore the map. Tap the zoom button to toggle 1X, 2X, and 3X zoom. Tap the item tracker button to view collected items by area.
