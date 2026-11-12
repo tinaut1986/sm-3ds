@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "src/types.h"
 #include "src/variables.h"
@@ -44,6 +45,7 @@ static bool RoomShown(void) {
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator: case kGameState_33_BlackoutFromCeres:   // Ceres escape's end
   case kGameState_9_HitDoorBlock: case kGameState_10_LoadingNextRoom:
+  case kGameState_19_SamusNoHealth: case kGameState_20_SamusNoHealth:   // death: the room fading out around Samus
     return true;
   case kGameState_11_LoadingNextRoom:
     switch (door_transition_function | 0x820000) {
@@ -81,6 +83,14 @@ bool SmWide_MenuView(void) {
   return game_state == kGameState_2_GameOptionsMenu || game_state == kGameState_4_FileSelectMenus;
 }
 
+// The game over screen: its colours are the backdrop's, a gradient by line, which the GPU renderer draws across the
+// margins by itself; nothing to fill or mask there, and its layers cut to the game's 256 columns. The same for the
+// death sequence once the room is gone (states 21-25: sprites only, GameState_20_SamusNoHealth_BlackOut), whose white
+// flashes are the backdrop's colour.
+bool SmWide_GameOverView(void) {
+  return game_state >= kGameState_21_SamusNoHealth && game_state <= kGameState_26_GameOverMenu;
+}
+
 // The title's picture is in the mode 7 plane (its tile map holds tiles in the first 32x32 cells): the generated art
 // goes under it. Not while the animation starts (after the file select's B the plane is empty and black for a while).
 bool SmWide_TitleArt(void) {
@@ -99,6 +109,31 @@ static inline void VramPut(Ppu *ppu, uint16_t adr, uint16_t v) {
   if (ppu->vram[adr] == v) return;
   ppu->vram[adr] = v;
   if (g_ppu_vram_dirty) g_ppu_vram_dirty[adr >> 3] = 1;
+}
+
+// The tilemap words the game's typewriter text wrote in this room (g_rtl_typewriter_vram: the Ceres
+// and Zebes escape warnings, #64), as a bit per VRAM word; the fill keeps them.
+static uint8_t g_tw_keep[0x8000 / 8];
+static uint16_t g_tw_room, g_tw_synced;
+static bool g_tw_on;
+
+static void TypewriterSync(void) {
+  g_tw_on = g_rtl_typewriter_count && g_rtl_typewriter_room == room_ptr;
+  if (g_tw_room != g_rtl_typewriter_room || g_rtl_typewriter_count < g_tw_synced) {
+    memset(g_tw_keep, 0, sizeof(g_tw_keep));
+    g_tw_room = g_rtl_typewriter_room;
+    g_tw_synced = 0;
+  }
+  for (; g_tw_synced < g_rtl_typewriter_count; g_tw_synced++) {
+    const uint16_t adr = g_rtl_typewriter_vram[g_tw_synced] & 0x7fff;
+    g_tw_keep[adr >> 3] |= (uint8_t)(1 << (adr & 7));
+  }
+}
+
+static inline void FillPut(Ppu *ppu, uint16_t adr, uint16_t v) {
+  adr &= 0x7fff;
+  if (g_tw_on && (g_tw_keep[adr >> 3] & (1 << (adr & 7)))) return;
+  VramPut(ppu, adr, v);
 }
 
 // One block's four tilemap entries, as UpdateLevelOrBackgroundDataColumn (sm_80.c)
@@ -125,10 +160,10 @@ static void PutBlock(Ppu *ppu, uint16_t base, int vx, int vy, uint16_t block) {
   }
   // 64x32 tilemap: two 32x32 screens; a block is 2x2 tiles.
   const uint16_t adr = base + (vy & 15) * 64 + (vx & 15) * 2 + ((vx & 16) ? 0x400 : 0);
-  VramPut(ppu, adr, tl);
-  VramPut(ppu, adr + 1, tr);
-  VramPut(ppu, adr + 32, bl);
-  VramPut(ppu, adr + 33, br);
+  FillPut(ppu, adr, tl);
+  FillPut(ppu, adr + 1, tr);
+  FillPut(ppu, adr + 32, bl);
+  FillPut(ppu, adr + 33, br);
 }
 
 // Fills one BG layer: `data` is its level data (room_width_in_blocks per row), `sc` its
@@ -212,8 +247,51 @@ static void MinimapEdges(Ppu *ppu, bool clear) {
   }
 }
 
+// The HUD's text: the digits (chars 0x00-0x09, kDigitTilesetsHealth / Weapon), ENERGY (0x0B-0x0D,
+// 0x32), the energy tanks (0x30 empty, 0x31 full) and the reserve's AUTO with its arrows (0x33,
+// 0x46-0x48, kHudTilemaps_AutoReserve) are drawn on an opaque black background
+// (colour 3, both planes set), a black box over the room under them (#62). While the HUD is over
+// the room those pixels are made colour 0; the char's words are kept to put them back. As with the
+// minimap's edges, a char is only changed back when it still holds what this wrote (a new HUD load
+// writes the originals again).
+static const uint8_t kHudTextChars[] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+                                         0x0B, 0x0C, 0x0D, 0x32, 0x30, 0x31, 0x33, 0x46, 0x47, 0x48 };
+enum { kHudTextCount = sizeof(kHudTextChars) };
+static uint16_t g_text_solid[kHudTextCount][8], g_text_clear[kHudTextCount][8];
+static bool g_text_cleared[kHudTextCount];
+
+static void HudText(Ppu *ppu, bool clear) {
+  for (int i = 0; i < kHudTextCount; i++) {
+    const uint16_t base = (uint16_t)(Bg3Chars() + kHudTextChars[i] * 8);
+    uint16_t *now = &ppu->vram[0];
+    bool is_clear = g_text_cleared[i];
+    if (is_clear)
+      for (int y = 0; y < 8; y++) is_clear &= now[(base + y) & 0x7fff] == g_text_clear[i][y];
+    if (clear && !is_clear) {
+      // The char as the game has it now: keep it and write it without its colour 3 pixels.
+      bool changed = false;
+      for (int y = 0; y < 8; y++) {
+        const uint16_t w = now[(base + y) & 0x7fff];
+        const uint16_t black = (uint16_t)((w & (w >> 8)) & 0xFF);
+        g_text_solid[i][y] = w;
+        g_text_clear[i][y] = (uint16_t)(w & ~(black | (black << 8)));
+        changed |= black != 0;
+      }
+      g_text_cleared[i] = changed;
+      if (changed)
+        for (int y = 0; y < 8; y++) VramPut(ppu, (uint16_t)(base + y), g_text_clear[i][y]);
+    } else if (!clear && is_clear) {
+      for (int y = 0; y < 8; y++) VramPut(ppu, (uint16_t)(base + y), g_text_solid[i][y]);
+      g_text_cleared[i] = false;
+    } else if (!clear) {
+      g_text_cleared[i] = false;
+    }
+  }
+}
+
 static void HudRestore(Ppu *ppu) {
   MinimapEdges(ppu, false);
+  HudText(ppu, false);
   if (!g_clear_entry) return;
   for (int i = 0; i < kHudCells; i++)
     if (ppu->vram[kHudMap + i] == g_clear_entry) VramPut(ppu, kHudMap + i, kHudBlank);
@@ -230,6 +308,7 @@ static void HudSeeThrough(Ppu *ppu) {
       if (CharClear(ppu, c)) g_clear_char = c;
   }
   MinimapEdges(ppu, true);
+  HudText(ppu, true);
   if (g_clear_char < 0) return;
   const uint16_t entry = (uint16_t)(0x2C00 | g_clear_char);
   if (g_clear_entry && g_clear_entry != entry) HudRestore(ppu);
@@ -559,7 +638,9 @@ static void BeforePpuDraw(void) {
   Bg2Shift();
   PublishView();
   // Every column, the game's own too: with WIDE on, the columns the game keeps up to date were left stale
-  // (a black column behind Samus in C98E, a BG2 pillar drawn ahead of her), so the fill owns them all.
+  // (a black column behind Samus in C98E, a BG2 pillar drawn ahead of her), so the fill owns them all,
+  // but for the typewriter text's words.
+  TypewriterSync();
   FillLayer(ppu, level_data, reg_BG1SC, reg_BG1HOFS, reg_BG1VOFS, bg1_x_offset + layer1_x_pos,
             bg1_y_offset + layer1_y_pos, layer1_x_pos, layer1_y_pos, true);
   // BG2 from the level's background data, when the game streams it like BG1 (otherwise it
@@ -758,7 +839,7 @@ static void MaskMode1Lines(GpuFrame *f, const PpuLineCapture *cap) {
 }
 
 void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap) {
-  if (SmWide_MenuView()) return;   // nothing is filled or masked: BG2 repeats, BG1 is clipped
+  if (SmWide_MenuView() || SmWide_GameOverView()) return;   // nothing is filled or masked: the layers are clipped
   if (g_mode7 && room_ptr == kRoom_CeresRidley) {
     // The side margins (outside the room, black all fight); the extra rows above and below
     // keep the room's rows BG1 still holds from the last fill.

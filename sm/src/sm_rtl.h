@@ -164,6 +164,15 @@ static inline void RtlOamSetAnchor(int x, int y) {
   g_rtl_oam_anchor_y = (int16)y;
 }
 static inline void RtlOamClearAnchor(void) { g_rtl_oam_anchor_x = g_rtl_oam_anchor_y = kRtlOamUnknown; }
+// 3DS port: the tilemap words the escape warnings wrote in this room: the typed letters
+// (HandleTypewriterText_Ext: the Ceres self-destruct warning after Ridley, the Zebes escape's after
+// Mother Brain) and Ceres' EMERGENCY and its rows (Ridley_Func_59, _62). They go straight into the
+// room's layer tilemap, which WIDE's fill (source/sm_wide.c) rewrites from the level data every
+// frame: that erased the text (#64). The fill leaves these words alone.
+// g_rtl_typewriter_room is the room they belong to (room_ptr); another room means none.
+enum { kRtlTypewriterMax = 256 };
+extern uint16 g_rtl_typewriter_vram[kRtlTypewriterMax];
+extern uint16 g_rtl_typewriter_count, g_rtl_typewriter_room;
 // 3DS port, translated message boxes (source/game_text.c): called with 1 once a message
 // box's tilemap is in VRAM (drawn, or rewritten by the save prompt's YES/NO toggle) and with
 // 0 when it is gone. g_rtl_message_box_vram is the VRAM word address of its top border row.
@@ -218,7 +227,9 @@ int RtlCtlBinding(int action);
 // item the game would skip (no ammo, not equipped) leaves the selection as it was. `frame` is
 // nmi_frame_counter_word when it was asked; a request not taken within 2 frames (the game was not
 // handling the HUD selection: a cutscene, the pause menu) is dropped. item < 0 = none.
-typedef struct { int8 item; uint16 frame; } RtlHudSelect;
+// keep_charge: the beam charge (flare_counter) survives the switch, which the game's switch handlers
+// clear (the modern controls' charge beam combo, #66: the power bomb selected on a full charge).
+typedef struct { int8 item; uint16 frame; bool keep_charge; } RtlHudSelect;
 extern RtlHudSelect g_rtl_hud_select;
 // 3DS port: the intro skipped from the frontend (source/intro_skip.c). Set while game_state is the
 // intro (0x1E); its next frame goes straight to black and on as if the intro had ended
@@ -229,6 +240,13 @@ extern int g_rtl_intro_skip;
 // 3DS port, an option (OPTIONS -> PLAY -> CHARGE PULLS DROPS, off by default): while the charge beam charges, the
 // health and ammo enemies drop that are near Samus fly to her and are picked up as if touched.
 extern bool g_rtl_charge_pull;
+// 3DS port, an option (OPTIONS -> PLAY -> HEAVY PHYSICS, off by default, #65): the values of Super Metroid
+// Redux's optional "Heavy Physics" patch (ShadowOne333, code/Optional/HeavyPhysicsRedux.asm, after GBA
+// Style's), a Samus who falls about twice as fast, as in Zero Mission: more gravity in air, a higher top
+// falling speed, stronger jumps, wall jumps and bomb jumps, more air control, bombs that go off sooner.
+// RtlHeavyPhysics: on, and not in a title screen demo, whose inputs were recorded with the original's.
+extern bool g_rtl_heavy_physics;
+bool RtlHeavyPhysics(void);
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
 // bottom screen's STATUS tab), as the pause menu's equipment screen would: GameState_8_MainGameplay
 // takes it at the start of its next frame, toggles only what Samus has and the equipment screen

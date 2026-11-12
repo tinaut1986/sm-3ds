@@ -77,11 +77,17 @@ void Samus_Animate_NoFx(void) {  // 0x908078
   }
 }
 
+bool g_rtl_heavy_physics;   // 3DS port, see sm_rtl.h
+
+bool RtlHeavyPhysics(void) {
+  return g_rtl_heavy_physics && !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
+}
+
 void Samus_Animate_WaterFx(void) {  // 0x9080B8
   static const uint16 kSamusPhys_AnimDelayInWater = 3;
   uint16 r18 = Samus_GetBottom_R18();
   if ((fx_y_pos & 0x8000) == 0 && sign16(fx_y_pos - r18) && (fx_liquid_options & 4) == 0) {
-    samus_anim_frame_buffer = kSamusPhys_AnimDelayInWater;
+    samus_anim_frame_buffer = RtlHeavyPhysics() ? 2 : kSamusPhys_AnimDelayInWater;   // 3DS port: heavy physics
     if (liquid_physics_type == kLiquidPhysicsType_Water) {
       Samus_SpawnAirBubbles();
     } else {
@@ -1067,7 +1073,7 @@ void Samus_CheckStartFalling(void) {  // 0x9090C4
 void Samus_MoveY_WithSpeedCalc(void) {  // 0x9090E2
   int32 amt = __PAIR32__(samus_y_speed, samus_y_subspeed);
   if (samus_y_dir == 2) {
-    if (samus_y_speed != 5)
+    if (samus_y_speed != (RtlHeavyPhysics() ? 7 : 5))   // 3DS port: heavy physics' top falling speed
       AddToHiLo(&samus_y_speed, &samus_y_subspeed, __PAIR32__(samus_y_accel, samus_y_subaccel));
   } else {
     AddToHiLo(&samus_y_speed, &samus_y_subspeed, -IPAIR32(samus_y_accel, samus_y_subaccel));
@@ -1500,9 +1506,11 @@ LABEL_11:;
   if ((equipped_items & 0x100) != 0) {
     samus_y_subspeed = kSamus_InitJump_Tab3[v1];
     samus_y_speed = kSamus_InitJump_Tab2[v1];
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 9;   // 3DS port: heavy physics, in air
   } else {
     samus_y_subspeed = kSamus_InitJump_Subspeed_Y[v1];
     samus_y_speed = kSamus_InitJump_Speed_Y[v1];
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 6;
   }
   if ((equipped_items & 0x2000) != 0) {
     samus_y_subspeed += samus_x_extra_run_subspeed;
@@ -1540,9 +1548,11 @@ LABEL_11:;
   if ((equipped_items & 0x100) != 0) {
     samus_y_subspeed = kSamus_InitWallJump_3[v1];
     samus_y_speed = kSamus_InitWallJump_2[v1];
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 8;   // 3DS port: heavy physics, in air
   } else {
     samus_y_subspeed = kSamus_InitWallJump_1[v1];
     samus_y_speed = kSamus_InitWallJump_0[v1];
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 7;
   }
   if ((equipped_items & 0x2000) != 0) {
     r18 = samus_x_extra_run_speed >> 1;
@@ -1604,6 +1614,7 @@ LABEL_11:;
   int v1 = v0 >> 1;
   samus_y_subspeed = kSamus_InitBombJump_Subspeed[v1];
   samus_y_speed = kSamus_InitBombJump_Speed[v1];
+  if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 3;   // 3DS port: heavy physics, in air
   grapple_walljump_timer = 0;
   reached_ceres_elevator_fade_timer = 0;
   samus_y_dir = 1;
@@ -1617,8 +1628,20 @@ static bool IsGreaterThanQuirked(uint16 vhi, uint16 vlo, uint16 cmphi, uint16 cm
   return false;
 }
 
+// 3DS port: heavy physics' top X speeds in air (entries of kSamusSpeedTable_Normal_X, by movement type:
+// jumping, spin jumping, falling, morph ball falling, spring ball in air and falling, wall jumping).
+static uint16 HeavyMaxSpeedX(uint16 k, uint16 max_speed) {
+  if (!RtlHeavyPhysics()) return max_speed;
+  switch (k + 4) {
+  case 0x9F71: case 0x9F7D: case 0x9FA1: case 0x9FB9: case 0xA03D: return 2;
+  case 0xA031: case 0xA049: return 3;
+  default: return max_speed;
+  }
+}
+
 int32 Samus_CalcBaseSpeed_X(uint16 k) {  // 0x909A7E
   SamusSpeedTableEntry *sste = get_SamusSpeedTableEntry(k);
+  const uint16 max_speed = HeavyMaxSpeedX(k, sste->max_speed);
   if (samus_x_accel_mode) {
     int32 delta = samus_x_decel_mult ?
         __PAIR32__(Mult8x8(samus_x_decel_mult, sste->decel) >> 8, Mult8x8(samus_x_decel_mult, HIBYTE(sste->decel_sub))) :
@@ -1631,8 +1654,8 @@ int32 Samus_CalcBaseSpeed_X(uint16 k) {  // 0x909A7E
     }
   } else {
     AddToHiLo(&samus_x_base_speed, &samus_x_base_subspeed, __PAIR32__(sste->accel, sste->accel_sub));
-    if (IsGreaterThanQuirked(samus_x_base_speed, samus_x_base_subspeed, sste->max_speed, sste->max_speed_sub)) {
-      samus_x_base_speed = sste->max_speed;
+    if (IsGreaterThanQuirked(samus_x_base_speed, samus_x_base_subspeed, max_speed, sste->max_speed_sub)) {
+      samus_x_base_speed = max_speed;
       samus_x_base_subspeed = sste->max_speed_sub;
     }
   }
@@ -1641,6 +1664,7 @@ int32 Samus_CalcBaseSpeed_X(uint16 k) {  // 0x909A7E
 
 static Pair_Bool_Amt Samus_CalcBaseSpeed_NoDecel_X(uint16 k) {  // 0x909B1F
   SamusSpeedTableEntry *sste = get_SamusSpeedTableEntry(k);
+  const uint16 max_speed = HeavyMaxSpeedX(k, sste->max_speed);
   bool rv = false;
   if ((samus_x_accel_mode & 1) != 0) {
     int32 delta = samus_x_decel_mult ?
@@ -1654,8 +1678,8 @@ static Pair_Bool_Amt Samus_CalcBaseSpeed_NoDecel_X(uint16 k) {  // 0x909B1F
     }
   } else {
     AddToHiLo(&samus_x_base_speed, &samus_x_base_subspeed, __PAIR32__(sste->accel, sste->accel_sub));
-    if (IsGreaterThanQuirked(samus_x_base_speed, samus_x_base_subspeed, sste->max_speed, sste->max_speed_sub)) {
-      samus_x_base_speed = sste->max_speed;
+    if (IsGreaterThanQuirked(samus_x_base_speed, samus_x_base_subspeed, max_speed, sste->max_speed_sub)) {
+      samus_x_base_speed = max_speed;
       samus_x_base_subspeed = sste->max_speed_sub;
       rv = true;
     }
@@ -1691,7 +1715,7 @@ uint16 Samus_DetermineGrappleSwingSpeed_X(void) {  // 0x909C21
 }
 
 void Samus_DetermineAccel_Y(void) {  // 0x909C5B
-  static const uint16 g_word_909EA1 = 0x1c00;
+  const uint16 g_word_909EA1 = RtlHeavyPhysics() ? 0x3400 : 0x1c00;   // 3DS port: heavy physics' gravity in air
   static const uint16 g_word_909EA3 = 0x800;
   static const uint16 g_word_909EA5 = 0x900;
   static const uint16 g_word_909EA7 = 0;
@@ -3969,7 +3993,7 @@ void HudSelectionHandler_MorphBall(void) {  // 0x90BF9D
       projectile_dir[v1] = 0;
       projectile_x_pos[v1] = samus_x_pos;
       projectile_y_pos[v1] = samus_y_pos;
-      projectile_variables[v1] = 60;
+      projectile_variables[v1] = RtlHeavyPhysics() ? 50 : 60;   // 3DS port: heavy physics, the infinite bomb jump kept
       InitializeInstrForMissile(v0);
       projectile_bomb_pre_instructions[v1] = FUNC16(ProjPreInstr_Bomb);
       cooldown_timer = kNonBeamProjectileCooldowns[5];
@@ -4071,11 +4095,14 @@ void HandleSwitchingHudSelection(void) {
     const int8 want = g_rtl_hud_select.item;
     g_rtl_hud_select.item = -1;
     if (want <= 5 && (uint16)(nmi_frame_counter_word - g_rtl_hud_select.frame) <= 2) {
+      const uint16 charge = flare_counter;
       hud_item_index = want;
-      if (kRunSwitchedToHudHandler[want]() & 1)
+      if (kRunSwitchedToHudHandler[want]() & 1) {
         hud_item_index = r18;
-      else
+      } else {
         samus_auto_cancel_hud_item_index = 0;
+        if (g_rtl_hud_select.keep_charge) flare_counter = charge;
+      }
       goto LABEL_13;
     }
   }

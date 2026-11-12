@@ -27,6 +27,7 @@
 #include "intro_skip.h"
 #include "modern_controls.h"
 #include "auto_bomb.h"
+#include "auto_run.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
@@ -224,8 +225,8 @@ static void DumpObjText(FILE *f) {
 }
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
-// WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
-// title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
+// WIDE view margin for the next frame: gameplay only, and the fades into and out of it (and SmWide_TitleMode7,
+// SmWide_MenuView, SmWide_GameOverView); the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
 // fill the 400 px screen.
 static bool GameplayView(void) {
   switch (game_state) {
@@ -234,6 +235,7 @@ static bool GameplayView(void) {
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
   case kGameState_33_BlackoutFromCeres:       // and its fade to black
+  case kGameState_19_SamusNoHealth: case kGameState_20_SamusNoHealth:   // death: the room fading out around Samus
     return true;
   default:
     return false;
@@ -241,7 +243,7 @@ static bool GameplayView(void) {
 }
 
 static int WideMargin(void) {
-  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView())) return 0;
+  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView() || SmWide_GameOverView())) return 0;
   return g_ui.pixel_perfect ? 72 : 60;
 }
 
@@ -1020,7 +1022,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
-      int inputs = IntroSkip_Filter(AutoBomb_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad())));
+      int inputs = IntroSkip_Filter(AutoBomb_Translate(AutoRun_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad()))));
       Cheats_BeforeFrame();
       {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
         const int hidden = BottomUi_HudHidden();
@@ -1063,6 +1065,10 @@ int main(int argc, char** argv) {
         GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
         GpuPpu_SetHudY(hud_y);
+        // OPTIONS -> HUD SPREAD (#63): the status part to the left corner, the minimap to the right one,
+        // both by the same share of the room there is: the margin each side, the extra rows above.
+        const int spread = wide && SmWide_Gameplay() ? g_ui.hud_spread : 0;
+        GpuPpu_SetHudSpread(wide * spread / 100, (rows_top + hud_y) * spread / 100);
         GpuPpu_SetSpritePriorityOrder(SmWide_Gameplay() && (osGet3DSliderState() > 0 || g_ui.force_3d));
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         {   // The title's picture whole: generated art in the margins (loaded the first time it is wanted)
@@ -1084,6 +1090,8 @@ int main(int argc, char** argv) {
           else if (wide > 0 && SmWide_MenuView()) {   // the menu: its text and its starfield are not repeated
             GpuPpu_SetLayerClip(0, 0, 256, 0, 224);
             GpuPpu_SetLayerClip(1, 0, 256, 0, 224);
+          } else if (wide > 0 && SmWide_GameOverView()) {   // game over: only its backdrop goes to the edges
+            for (int layer = 0; layer < 3; layer++) GpuPpu_SetLayerClip(layer, 0, 256, 0, 224);
           }
         }
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only

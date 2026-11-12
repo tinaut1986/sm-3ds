@@ -16,7 +16,7 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 **The whole game can be played from start to finish on the console**: players have finished it on this port.
 
 - **Stereoscopic 3D:** True per-layer depth using the 3DS parallax barrier hardware. Runs at a rock-solid **60 fps on New 3DS** and **60 fps in gameplay on Old 3DS / 2DS**.
-- **Widescreen Mode (VIEW: WIDE):** Expands the playfield laterally to 336 px, filling the native 5:3 400x240 top screen of the 3DS while keeping enemies and projectiles alive in the extended margins. Original 4:3 (256x224) aspect ratio is also selectable (`VIEW: ORIGINAL`).
+- **Widescreen Mode (VIEW: WIDE):** Expands the playfield laterally to 336 px, filling the native 5:3 400x240 top screen of the 3DS while keeping enemies and projectiles alive in the extended margins. Original 4:3 (256x224) aspect ratio is also selectable (`VIEW: ORIGINAL`). OPTIONS -> SCREEN -> HUD SPREAD moves the HUD's energy and minimap towards the screen's corners (a bar, 0 % keeps it as in the original).
 - **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR.
 - **Play aids:** skip the intro (to Ceres station, or straight to planet Zebes), the automatic bomb jump, and the charge beam pulling in health and ammo drops (optional).
 - **Touchscreen Bottom UI:**
@@ -59,7 +59,7 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 
 You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA installer.
 
-1. Download `sm-3ds-<version>.cia` from the
+1. Download `sm-3ds.cia` from the
    [Releases page](https://github.com/tinaut1986/sm-3ds/releases), or scan the
    QR code on that page with FBI ("Remote Install" -> "Scan QR Code").
    Releases marked **Beta** are test builds from a release branch.
@@ -81,11 +81,13 @@ You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA instal
    says so and offers to extract it from the console itself (EXTRACT); without it the game runs, silent.
    It is Nintendo's, so it is never part of a download.
 
-**Homebrew Launcher instead of a CIA:** every release also has `sm-3ds-<version>.3dsx`. Copy it to
-`sdmc:/3ds/` (any name), put the ROM in the same folder as in step 3 and open it from the Homebrew
+**Homebrew Launcher instead of a CIA:** every release also has `sm-3ds.3dsx`. Copy it to
+`sdmc:/3ds/` (any name; a new download with the same name replaces the old one), put the ROM in the same folder as in step 3 and open it from the Homebrew
 Launcher. Saves and settings are the same files as the CIA's. Its updater (OPTIONS -> UPDATES)
 downloads the new `.3dsx` over the old one and starts it again (with Luma3DS; with another
-launcher it quits to it and you open it again); it never installs anything as a title.
+launcher it quits to it and you open it again); it never installs anything as a title. A file
+still named as the downloads up to v1.0.3 (`sm-3ds-v1.0.3.3dsx` and so on) becomes `sm-3ds.3dsx`
+the first time v1.0.4 or later updates it.
 
 Everything else the game writes lives in the same folder:
 
@@ -112,6 +114,10 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 **Charge beam pulls drops** (off by default; OPTIONS -> PLAY -> CHARGE PULLS DROPS): while the charge beam charges, the health and ammo enemies drop near Samus fly to her and are picked up.
 
 **Auto bomb jump** (both schemes, on by default; OPTIONS -> PLAY -> AUTO BOMB JUMP): hold the bomb button in the morph ball and Samus climbs by herself, laying each bomb on the frame that keeps the infinite bomb jump going. Tapping the button lays bombs as always; letting go stops the climb. It does nothing in water or lava without the Gravity Suit, where bombs barely lift the ball.
+
+**Auto run** (both schemes, off by default; OPTIONS -> PLAY -> AUTO RUN): Samus runs without the run button, but only after a moment of walking in one direction, so a short press is still a step. Holding the run button walks instead.
+
+**Heavy physics** (off by default; OPTIONS -> PLAY -> HEAVY PHYSICS): Samus falls about twice as fast and jumps harder, closer to Zero Mission. The values are those of the optional Heavy Physics patch of [Super Metroid Redux](https://github.com/ShadowOne333/Super-Metroid-Redux); the automatic bomb jump keeps working with them.
 
 The bottom screen is operated entirely by touch:
 - **STATUS:** Tap weapons to equip them. **Hold down (0.5s)** on any item or beam to toggle it on/off without pausing. Tap reserve tanks to switch AUTO / MANUAL.
@@ -172,6 +178,7 @@ make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload via FT
 - [snesrev](https://github.com/snesrev/sm): the C reimplementation of the game (`sm/`, MIT).
 - [Charles Averill](https://github.com/CharlesAverill/sm-3ds): the initial 3DS port skeleton.
 - [rcheevos](https://github.com/RetroAchievements/rcheevos): RetroAchievements library (MIT).
+- [Super Metroid Redux](https://github.com/ShadowOne333/Super-Metroid-Redux) (ShadowOne333): the values of the HEAVY PHYSICS option, from its optional Heavy Physics patch.
 - The 5x7 UI font, asset tooling, and UI framework come from the author's [Metroid: Zero Mission 3DS port](https://github.com/tinaut1986/mzm).
 
 Super Metroid is © Nintendo; this project contains no copyrighted game data. Code is licensed under MIT (see `LICENSE`).

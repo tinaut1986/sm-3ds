@@ -22,6 +22,8 @@ C-stick is unused.
 | L | aim diagonally up; Down while L is held turns the aim down and it stays down after Down is let go, until L is let go or Up is pressed (Up and Down do not reach the game while L is held: no crouching) |
 | R + X | fire the missile kind chosen with SELECT (missile or super missile) |
 | R + X in morph ball | power bomb (never stored as a choice: only R decides it) |
+| R + X needs R first | the missile (the weapon X carries with R) only when R is down before X, or on the same frame. Once X is pressed without R (standing), R does not turn it into the missile until X is let go: the beam and its charge go on (#66) |
+| X held, then R held (standing) | charge beam combo (#66): the power bomb is selected keeping the charge (`Hud_RequestSelectKeepCharge`), so when the charge reaches its end (flare 120, as in the original) the special attack of the one beam equipped with charge (wave, ice, spazer or plasma) comes out, for one power bomb. Only when that combo can come out. Letting go of X earlier fires the charged shot as always; holding both on charges the next one, as in the original |
 | R + B | X-ray scope while both are held (Up/Down move the beam, as in the original); the game itself decides where it can start |
 | R + Y | grapple beam; once hooked, Y alone keeps it (proposed, to try) |
 | SELECT | switch the chosen missile kind: missile / super missile |

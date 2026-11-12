@@ -43,7 +43,9 @@ import zlib
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 ELF = None   # found on demand: the .elf make leaves in build/ or output/
-NM = '/opt/devkitpro/devkitARM/bin/arm-none-eabi-nm'
+# devkitARM's nm: $DEVKITPRO, else where the installer puts it (as tools/build_3ds.py looks).
+NM = os.path.join(os.environ.get('DEVKITPRO', r'C:\devkitPro' if os.name == 'nt' else '/opt/devkitpro'),
+                  'devkitARM', 'bin', 'arm-none-eabi-nm')
 DATA = '/3ds/Super Metroid 3DS'
 PORT = 5000
 

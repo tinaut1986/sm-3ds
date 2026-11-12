@@ -56,6 +56,8 @@ bool Cheats_GiveAll(void);
 // False outside of a room.
 enum { kSmHudNone, kSmHudMissiles, kSmHudSupers, kSmHudPowerBombs, kSmHudGrapple, kSmHudXray };
 bool Hud_RequestSelect(int item);
+// The same, keeping the beam charge the game's switch would clear (#66, the charge beam combo).
+bool Hud_RequestSelectKeepCharge(int item);
 
 // Not a cheat: the pause menu's equipment screen, for a long press on the bottom screen. Asks the
 // game to switch these items / beams on or off (masks of equipped_items / equipped_beams) in its
