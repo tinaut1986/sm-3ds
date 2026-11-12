@@ -60,6 +60,10 @@ static int g_hud_y;
 
 void GpuPpu_SetHudY(int y) { g_hud_y = y; }
 
+static int g_hud_spread_x, g_hud_spread_y;
+
+void GpuPpu_SetHudSpread(int dx, int dy) { g_hud_spread_x = dx > 0 ? dx : 0, g_hud_spread_y = dy > 0 ? dy : 0; }
+
 static int g_layer_dx[3];
 static struct { bool on; int x0, x1, y0, y1; } g_clip[3];
 
@@ -1779,6 +1783,30 @@ static void ExtendBand(GpuFrame *out, GpuBand *b, bool up, int n, bool keep_bg3,
 }
 
 
+// One piece of the HUD's BG3 onto the HUD list, moved to its side of the minimap's line.
+static bool PushHudBg3Quad_Placed(GpuQuad *qd) {
+  if (g_hud_quad_count >= kMaxHudQuads) return false;
+  qd->x += qd->x < g_hud_x + kGpuHudMapCol ? -g_hud_spread_x : g_hud_spread_x;
+  g_hud_quads[g_hud_quad_count++] = *qd;
+  return true;
+}
+
+// A quad of the HUD's BG3 onto the HUD list, spread (GpuPpu_SetHudSpread): the part left of the minimap
+// moves left, the rest right, a quad across the line becomes two. BG3 quads are never flipped.
+static bool PushHudBg3Quad(GpuQuad qd) {
+  qd.y -= g_hud_spread_y;
+  const int split = g_hud_x + kGpuHudMapCol;
+  if (g_hud_spread_x && qd.x < split && qd.x + qd.w > split) {
+    GpuQuad right = qd;
+    const int left_w = split - qd.x;
+    qd.w = left_w;
+    right.x += left_w, right.w -= left_w, right.sx += left_w;
+    if (!PushHudBg3Quad_Placed(&qd)) return false;
+    return PushHudBg3Quad_Placed(&right);
+  }
+  return PushHudBg3Quad_Placed(&qd);
+}
+
 // Moves the BG3 quads of band `b`'s main screen, the last quads emitted, to the HUD list.
 static bool TakeHudQuads(GpuFrame *out, GpuBand *b) {
   int keep = b->main_first;
@@ -1790,10 +1818,9 @@ static bool TakeHudQuads(GpuFrame *out, GpuBand *b) {
       out->quads[keep++] = qd;
       continue;
     }
-    if (g_hud_quad_count >= kMaxHudQuads) return false;
     qd.y += g_hud_y;
     qd.flags &= ~kGpuQuadMath;
-    g_hud_quads[g_hud_quad_count++] = qd;
+    if (!PushHudBg3Quad(qd)) return false;
   }
   out->quad_count = keep;
   b->main_count = keep - b->main_first;

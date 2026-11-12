@@ -189,6 +189,13 @@ void GpuPpu_SetHudX(int x);
 // top != bottom). HUD sprites move with it.
 void GpuPpu_SetHudY(int y);
 
+// The HUD spread towards the screen's edges (OPTIONS -> HUD SPREAD, #63): its status part (energy,
+// reserve, ammunition: the BG3 columns before kGpuHudMapCol) `dx` columns to the left, the minimap
+// `dx` to the right, both `dy` rows up. 0, 0 = as one piece, where GpuPpu_SetHudX/Y put it. Only the
+// HUD's own BG3 rows: not its sprites (the Ceres timer, in the middle) nor a message box.
+enum { kGpuHudMapCol = 208 };
+void GpuPpu_SetHudSpread(int dx, int dy);
+
 // With the 3D on in gameplay, sprites of a higher priority cover those of a lower one whatever their OAM order (the SNES
 // goes by OAM order alone), so an enemy on a nearer plane than Samus is also drawn over her. Off: the SNES's order.
 void GpuPpu_SetSpritePriorityOrder(bool on);
