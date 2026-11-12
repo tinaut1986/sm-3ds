@@ -23,6 +23,8 @@
  *   0x9D19 BG3 prio 0 -> FRONT (#35): the ash (BG3, behind BG2 on paper, seen over it through colour math).
  *   0x9DC7 sprites of priority 3 -> OBJ (#23): Spore Spawn's stalk is drawn under Samus and the head (OAM order beats the
  *     priority bits among sprites), but priority 3 put it on PLAY, nearer than both.
+ *   0xE0B5 sprites of priority 3 -> OBJ (#64): Ceres Ridley, coming out of the dark (a silhouette of priority 3 sprites
+ *     the game draws under Samus by OAM order), was emitted before her with the 3D on and cut her out.
  *   0xDA60 BG2 -> OBJ: Draygon's body is BG2 (the boss moves BG2's scroll with her, sm_a5.c), which the depth function puts
  *     on FAR, behind the walls and a few pixels behind Samus; it goes to Samus's plane.
  *   0xDA60 sprites of every priority -> OBJ: Draygon's tail is parts of different OAM priority; with the 3D on they were
@@ -4313,6 +4315,7 @@ SM_LAYER_PLANE(0xDF45, 4, 2, kStereoFront)  /* -> FRONT */
 SM_LAYER_PLANE(0xE0B5, 2, 0, kStereoPlay)  /* -> PLAY */
 SM_LAYER_PLANE(0xE0B5, 2, 1, kStereoPlay)  /* -> PLAY */
 SM_LAYER_PLANE(0xE0B5, 5, 0, kStereoBack)  /* -> BACK */
+SM_LAYER_PLANE(0xE0B5, 4, 3, kStereoObj)  /* -> OBJ */
 SM_LAYER_PLANE(0x9DC7, 4, 3, kStereoObj)  /* -> OBJ */
 SM_LAYER_PLANE(0xDA60, 2, 0, kStereoObj)  /* -> OBJ */
 SM_LAYER_PLANE(0xDA60, 2, 1, kStereoObj)  /* -> OBJ */
