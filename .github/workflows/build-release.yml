@@ -128,8 +128,8 @@ jobs:
             fi
             echo "## Downloads"
             echo
-            echo "- [sm-3ds-${TAG}.cia](${BASE}/sm-3ds-${TAG}.cia): install it with FBI (or scan the QR code)."
-            echo "- [sm-3ds-${TAG}.3dsx](${BASE}/sm-3ds-${TAG}.3dsx): for the Homebrew Launcher, copy it to \`/3ds/\` on the SD card."
+            echo "- [sm-3ds.cia](${BASE}/sm-3ds.cia): install it with FBI (or scan the QR code)."
+            echo "- [sm-3ds.3dsx](${BASE}/sm-3ds.3dsx): for the Homebrew Launcher, copy it to \`/3ds/\` on the SD card (it replaces the old one)."
             echo
             echo "The ROM is not included. Supply your own Super Metroid (Japan, USA)"
             echo "ROM, see the README."
@@ -140,10 +140,14 @@ jobs:
           } > release_notes.md
 
           apt-get update -qq && apt-get install -y -qq qrencode > /dev/null
-          qrencode -s 10 -o "QR-${TAG}.png" "${BASE}/sm-3ds-${TAG}.cia"
+          qrencode -s 10 -o "QR-${TAG}.png" "${BASE}/sm-3ds.cia"
 
-          cp output/SuperMetroid3DSPort.cia "sm-3ds-${TAG}.cia"
-          cp output/SuperMetroid3DSPort.3dsx "sm-3ds-${TAG}.3dsx"
+          # The same file names in every release (#61): a new download replaces the old one on
+          # the SD card. Builds up to v1.0.3 published sm-3ds-<tag>.*; their updater picks the
+          # asset by its extension only (source/updater_parse.c, FindAssetUrl), so they still
+          # find these. Keep one asset per extension.
+          cp output/SuperMetroid3DSPort.cia sm-3ds.cia
+          cp output/SuperMetroid3DSPort.3dsx sm-3ds.3dsx
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -166,8 +170,8 @@ jobs:
           generate_release_notes: true
           body_path: release_notes.md
           files: |
-            sm-3ds-${{ steps.vars.outputs.tag }}.cia
-            sm-3ds-${{ steps.vars.outputs.tag }}.3dsx
+            sm-3ds.cia
+            sm-3ds.3dsx
             QR-${{ steps.vars.outputs.tag }}.png
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

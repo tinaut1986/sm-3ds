@@ -59,7 +59,7 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 
 You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA installer.
 
-1. Download `sm-3ds-<version>.cia` from the
+1. Download `sm-3ds.cia` from the
    [Releases page](https://github.com/tinaut1986/sm-3ds/releases), or scan the
    QR code on that page with FBI ("Remote Install" -> "Scan QR Code").
    Releases marked **Beta** are test builds from a release branch.
@@ -81,11 +81,13 @@ You need a 3DS with custom firmware (e.g. Luma3DS) and FBI or another CIA instal
    says so and offers to extract it from the console itself (EXTRACT); without it the game runs, silent.
    It is Nintendo's, so it is never part of a download.
 
-**Homebrew Launcher instead of a CIA:** every release also has `sm-3ds-<version>.3dsx`. Copy it to
-`sdmc:/3ds/` (any name), put the ROM in the same folder as in step 3 and open it from the Homebrew
+**Homebrew Launcher instead of a CIA:** every release also has `sm-3ds.3dsx`. Copy it to
+`sdmc:/3ds/` (any name; a new download with the same name replaces the old one), put the ROM in the same folder as in step 3 and open it from the Homebrew
 Launcher. Saves and settings are the same files as the CIA's. Its updater (OPTIONS -> UPDATES)
 downloads the new `.3dsx` over the old one and starts it again (with Luma3DS; with another
-launcher it quits to it and you open it again); it never installs anything as a title.
+launcher it quits to it and you open it again); it never installs anything as a title. A file
+still named as the downloads up to v1.0.3 (`sm-3ds-v1.0.3.3dsx` and so on) becomes `sm-3ds.3dsx`
+the first time v1.0.4 or later updates it.
 
 Everything else the game writes lives in the same folder:
 
