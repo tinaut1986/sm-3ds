@@ -1477,7 +1477,7 @@ void BottomUi_GameReset(void) {
 //
 //   GENERAL   LANGUAGE | AUDIO      SPOILERS
 //   SCREEN    IMAGE | VIEW         HUD
-//             FPS | FRAMES
+//             FPS | FRAMES         HUD SPREAD (a bar to drag)
 //   PLAY      CONTROLS [?]         AUTO BOMB JUMP
 //             CHARGE PULLS DROPS   AUTO RUN
 //   UPDATES   UPDATE | CHANNEL     UPDATES | WHAT'S NEW
@@ -1485,7 +1485,7 @@ void BottomUi_GameReset(void) {
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_RESET, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_RESET, OPT_COUNT
 } OptCell;
 
 enum {
@@ -1504,7 +1504,7 @@ enum {
 typedef struct { OptCell cell; bool full; } OptItem;
 static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
   { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
-  { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false } }, 5 },
+  { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false }, { OPT_HUD_SPREAD, true } }, 6 },
   { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true } }, 4 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
   { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
@@ -1521,9 +1521,10 @@ static const UiStr kOptInfo[OPT_COUNT + 1] = {
   [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
   [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull, [OPT_AUTO_RUN] = kStrOptInfoAutoRun,
+  [OPT_HUD_SPREAD] = kStrOptInfoHudSpread,
   [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
 };
-static struct { bool active, dragging, bar; int start_x, start_y, last_y; } g_opt_touch;
+static struct { bool active, dragging, bar, spread; int start_x, start_y, last_y; } g_opt_touch;
 
 // Where everything is, in the list's own coordinates (y 0 at its top): each cell, each group's title
 // row, and the list's height.
@@ -1632,6 +1633,33 @@ static void DrawOptHead(Surface s, int y, const char *title) {
   UiFillRect(s, x, y + 7, kOptX + 2 * kOptColW + kOptGap - x, 1, RGB(50, 80, 130));
 }
 
+// HUD SPREAD's bar: the columns a touch moves the value along, 0 % at the left end.
+static Rect SpreadBarRect(void) {
+  const Rect r = OptRect(OPT_HUD_SPREAD);
+  return (Rect){ r.x + 8, r.y + 19, r.w - 16 - 30, 5 };
+}
+
+static int SpreadAt(int x) {
+  const Rect b = SpreadBarRect();
+  const int v = (x - b.x) * 100 / (b.w - 1);
+  return v < 0 ? 0 : v > 100 ? 100 : (v + 2) / 5 * 5;   // in steps of 5 %
+}
+
+// HUD SPREAD (#63): the label, a bar with its knob and the value. Dimmed without WIDE, which it is for.
+static void DrawSpreadCell(Surface s) {
+  const Rect r = OptRect(OPT_HUD_SPREAD), b = SpreadBarRect();
+  const bool on = g_ui.wide;
+  UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), false);
+  UiDrawText(s, r.x + 6, r.y + 5, 1, on ? COL_TEXT : COL_DIM, Tr(kStrHudSpread));
+  const int fill = (b.w - 1) * g_ui.hud_spread / 100;
+  UiFillRect(s, b.x, b.y + 1, b.w, b.h - 2, RGB(50, 60, 85));
+  UiFillRect(s, b.x, b.y + 1, fill, b.h - 2, on ? COL_GOOD : COL_DIM);
+  UiFillRect(s, b.x + fill - 2, b.y - 2, 5, b.h + 4, on ? COL_TEXT : COL_DIM);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d%%", g_ui.hud_spread);
+  UiDrawText(s, r.x + r.w - 6 - UiTextWidth(buf, 1), r.y + 17, 1, on ? COL_GOOD : COL_DIM, buf);
+}
+
 static void DrawOnOffCell(Surface s, OptCell c, UiStr label, bool on) {
   DrawOptCell(s, OptRect(c), Tr(label), Tr(on ? kStrOn : kStrOff), on ? COL_GOOD : COL_DIM);
 }
@@ -1688,6 +1716,7 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
+  DrawSpreadCell(s);
   const Rect rr = OptRect(OPT_RESET);
   UiDrawBoxLabel(s, rr, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(rr), Tr(kStrResetGame));
 
@@ -1776,12 +1805,24 @@ static void OptionsTouch(int x, int y) {
   g_opt_touch.bar = x >= kOptBarHitX && OptMaxScroll() > 0;
   g_opt_touch.start_x = x;
   g_opt_touch.start_y = g_opt_touch.last_y = y;
+  // HUD SPREAD: a touch on its cell drags the value along the bar (sideways), never the list.
+  g_opt_touch.spread = !g_opt_touch.bar && UiIn(OptRect(OPT_HUD_SPREAD), x, y);
   if (g_opt_touch.bar) OptScrollToBar(y);
+  if (g_opt_touch.spread) {
+    g_opt_info = OPT_HUD_SPREAD;
+    g_ui.hud_spread = SpreadAt(x);
+  }
 }
 
-static bool OptionsTouchMove(int y) {
+static bool OptionsTouchMove(int x, int y) {
   if (!g_opt_touch.active) return false;
   const int before = g_opt_scroll;
+  if (g_opt_touch.spread) {
+    const int v = SpreadAt(x);
+    if (v == g_ui.hud_spread) return false;
+    g_ui.hud_spread = v;
+    return true;
+  }
   if (g_opt_touch.bar) {
     OptScrollToBar(y);
   } else if (g_opt_touch.dragging || abs(y - g_opt_touch.start_y) >= kOptDragSlop) {
@@ -1799,7 +1840,7 @@ static bool OptionsTouchMove(int y) {
 static void OptionsTouchUp(void) {
   if (!g_opt_touch.active) return;
   g_opt_touch.active = false;
-  if (!g_opt_touch.dragging && !g_opt_touch.bar) OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
+  if (!g_opt_touch.dragging && !g_opt_touch.bar && !g_opt_touch.spread) OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
 }
 
 // ---- Modals ---------------------------------------------------------------------
@@ -3158,7 +3199,7 @@ static void DrawUnlockNotice(Surface s) {
 
 typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
-      controls, missile, auto_bomb, charge_pull, auto_run;
+      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread;
   unsigned mapping;   // ModernControls_MappingKey
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
@@ -3167,7 +3208,7 @@ typedef struct {
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
                          g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), ModernControls_MappingKey(),
+                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, ModernControls_MappingKey(),
                          g_debug_log, g_debug_log_direct, g_debug_ftp };
 }
 
@@ -3180,10 +3221,10 @@ static void SaveConfig(void) {
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\n",
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\n",
           o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
-          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run);
+          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
   // or its trigger (ZL, ZR).
   for (int a = 0; a < kModernActions; a++)
@@ -3275,6 +3316,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "auto_bomb_jump")) AutoBomb_Set(v != 0);
     else if (!strcmp(key, "charge_pull")) g_rtl_charge_pull = v != 0;
     else if (!strcmp(key, "auto_run")) AutoRun_Set(v != 0);
+    else if (!strcmp(key, "hud_spread") && v >= 0 && v <= 100) g_ui.hud_spread = (int)v;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
 #if DEBUG_TOOLS
     else if (!strcmp(key, "debug_log")) g_debug_log = v != 0;
@@ -3365,7 +3407,7 @@ void BottomUi_TouchMove(int x, int y) {
   if (g_equip_hold.active && !UiIn(EquipHoldRect(), x, y)) g_equip_hold.active = false;
   if (g_tab == TAB_ACHIEVEMENTS && g_modal == MODAL_NONE && AchievementsTouchMove(y)) g_dirty = 2;
   if (g_tab == TAB_STATES && g_modal == MODAL_NONE && StatesTouchMove(y)) g_dirty = 2;
-  if (g_tab == TAB_OPTIONS && g_modal == MODAL_NONE && OptionsTouchMove(y)) g_dirty = 2;
+  if (g_tab == TAB_OPTIONS && g_modal == MODAL_NONE && OptionsTouchMove(x, y)) g_dirty = 2;
   if (g_tab == TAB_MAP && g_modal == MODAL_NONE && MapTouchMove(x, y)) g_dirty = 2;
   if (g_modal == MODAL_NOTES && NotesTouchMove(y)) g_dirty = 2;
 }

@@ -1064,6 +1064,10 @@ int main(int argc, char** argv) {
         GpuPpu_SetExtraRows(rows_top, rows_bottom);
         GpuPpu_SetHudX(hud_x);
         GpuPpu_SetHudY(hud_y);
+        // OPTIONS -> HUD SPREAD (#63): the status part to the left corner, the minimap to the right one,
+        // both by the same share of the room there is: the margin each side, the extra rows above.
+        const int spread = wide && SmWide_Gameplay() ? g_ui.hud_spread : 0;
+        GpuPpu_SetHudSpread(wide * spread / 100, (rows_top + hud_y) * spread / 100);
         GpuPpu_SetSpritePriorityOrder(SmWide_Gameplay() && (osGet3DSliderState() > 0 || g_ui.force_3d));
         GpuPpu_SetLayerShiftX(1, bg2_dx);
         {   // The title's picture whole: generated art in the margins (loaded the first time it is wanted)
