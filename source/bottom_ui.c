@@ -16,6 +16,7 @@
 #include "intro_skip.h"
 #include "modern_controls.h"
 #include "auto_bomb.h"
+#include "auto_run.h"
 #include "debug_tools.h"
 #include "ftp_server.h"
 #include "scene_rec.h"
@@ -1478,13 +1479,13 @@ void BottomUi_GameReset(void) {
 //   SCREEN    IMAGE | VIEW         HUD
 //             FPS | FRAMES
 //   PLAY      CONTROLS [?]         AUTO BOMB JUMP
-//             CHARGE PULLS DROPS
+//             CHARGE PULLS DROPS   AUTO RUN
 //   UPDATES   UPDATE | CHANNEL     UPDATES | WHAT'S NEW
 //             RESET GAME (the whole width), then the version
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_RESET, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_RESET, OPT_COUNT
 } OptCell;
 
 enum {
@@ -1504,7 +1505,7 @@ typedef struct { OptCell cell; bool full; } OptItem;
 static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
   { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
   { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false } }, 5 },
-  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true } }, 3 },
+  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true } }, 4 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
   { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
 };
@@ -1519,7 +1520,7 @@ static const UiStr kOptInfo[OPT_COUNT + 1] = {
   [OPT_LANGUAGE] = kStrOptInfoLanguage, [OPT_DISPLAY] = kStrOptInfoDisplay, [OPT_WIDE] = kStrOptInfoView,
   [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
-  [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull,
+  [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull, [OPT_AUTO_RUN] = kStrOptInfoAutoRun,
   [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
 };
 static struct { bool active, dragging, bar; int start_x, start_y, last_y; } g_opt_touch;
@@ -1655,6 +1656,8 @@ static void DrawOptions(Surface s) {
   // the charge beam pulls in the drops (sm_rtl.h, g_rtl_charge_pull; off by default).
   DrawOnOffCell(s, OPT_AUTO_BOMB, kStrAutoBomb, AutoBomb_On());
   DrawOnOffCell(s, OPT_CHARGE_PULL, kStrChargePull, g_rtl_charge_pull);
+  // Running by itself after a moment of walking (auto_run.c, #60; off by default).
+  DrawOnOffCell(s, OPT_AUTO_RUN, kStrAutoRun, AutoRun_On());
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1754,6 +1757,7 @@ static void OptionsTap(int x, int y) {
     case OPT_CONTROLS: SetControls(!ModernControls_On()); break;
     case OPT_AUTO_BOMB: AutoBomb_Set(!AutoBomb_On()); break;
     case OPT_CHARGE_PULL: g_rtl_charge_pull = !g_rtl_charge_pull; break;
+    case OPT_AUTO_RUN: AutoRun_Set(!AutoRun_On()); break;
     case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
@@ -3154,7 +3158,7 @@ static void DrawUnlockNotice(Surface s) {
 
 typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
-      controls, missile, auto_bomb, charge_pull;
+      controls, missile, auto_bomb, charge_pull, auto_run;
   unsigned mapping;   // ModernControls_MappingKey
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
@@ -3163,7 +3167,7 @@ typedef struct {
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
                          g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, ModernControls_MappingKey(),
+                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), ModernControls_MappingKey(),
                          g_debug_log, g_debug_log_direct, g_debug_ftp };
 }
 
@@ -3176,10 +3180,10 @@ static void SaveConfig(void) {
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\n",
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\n",
           o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
-          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull);
+          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
   // or its trigger (ZL, ZR).
   for (int a = 0; a < kModernActions; a++)
@@ -3270,6 +3274,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "modern_missile")) ModernControls_SetMissile(v);
     else if (!strcmp(key, "auto_bomb_jump")) AutoBomb_Set(v != 0);
     else if (!strcmp(key, "charge_pull")) g_rtl_charge_pull = v != 0;
+    else if (!strcmp(key, "auto_run")) AutoRun_Set(v != 0);
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
 #if DEBUG_TOOLS
     else if (!strcmp(key, "debug_log")) g_debug_log = v != 0;
