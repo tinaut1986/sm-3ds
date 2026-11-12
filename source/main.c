@@ -225,8 +225,8 @@ static void DumpObjText(FILE *f) {
 }
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
-// WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
-// title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
+// WIDE view margin for the next frame: gameplay only, and the fades into and out of it (and SmWide_TitleMode7,
+// SmWide_MenuView, SmWide_GameOverView); the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
 // fill the 400 px screen.
 static bool GameplayView(void) {
   switch (game_state) {
@@ -235,6 +235,7 @@ static bool GameplayView(void) {
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
   case kGameState_33_BlackoutFromCeres:       // and its fade to black
+  case kGameState_19_SamusNoHealth: case kGameState_20_SamusNoHealth:   // death: the room fading out around Samus
     return true;
   default:
     return false;
@@ -242,7 +243,7 @@ static bool GameplayView(void) {
 }
 
 static int WideMargin(void) {
-  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView())) return 0;
+  if (!g_ui.wide || !(GameplayView() || SmWide_TitleMode7() || SmWide_MenuView() || SmWide_GameOverView())) return 0;
   return g_ui.pixel_perfect ? 72 : 60;
 }
 
@@ -1089,6 +1090,8 @@ int main(int argc, char** argv) {
           else if (wide > 0 && SmWide_MenuView()) {   // the menu: its text and its starfield are not repeated
             GpuPpu_SetLayerClip(0, 0, 256, 0, 224);
             GpuPpu_SetLayerClip(1, 0, 256, 0, 224);
+          } else if (wide > 0 && SmWide_GameOverView()) {   // game over: only its backdrop goes to the edges
+            for (int layer = 0; layer < 3; layer++) GpuPpu_SetLayerClip(layer, 0, 256, 0, 224);
           }
         }
         GpuPpu_SetNarrowBg3Rows(wide ? kSmWideHudRows : 0);   // the HUD over the room: WIDE only

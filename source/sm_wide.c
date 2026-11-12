@@ -45,6 +45,7 @@ static bool RoomShown(void) {
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator: case kGameState_33_BlackoutFromCeres:   // Ceres escape's end
   case kGameState_9_HitDoorBlock: case kGameState_10_LoadingNextRoom:
+  case kGameState_19_SamusNoHealth: case kGameState_20_SamusNoHealth:   // death: the room fading out around Samus
     return true;
   case kGameState_11_LoadingNextRoom:
     switch (door_transition_function | 0x820000) {
@@ -80,6 +81,14 @@ bool SmWide_TitleMode7(void) {
 // (GpuPpu_SetLayerClip) or it would repeat there too.
 bool SmWide_MenuView(void) {
   return game_state == kGameState_2_GameOptionsMenu || game_state == kGameState_4_FileSelectMenus;
+}
+
+// The game over screen: its colours are the backdrop's, a gradient by line, which the GPU renderer draws across the
+// margins by itself; nothing to fill or mask there, and its layers cut to the game's 256 columns. The same for the
+// death sequence once the room is gone (states 21-25: sprites only, GameState_20_SamusNoHealth_BlackOut), whose white
+// flashes are the backdrop's colour.
+bool SmWide_GameOverView(void) {
+  return game_state >= kGameState_21_SamusNoHealth && game_state <= kGameState_26_GameOverMenu;
 }
 
 // The title's picture is in the mode 7 plane (its tile map holds tiles in the first 32x32 cells): the generated art
@@ -830,7 +839,7 @@ static void MaskMode1Lines(GpuFrame *f, const PpuLineCapture *cap) {
 }
 
 void SmWide_AddMasks(GpuFrame *f, const PpuLineCapture *cap) {
-  if (SmWide_MenuView()) return;   // nothing is filled or masked: BG2 repeats, BG1 is clipped
+  if (SmWide_MenuView() || SmWide_GameOverView()) return;   // nothing is filled or masked: the layers are clipped
   if (g_mode7 && room_ptr == kRoom_CeresRidley) {
     // The side margins (outside the room, black all fight); the extra rows above and below
     // keep the room's rows BG1 still holds from the last fill.
