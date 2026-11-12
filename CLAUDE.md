@@ -177,6 +177,8 @@ git push origin --delete release/v0.1.0
 The workflow uses the workflow file **at the tagged commit**, and it refuses to
 build if a `.smc`/`.sfc` is present in `romfs/`.
 
+**Discord**: every run of `.github/workflows/build-release.yml` announces the version on the Discord server (Tinaut's 3DS Ports): a stable in #announcements, pinging the project's role, a beta in #beta-testing, with `docs/release-notes/<tag>.md` as the text (one more reason to write it before the tag). Don't post it by hand. It needs the repo secrets `DISCORD_WEBHOOK_RELEASE` and `DISCORD_WEBHOOK_BETA` (without them the step is skipped); a re-run of the workflow posts again.
+
 ## ROM and legal
 
 - Never commit, package or upload a ROM, nor any build that contains one.
