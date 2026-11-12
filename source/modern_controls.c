@@ -36,6 +36,16 @@ enum { kMorphFrames = 40 };
 static int g_morph_goal;    // +1 into the ball, -1 out of it, 0 nothing to do
 static int g_morph_left;
 static bool g_morph_pressed;
+// The charge beam combos (#66): with the power bomb selected, a charge held to the end (flare_counter
+// 120, HudSelectionHandler_NothingOrPowerBombs) fires the special attack of the one beam equipped
+// (FireSba). MODERN only selects the power bomb in the morph ball, so R held while the shoot button
+// holds a beam charge, standing, selects it without clearing the charge: the attack comes out when
+// the charge ends, as in the original; until the shoot button or R is let go (holding on charges the
+// next one). Letting go earlier fires the charged shot as always (same handler).
+// The weapon the shoot button carries with R (the missile by default) needs R down first: once the
+// shoot button was pressed without R (standing), R does not turn it into that weapon until it is let
+// go, so a charge goes on (selecting the missile would clear it). g_beam_hold is that hold.
+static bool g_sba, g_beam_hold;
 
 bool ModernControls_On(void) { return g_on; }
 
@@ -169,6 +179,14 @@ static bool InMorphBall(void) {
   }
 }
 
+// Whether a charge beam combo can come out: the charge beam (not the hyper beam), a power bomb, and
+// exactly one of wave, ice, spazer and plasma (the others are FireSba_ClearCarry: nothing).
+static bool SbaReady(void) {
+  const int beams = equipped_beams & 0xF;
+  return (equipped_beams & 0x1000) && !hyper_beam_flag && samus_power_bombs &&
+         (beams == 1 || beams == 2 || beams == 4 || beams == 8);
+}
+
 // Whether a weapon's button is down: R and its action's button, or its trigger alone.
 static bool WeaponHeld(int in, ModernWeapon w) {
   return (!ModernControls_WeaponWithR(w) || (in & kPadR)) && (in & kFacePad[ModernControls_WeaponButton(w)]);
@@ -184,6 +202,7 @@ int ModernControls_Translate(int in) {
   if (game_state != 0x08 || GameText_MessageBoxShown()) {
     g_aim_down = false;
     g_morph_goal = 0;
+    g_sba = g_beam_hold = false;
     return in & kPadGame;
   }
 
@@ -197,17 +216,27 @@ int ModernControls_Translate(int in) {
   const bool r = in & kPadR;
   const int shoot_pad = kFacePad[g_face[kModernShoot]], run_pad = kFacePad[g_face[kModernRun]];
   const int morph_pad = kFacePad[g_face[kModernMorph]], jump_pad = kFacePad[g_face[kModernJump]];
+  // The shoot button pressed without R, standing: the beam (and its charge) until it is let go.
+  if ((pressed & shoot_pad) && !r && !InMorphBall()) g_beam_hold = true;
+  if (g_beam_hold && (!(in & shoot_pad) || InMorphBall())) g_beam_hold = false;
+  // The charge beam combo: R held during a beam hold, standing. The power bomb is selected keeping
+  // the charge, and the game fires the attack when the charge reaches its end (flare_counter 120).
+  if (!g_sba && g_beam_hold && r && SbaReady()) g_sba = true;
+  if (g_sba && (!r || !g_beam_hold)) g_sba = false;
+  // The weapon on the shoot button (with R) is off during a beam hold.
+  const int shoot_weapon = g_beam_hold ? ModernControls_ActionWeapon(kModernShoot) : -1;
+
   // Whether each weapon's button is down (R + it, or its trigger).
-  const bool missile_held = WeaponHeld(in, kModernMissile);
-  const bool xray_held = WeaponHeld(in, kModernXray);
-  const bool grapple_held = WeaponHeld(in, kModernGrapple);
+  const bool missile_held = shoot_weapon != kModernMissile && WeaponHeld(in, kModernMissile);
+  const bool xray_held = shoot_weapon != kModernXray && WeaponHeld(in, kModernXray);
+  const bool grapple_held = shoot_weapon != kModernGrapple && WeaponHeld(in, kModernGrapple);
 
   int out = in & (kPadUp | kPadDown | kPadLeft | kPadRight | kPadStart);
   // A button carrying a weapon does that weapon while R is held, not its action (below). Jump never
   // carries one.
   const bool weapon_on[kModernActions] = {
     false, r && ModernControls_ActionWeapon(kModernRun) >= 0,
-    r && ModernControls_ActionWeapon(kModernShoot) >= 0, r && ModernControls_ActionWeapon(kModernMorph) >= 0 };
+    r && !g_beam_hold && ModernControls_ActionWeapon(kModernShoot) >= 0, r && ModernControls_ActionWeapon(kModernMorph) >= 0 };
   if ((in & jump_pad) && !weapon_on[kModernJump]) out |= Pad(button_config_jump_a);
   if ((in & shoot_pad) && !weapon_on[kModernShoot]) out |= Pad(button_config_shoot_x);
   // L aims up; Down while L is held turns it down and it stays down (Down can be let go) until L is
@@ -244,19 +273,22 @@ int ModernControls_Translate(int in) {
 
   // The item the buttons want. In morph ball, the power bomb while R or the missile's button is held;
   // else the grapple, the X-ray or the missile kind, by the button held. R alone also asks for the
-  // missile when that is held with R (so R and its button pressed on the same frame fire it). A hooked
+  // missile when that is held with R (so R and its button pressed on the same frame fire it), except
+  // during a beam hold (it would clear the charge). A hooked
   // grapple stays while its button is held. A weapon Samus does not have leaves the item as none (not
   // the missile selected by holding R): its button then fires nothing.
   const bool has_grapple = equipped_items & 0x4000, has_xray = equipped_items & 0x8000;
   const int grapple_pad = kFacePad[ModernControls_WeaponButton(kModernGrapple)];
   int want = kSmHudNone;
-  if (InMorphBall()) {
+  if (g_sba) {
+    want = kSmHudPowerBombs;
+  } else if (InMorphBall()) {
     if (r || missile_held) want = kSmHudPowerBombs;
   } else if (grapple_held) {
     want = has_grapple ? kSmHudGrapple : kSmHudNone;
   } else if (xray_held) {
     want = has_xray ? kSmHudXray : kSmHudNone;
-  } else if (missile_held || (r && ModernControls_WeaponWithR(kModernMissile))) {
+  } else if (missile_held || (r && ModernControls_WeaponWithR(kModernMissile) && !g_beam_hold)) {
     want = missile;
   } else if (!r && (in & grapple_pad) && hud_item_index == kSmHudGrapple && grapple_beam_function != kGrappleInactive) {
     want = kSmHudGrapple;
@@ -266,7 +298,12 @@ int ModernControls_Translate(int in) {
     out |= Pad(button_config_shoot_x);
   // Asked again every frame it differs: that also covers morphing with R held and coming back from
   // the pause screen. One the game skips (no ammo) leaves the selection as it was.
-  if (want != hud_item_index) Hud_RequestSelect(want);
+  if (want != hud_item_index) {
+    // The combo's power bomb keeps the charge the game's switch would clear (the attack comes out
+    // of a full charge).
+    if (g_sba) Hud_RequestSelectKeepCharge(want);
+    else Hud_RequestSelect(want);
+  }
 
   // The run button runs, as in the original (unless R makes it carry the grapple or the missile).
   // The X-ray lasts while run is held, so while it is selected run means R and the X-ray's button

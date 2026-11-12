@@ -218,7 +218,9 @@ int RtlCtlBinding(int action);
 // item the game would skip (no ammo, not equipped) leaves the selection as it was. `frame` is
 // nmi_frame_counter_word when it was asked; a request not taken within 2 frames (the game was not
 // handling the HUD selection: a cutscene, the pause menu) is dropped. item < 0 = none.
-typedef struct { int8 item; uint16 frame; } RtlHudSelect;
+// keep_charge: the beam charge (flare_counter) survives the switch, which the game's switch handlers
+// clear (the modern controls' charge beam combo, #66: the power bomb selected on a full charge).
+typedef struct { int8 item; uint16 frame; bool keep_charge; } RtlHudSelect;
 extern RtlHudSelect g_rtl_hud_select;
 // 3DS port: the intro skipped from the frontend (source/intro_skip.c). Set while game_state is the
 // intro (0x1E); its next frame goes straight to black and on as if the intro had ended
