@@ -4071,11 +4071,14 @@ void HandleSwitchingHudSelection(void) {
     const int8 want = g_rtl_hud_select.item;
     g_rtl_hud_select.item = -1;
     if (want <= 5 && (uint16)(nmi_frame_counter_word - g_rtl_hud_select.frame) <= 2) {
+      const uint16 charge = flare_counter;
       hud_item_index = want;
-      if (kRunSwitchedToHudHandler[want]() & 1)
+      if (kRunSwitchedToHudHandler[want]() & 1) {
         hud_item_index = r18;
-      else
+      } else {
         samus_auto_cancel_hud_item_index = 0;
+        if (g_rtl_hud_select.keep_charge) flare_counter = charge;
+      }
       goto LABEL_13;
     }
   }
