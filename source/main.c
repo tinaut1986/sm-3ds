@@ -225,8 +225,8 @@ static void DumpObjText(FILE *f) {
 }
 static bool g_top_wide;   // the last frame shown had WIDE margins
 
-// WIDE view margin for the next frame: gameplay only, and the fades into and out of it;
-// title, menus, the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
+// WIDE view margin for the next frame: gameplay only, and the fades into and out of it (and SmWide_TitleMode7,
+// SmWide_MenuView, SmWide_GameOverView); the pause map and cutscenes stay 4:3. 60 px when SCALED: 376 px at x1.07
 // fill the 400 px screen.
 static bool GameplayView(void) {
   switch (game_state) {
@@ -235,6 +235,7 @@ static bool GameplayView(void) {
   case kGameState_18_Unpausing: case kGameState_27_ReserveTanksAuto: case kGameState_42_PlayingDemo:
   case kGameState_32_MadeItToCeresElevator:   // the elevator rising up the shaft, still the room,
   case kGameState_33_BlackoutFromCeres:       // and its fade to black
+  case kGameState_19_SamusNoHealth: case kGameState_20_SamusNoHealth:   // death: the room fading out around Samus
     return true;
   default:
     return false;

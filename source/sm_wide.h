@@ -28,8 +28,9 @@ bool SmWide_TitleMode7(void);
 // The options menu or the file select: wide with the starfield repeated and BG1's text cut to the 256 columns.
 bool SmWide_MenuView(void);
 
-// The game over screen (state 26): wide like the menus, its backdrop's gradient across the whole width and
-// its layers cut to the 256 columns, without the menus' starfield.
+// The death sequence once only Samus is drawn and the game over screen (states 21-26): wide like the menus, the
+// backdrop (the death's white flashes, the game over's gradient) across the whole width and the layers cut to the
+// 256 columns, without the menus' starfield.
 bool SmWide_GameOverView(void);
 
 // ... and its picture is loaded: the plane's empty parts show the generated art (scene_art.h, GpuPpu_SetSceneArt).
