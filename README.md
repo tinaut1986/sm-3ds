@@ -117,6 +117,8 @@ The port offers two control schemes selectable in **OPTIONS -> CONTROLS** (or by
 
 **Auto run** (both schemes, off by default; OPTIONS -> PLAY -> AUTO RUN): Samus runs without the run button, but only after a moment of walking in one direction, so a short press is still a step. Holding the run button walks instead.
 
+**Heavy physics** (off by default; OPTIONS -> PLAY -> HEAVY PHYSICS): Samus falls about twice as fast and jumps harder, closer to Zero Mission. The values are those of the optional Heavy Physics patch of [Super Metroid Redux](https://github.com/ShadowOne333/Super-Metroid-Redux); the automatic bomb jump keeps working with them.
+
 The bottom screen is operated entirely by touch:
 - **STATUS:** Tap weapons to equip them. **Hold down (0.5s)** on any item or beam to toggle it on/off without pausing. Tap reserve tanks to switch AUTO / MANUAL.
 - **MAP:** Tap and drag to explore the map. Tap the zoom button to toggle 1X, 2X, and 3X zoom. Tap the item tracker button to view collected items by area.
@@ -176,6 +178,7 @@ make -j FULL_NATIVE=1 ftp FTP_HOST=192.168.1.50        # build and upload via FT
 - [snesrev](https://github.com/snesrev/sm): the C reimplementation of the game (`sm/`, MIT).
 - [Charles Averill](https://github.com/CharlesAverill/sm-3ds): the initial 3DS port skeleton.
 - [rcheevos](https://github.com/RetroAchievements/rcheevos): RetroAchievements library (MIT).
+- [Super Metroid Redux](https://github.com/ShadowOne333/Super-Metroid-Redux) (ShadowOne333): the values of the HEAVY PHYSICS option, from its optional Heavy Physics patch.
 - The 5x7 UI font, asset tooling, and UI framework come from the author's [Metroid: Zero Mission 3DS port](https://github.com/tinaut1986/mzm).
 
 Super Metroid is © Nintendo; this project contains no copyrighted game data. Code is licensed under MIT (see `LICENSE`).

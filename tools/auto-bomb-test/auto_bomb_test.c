@@ -109,10 +109,11 @@ int main(int argc, char **argv) {
   RtlSaveLoad(kSaveLoad_Save, 1);
   int fails = 0;
   const int shafts = sizeof(kShafts) / sizeof(kShafts[0]);
-  for (int i = 0; i < shafts + 2; i++) {
-    // After the shafts: the option off, then the bomb spread with it on, both in the first room.
-    const bool off = i == shafts, spread = i == shafts + 1;
-    const int r = i < shafts ? i : 0;
+  for (int i = 0; i < 2 * shafts + 2; i++) {
+    // The shafts, then again with HEAVY PHYSICS (#65); then the option off, then the bomb spread
+    // with it on, both in the first room.
+    const bool heavy = i >= shafts && i < 2 * shafts, off = i == 2 * shafts, spread = i == 2 * shafts + 1;
+    const int r = i < 2 * shafts ? i % shafts : 0;
     fflush(stdout);
     pid_t pid = fork();
     if (pid == 0) {
@@ -124,6 +125,7 @@ int main(int argc, char **argv) {
         _exit(1);
       }
       AutoBomb_Set(!off);
+      g_rtl_heavy_physics = heavy;
       if (spread) {
         const bool ok = Spread();
         printf("spread: %s\n", ok ? "the charged beam became the bomb spread" : "NO BOMB SPREAD");
@@ -137,7 +139,8 @@ int main(int argc, char **argv) {
         fflush(stdout);
         _exit(laid == 1 ? 0 : 1);
       }
-      printf("room %04x: climbed %d px (want %d), %d bombs\n", kShafts[r].room, rise, kShafts[r].want, laid);
+      printf("room %04x%s: climbed %d px (want %d), %d bombs\n", kShafts[r].room, heavy ? " (heavy physics)" : "", rise,
+             kShafts[r].want, laid);
       fflush(stdout);
       _exit(rise >= kShafts[r].want ? 0 : 1);
     }
