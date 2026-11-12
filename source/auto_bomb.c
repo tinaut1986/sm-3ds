@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "src/types.h"
 #include "src/variables.h"
+#include "src/sm_rtl.h"
 
 // How the game lifts the morph ball (sm_90.c, sm_a0.c), as measured on the host:
 // - a bomb is laid at Samus's position and its counter (projectile_variables) starts at 60; it
@@ -16,8 +17,9 @@
 // when now is the moment whose throw starts highest (a catch near the box's edge counting as lower).
 // What comes out is the usual climb: a bomb just after each throw, to catch her as she comes back
 // down, and one at the top, ~36 px a climb of ~78 frames (tools/auto-bomb-test).
+// With HEAVY PHYSICS (#65) the counter starts at 50 and the throw at 3.C000 px a frame (RtlHeavyPhysics).
 enum {
-  kCheckDelay = 51,   // frames from laying a bomb to the frame it is looked at
+  kCheckDelay = 51,   // frames from laying a bomb to the frame it is looked at (CheckDelay: 41 with heavy physics)
   kHitX = 9, kHitY = 11,
   kLook = 16,         // the bomb cooldown: a later moment than this is another bomb's business
   kHorizon = kLook + kCheckDelay + 3,
@@ -30,6 +32,9 @@ enum {
 // y and v in 1/65536 px; dir 0 still, 1 up, 2 down; turn: frames left of the stop at the top.
 typedef struct { int32_t y, v; int dir, turn; } Body;
 typedef struct { int y, x, at; } Bomb;   // at: frames from now to the frame it is looked at
+
+static int CheckDelay(void) { return RtlHeavyPhysics() ? kCheckDelay - 10 : kCheckDelay; }
+static int32_t ThrowSpeed(void) { return RtlHeavyPhysics() ? 0x3C000 : 0x2C000; }
 
 static int32_t Gravity(void) { return (int32_t)((uint32_t)samus_y_accel << 16 | samus_y_subaccel); }
 
@@ -66,7 +71,7 @@ static int Simulate(const Bomb *bombs, int n, int which, int *path) {
   for (int s = 0; s < kHorizon; s++) {
     if (s) Step(&b, g);
     if (s == throw_at) {
-      b.v = 0x2C000, b.dir = 1;
+      b.v = ThrowSpeed(), b.dir = 1;
       // How good the throw is: its height, less for a catch near the box's edge (it might miss).
       if (thrown_by == which && s - last_throw > kRedundant) result = (b.y >> 16) + kEdgeCost * edge;
       last_throw = s;
@@ -98,7 +103,7 @@ static bool WantBomb(void) {
   if (bomb_counter && (bomb_counter >= 5 || (uint8)cooldown_timer)) return false;
   int best = -1, best_y = 0;
   for (int k = 0; k < kLook; k++) {
-    bombs[n] = (Bomb){ path[k], samus_x_pos, k + 1 + kCheckDelay };   // laid in the next frame (s = k + 1)
+    bombs[n] = (Bomb){ path[k], samus_x_pos, k + 1 + CheckDelay() };   // laid in the next frame (s = k + 1)
     const int y = Simulate(bombs, n + 1, n, NULL);
     if (y >= 0 && (best < 0 || y < best_y)) best = k, best_y = y;
   }

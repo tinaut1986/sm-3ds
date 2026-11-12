@@ -240,6 +240,13 @@ extern int g_rtl_intro_skip;
 // 3DS port, an option (OPTIONS -> PLAY -> CHARGE PULLS DROPS, off by default): while the charge beam charges, the
 // health and ammo enemies drop that are near Samus fly to her and are picked up as if touched.
 extern bool g_rtl_charge_pull;
+// 3DS port, an option (OPTIONS -> PLAY -> HEAVY PHYSICS, off by default, #65): the values of Super Metroid
+// Redux's optional "Heavy Physics" patch (ShadowOne333, code/Optional/HeavyPhysicsRedux.asm, after GBA
+// Style's), a Samus who falls about twice as fast, as in Zero Mission: more gravity in air, a higher top
+// falling speed, stronger jumps, wall jumps and bomb jumps, more air control, bombs that go off sooner.
+// RtlHeavyPhysics: on, and not in a title screen demo, whose inputs were recorded with the original's.
+extern bool g_rtl_heavy_physics;
+bool RtlHeavyPhysics(void);
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
 // bottom screen's STATUS tab), as the pause menu's equipment screen would: GameState_8_MainGameplay
 // takes it at the start of its next frame, toggles only what Samus has and the equipment screen
