@@ -12,6 +12,7 @@ SRAM, scripted inputs, warps).
 |---|---|---|
 | dsp-fuzz | random S-DSP register writes, optimised `dsp.c` against the vendored one | samples, registers and APU RAM identical (no ROM needed) |
 | stereo-depth | `tools/stereo-test`: every input of the stereo depth mapping (`source/stereo_depth.c`) | no layer nearer than what draws over it beyond the listed exceptions (and the list exact), one sprite plane, HUD nearest, whole-pixel symmetric eye offsets at every slider step (no ROM needed) |
+| audio-gain | `tools/audio-gain-test`: the master volume's gain and soft limit (`source/audio_gain.c`, #67) at gains 0-400 %, every 16-bit input | a multiply under the knee, never past full scale, rising with no step, symmetric, `AudioGain_Apply` equal to the sample function (no ROM needed) |
 | states | `tools/states-test`: the save-state store (`source/states_store.c`): the list newest first, the next id, the info file, the screenshot and its shrinking, and the removal of a state's files | every check passes (no ROM needed) |
 | updater | `tools/updater-test`: the self-updater's version comparison and GitHub release-list parsing (`source/updater_parse.c`) | every check passes, this port's `vX.Y.Z-dev.N+hash` versions included (no ROM needed) |
 | dsp-firm | `tools/dsp-firm-test`: the DSP firmware validator (`source/dsp_firm.c`): a synthetic image with real SHA-256 hashes, then copies with a damaged segment, hash, magic, size or segment count; with a path argument it also checks a real `dspfirm.cdc` | the good image passes and every damage is refused (no ROM needed) |
@@ -46,7 +47,7 @@ SRAM, scripted inputs, warps).
 | samus-edge-above, -below | Samus pinned 48 px above / 270 px below the camera in Landing Site (`SAMUS_PIN`), WIDE PIXEL PERFECT (`EDGE_CHECK`) | no OAM entry in the bottom band (raw Y 224-255, where the extra rows show a sprite wrapped to the opposite edge) is untagged, and some tagged entries lie outside the view (issue #26) |
 | soft-reset | B on the file-select screens (`MASH_B`) | no crash, soft resets happen, same |
 | warp-music | a teleport every 30 frames, room after room (`MUSIC_CHECK`, `MUSIC_CHAIN`) | the music queue never ends up stuck (it froze the next door) |
-| audio-rooms | audio over every room, 120 frames each | output hash |
+| audio-rooms | audio over every room, 120 frames each (the music and effect volumes at 100 %) | output hash, unchanged by the volume settings' code; the log's `levels` line gives the output's peak and RMS |
 | warp (`--full`) | `tools/warp-test`: teleport into every room and door | ok/fail counts |
 
 Expected values live in `expected.txt`. The WRAM and audio hashes change whenever the

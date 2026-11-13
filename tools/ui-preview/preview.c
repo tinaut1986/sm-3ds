@@ -82,11 +82,19 @@ static void TapTab(int slot) { Tap(4 + slot * 34 + 15, 12); }
 
 // The OPTIONS list (OptLayout in bottom_ui.c) scrolled to its top or its end by a drag, and a point in
 // each cell there.
-static void OptTop(void) { BottomUi_TouchDown(160, 40), BottomUi_TouchMove(160, 239), BottomUi_TouchUp(); }
+static void OptTop(void) {   // two drags too: the list is longer than one drag
+  for (int i = 0; i < 2; i++) BottomUi_TouchDown(160, 40), BottomUi_TouchMove(160, 239), BottomUi_TouchUp();
+}
 static void OptEnd(void) {   // the list ends at y 204: two drags reach its end
   for (int i = 0; i < 2; i++) BottomUi_TouchDown(160, 200), BottomUi_TouchMove(160, 30), BottomUi_TouchUp();
 }
-enum { kOptLanguageX = 20, kOptAudioX = 95, kOptSpoilersX = 170, kOptGeneralY = 55 };   // at the top
+// SCREEN and PLAY where they were before the SOUND group (#67): the list scrolled 86 px from its top (the
+// drag starts on HUD, not on a bar).
+static void OptScreen(void) { OptTop(), BottomUi_TouchDown(160, 200), BottomUi_TouchMove(160, 114), BottomUi_TouchUp(); }
+enum { kOptLanguageX = 20, kOptSpoilersX = 95, kOptGeneralY = 55 };   // at the top
+enum { kOptAudioX = 40, kOptSoundY = 110, kOptSound2Y = 144 };          // at the top: AUDIO | VOLUME, MUSIC | EFFECTS
+enum { kOptVolumeBarX = 166, kOptMusicBarX = 14, kOptSfxBarX = 166, kOptSliderW = 101 };   // a bar's 0 %, its length
+// the rest from OptScreen()
 enum { kOptDisplayX = 20, kOptViewX = 95, kOptHudX = 200, kOptScreenY = 105 };
 enum { kOptFpsX = 20, kOptFramesX = 95, kOptScreen2Y = 140 };
 enum { kOptControlsX = 40, kOptHelpX = 140, kOptAutoBombX = 200, kOptPlayY = 192 };
@@ -244,7 +252,7 @@ int main(int argc, char **argv) {
   }
   {   // The CONTROLS window: both schemes, a row waiting for its button, then changed (P4.18).
     TapTab(kOptions);
-    OptTop();
+    OptScreen();
     Tap(kOptHelpX, kOptPlayY);         // the "?" beside CONTROLS
     Shot("controls window");
     Tap(150 + 80 + 5, 30 + 5);         // the other tab
@@ -308,6 +316,8 @@ int main(int argc, char **argv) {
   Shot("achievements, settings changed");
   TapTab(kOptions);
   OptTop();
+  Shot("options, the top: general and sound");
+  OptScreen();
   Tap(kOptDisplayX, kOptScreenY);    // DISPLAY -> PIXEL PERFECT
   Shot("options");
   Tap(kOptAutoBombX, kOptPlayY);     // AUTO BOMB JUMP: OFF
@@ -317,7 +327,7 @@ int main(int argc, char **argv) {
   Tap(kOptChargeX, kOptChargeEndY);  // CHARGE PULLS DROPS: ON
   Shot("options, the end: charge pull on, its description");
   Tap(kOptChargeX, kOptChargeEndY);  // and back
-  OptTop();
+  OptScreen();
   Tap(kOptAutoBombX, kOptPlayY);
   Tap(kOptHelpX, kOptPlayY);         // "?" beside CONTROLS: the window
   Shot("controls window, English");
@@ -334,19 +344,31 @@ int main(int argc, char **argv) {
   extern bool g_preview_upd_kept;
   extern const char *g_preview_upd_message;
   // The half buttons: a tap changes each.
+  // The sound's bars (#67): dragged along, then the sound switched off (the bars dimmed).
   OptTop();
+  BottomUi_TouchDown(kOptVolumeBarX + kOptSliderW / 2, kOptSoundY), BottomUi_TouchMove(kOptVolumeBarX + kOptSliderW * 3 / 4, kOptSoundY), BottomUi_TouchUp();
+  BottomUi_TouchDown(kOptMusicBarX + kOptSliderW / 4, kOptSound2Y), BottomUi_TouchUp();
+  Shot("options, sound: volume 300 %, music 50 %, effects 100 %");
+  if (g_ui.volume != 300 || g_ui.music_volume != 50 || g_ui.sfx_volume != 100) {
+    fprintf(stderr, "sound bars: volume %d music %d effects %d\n", g_ui.volume, g_ui.music_volume, g_ui.sfx_volume);
+    return 1;
+  }
+  Tap(kOptAudioX, kOptSoundY);       // AUDIO: sound off
+  Shot("options, sound off: the bars dimmed");
+  g_ui.volume = 200, g_ui.music_volume = 100;
+  OptScreen();
   Tap(kOptFpsX, kOptScreen2Y);       // FPS: top-left
   Tap(kOptFpsX, kOptScreen2Y);       // top-right
-  Tap(kOptAudioX, kOptGeneralY);     // AUDIO: sound off
   Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: LOCK 30
   Tap(kOptViewX, kOptScreenY);       // VIEW: WIDE
-  Shot("options, half buttons changed (FPS corner, sound off, LOCK 30, WIDE)");
+  Shot("options, half buttons changed (FPS corner, LOCK 30, WIDE)");
   Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: NO SKIP (the toast)
   Shot("options, NO SKIP toast");
   Tap(kOptFramesX, kOptScreen2Y);    // FRAMES: AUTO again
   Tap(kOptFpsX, kOptScreen2Y), Tap(kOptFpsX, kOptScreen2Y), Tap(kOptFpsX, kOptScreen2Y);   // FPS back to NO
-  Tap(kOptAudioX, kOptGeneralY);     // AUDIO: sound on
   Tap(kOptViewX, kOptScreenY);       // VIEW: back
+  OptTop();
+  Tap(kOptAudioX, kOptSoundY);       // AUDIO: sound on
   OptEnd();
   Tap(kOptChannelX, kOptUpdatesY);   // CHANNEL: + BETAS
   Shot("options, the end: CHANNEL tapped");
@@ -391,6 +413,9 @@ int main(int argc, char **argv) {
     Tap(kOptLanguageX, kOptGeneralY);   // LANGUAGE
     if (g_ui_lang != lang) { fprintf(stderr, "LANGUAGE did not cycle\n"); return 1; }
     char what[64];
+    snprintf(what, sizeof(what), "options, the top: general and sound, %s", UiLang_Name(g_ui_lang));
+    Shot(what);
+    OptScreen();
     Tap(kOptControlsX, kOptPlayY);   // CONTROLS: MODERN in one language, CLASSIC in the next
     // The game marks the missile kind each frame of gameplay (modern_controls.c); here by hand.
     g_rtl_hud_marked = ModernControls_On() ? 1 << kSmHudMissiles : 0;
@@ -405,8 +430,8 @@ int main(int argc, char **argv) {
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(216, 148);                   // cancel
-    OptTop();
-    Tap(kOptHelpX, kOptPlayY);       // "?" beside CONTROLS: the window, both tabs
+    OptScreen();
+    Tap(kOptHelpX, kOptPlayY);      // "?" beside CONTROLS: the window, both tabs
     snprintf(what, sizeof(what), "controls window, scheme in use, %s", UiLang_Name(g_ui_lang));
     Shot(what);
     Tap(ModernControls_On() ? 150 + 5 : 230 + 5, 30 + 5);

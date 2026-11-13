@@ -44,8 +44,8 @@ typedef enum {
   kStrControls, kStrClassic, kStrModern,
   kStrCtlMove, kStrCtlJump, kStrCtlRun, kStrCtlFire, kStrCtlFireBomb, kStrCtlChoose, kStrCtlCancel, kStrCtlAimUp, kStrCtlAimDown, kStrCtlAimDownLock, kStrCtlPause, kStrCtlMorph, kStrCtlMissile, kStrCtlGrapple, kStrCtlXray, kStrCtlMissileKind, kStrCtlConfigNote, kStrCtlPressButton, kStrCtlMissileNotRun, kStrCtlNoWeaponOnJump, kStrAutoBomb,
   kStrStHelpTitle, kStrStHelpBoth, kStrStHelpReserve, kStrStHelpEquip, kStrStHelpClassic, kStrStHelpClassicTap, kStrStHelpModern, kStrStHelpModernTap,
-  kStrIntroSkipHint, kStrIntroSkipTitle, kStrIntroSkipCeres, kStrIntroSkipCeresNote, kStrIntroSkipZebes, kStrIntroSkipZebesNote, kStrIntroSkipKeys, kStrChargePull, kStrAutoRun, kStrHudSpread, kStrHeavy, kStrOptGeneral, kStrOptScreen, kStrOptPlay, kStrOptUpdates,
-  kStrOptInfoNone, kStrOptInfoLanguage, kStrOptInfoAudio, kStrOptInfoSpoilers, kStrOptInfoDisplay, kStrOptInfoView, kStrOptInfoHud, kStrOptInfoFps, kStrOptInfoPacing, kStrOptInfoControls, kStrOptInfoHelp, kStrOptInfoAutoBomb, kStrOptInfoChargePull, kStrOptInfoAutoRun, kStrOptInfoHudSpread, kStrOptInfoHeavy, kStrOptInfoAutoUpdate, kStrOptInfoChannel, kStrOptInfoUpdates, kStrOptInfoNotes, kStrOptInfoReset,
+  kStrIntroSkipHint, kStrIntroSkipTitle, kStrIntroSkipCeres, kStrIntroSkipCeresNote, kStrIntroSkipZebes, kStrIntroSkipZebesNote, kStrIntroSkipKeys, kStrChargePull, kStrAutoRun, kStrHudSpread, kStrHeavy, kStrVolume, kStrMusic, kStrSfx, kStrOptSound, kStrOptGeneral, kStrOptScreen, kStrOptPlay, kStrOptUpdates,
+  kStrOptInfoNone, kStrOptInfoLanguage, kStrOptInfoAudio, kStrOptInfoSpoilers, kStrOptInfoDisplay, kStrOptInfoView, kStrOptInfoHud, kStrOptInfoFps, kStrOptInfoPacing, kStrOptInfoControls, kStrOptInfoHelp, kStrOptInfoAutoBomb, kStrOptInfoChargePull, kStrOptInfoAutoRun, kStrOptInfoHudSpread, kStrOptInfoHeavy, kStrOptInfoVolume, kStrOptInfoMusic, kStrOptInfoSfx, kStrOptInfoAutoUpdate, kStrOptInfoChannel, kStrOptInfoUpdates, kStrOptInfoNotes, kStrOptInfoReset,
   kStrDspTitle, kStrDspMissing, kStrDspDamaged, kStrDspWhy1, kStrDspWhy2, kStrDspExtract, kStrDspSkip, kStrDspWorking, kStrDspDone, kStrDspFailed,
   kStrCount
 } UiStr;

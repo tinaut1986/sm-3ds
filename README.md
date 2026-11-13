@@ -17,6 +17,7 @@ Features **full stereoscopic 3D with per-layer depth** and **widescreen gameplay
 
 - **Stereoscopic 3D:** True per-layer depth using the 3DS parallax barrier hardware. Runs at a rock-solid **60 fps on New 3DS** and **60 fps in gameplay on Old 3DS / 2DS**.
 - **Widescreen Mode (VIEW: WIDE):** Expands the playfield laterally to 336 px, filling the native 5:3 400x240 top screen of the 3DS while keeping enemies and projectiles alive in the extended margins. Original 4:3 (256x224) aspect ratio is also selectable (`VIEW: ORIGINAL`). OPTIONS -> SCREEN -> HUD SPREAD moves the HUD's energy and minimap towards the screen's corners (a bar, 0 % keeps it as in the original).
+- **Volume (OPTIONS -> SOUND):** VOLUME raises the game's sound up to 400 % on top of the console's slider (200 % by default; loud peaks are softened, not clipped), and MUSIC and EFFECTS set each one's share, 100 % being the original's mix.
 - **Modern Controls Scheme:** Play with modern ergonomics (B runs, L aims diagonally, R + X / Y / B fires missiles / super missiles / grapple / X-ray, Y rolls into morph ball) or choose the classic SNES button layout. Every button can be remapped; on a New 3DS a weapon can go on ZL or ZR.
 - **Play aids:** skip the intro (to Ceres station, or straight to planet Zebes), the automatic bomb jump, and the charge beam pulling in health and ammo drops (optional).
 - **Touchscreen Bottom UI:**

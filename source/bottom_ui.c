@@ -17,6 +17,7 @@
 #include "modern_controls.h"
 #include "auto_bomb.h"
 #include "auto_run.h"
+#include "audio_gain.h"
 #include "debug_tools.h"
 #include "ftp_server.h"
 #include "scene_rec.h"
@@ -38,6 +39,9 @@
 
 UiOptions g_ui = {
   .audio_on = true,
+  .volume = kAudioVolumeDefault,
+  .music_volume = 100,
+  .sfx_volume = 100,
   .pacing = kPaceAuto,
   .auto_update = true,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
@@ -1475,7 +1479,9 @@ void BottomUi_GameReset(void) {
 // of four half buttons; a full one takes two halves of one column. A cell shows its setting and
 // its value, a tap (on release, if the touch did not scroll) changes it.
 //
-//   GENERAL   LANGUAGE | AUDIO      SPOILERS
+//   GENERAL   LANGUAGE | SPOILERS
+//   SOUND     AUDIO                VOLUME (a bar to drag)
+//             MUSIC (a bar)        EFFECTS (a bar)
 //   SCREEN    IMAGE | VIEW         HUD
 //             FPS | FRAMES         HUD SPREAD (a bar to drag)
 //   PLAY      CONTROLS [?]         AUTO BOMB JUMP
@@ -1486,7 +1492,7 @@ void BottomUi_GameReset(void) {
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_RESET, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_VOLUME, OPT_MUSIC, OPT_SFX, OPT_RESET, OPT_COUNT
 } OptCell;
 
 enum {
@@ -1504,7 +1510,8 @@ enum {
 // GAME, the whole width, is the last one.
 typedef struct { OptCell cell; bool full; } OptItem;
 static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
-  { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
+  { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_SPOILERS, false } }, 2 },
+  { kStrOptSound, { { OPT_AUDIO, true }, { OPT_VOLUME, true }, { OPT_MUSIC, true }, { OPT_SFX, true } }, 4 },
   { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false }, { OPT_HUD_SPREAD, true } }, 6 },
   { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true }, { OPT_HEAVY, true } }, 5 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
@@ -1523,9 +1530,11 @@ static const UiStr kOptInfo[OPT_COUNT + 1] = {
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
   [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull, [OPT_AUTO_RUN] = kStrOptInfoAutoRun,
   [OPT_HUD_SPREAD] = kStrOptInfoHudSpread, [OPT_HEAVY] = kStrOptInfoHeavy,
+  [OPT_VOLUME] = kStrOptInfoVolume, [OPT_MUSIC] = kStrOptInfoMusic, [OPT_SFX] = kStrOptInfoSfx,
   [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
 };
-static struct { bool active, dragging, bar, spread; int start_x, start_y, last_y; } g_opt_touch;
+// slider: the kOptSliders cell the touch went down on (-1 none); sliding: it moved sideways and drags the value.
+static struct { bool active, dragging, bar, sliding; int slider; int start_x, start_y, last_y; } g_opt_touch;
 
 // Where everything is, in the list's own coordinates (y 0 at its top): each cell, each group's title
 // row, and the list's height.
@@ -1634,30 +1643,50 @@ static void DrawOptHead(Surface s, int y, const char *title) {
   UiFillRect(s, x, y + 7, kOptX + 2 * kOptColW + kOptGap - x, 1, RGB(50, 80, 130));
 }
 
-// HUD SPREAD's bar: the columns a touch moves the value along, 0 % at the left end.
-static Rect SpreadBarRect(void) {
-  const Rect r = OptRect(OPT_HUD_SPREAD);
+// The cells whose value is a bar to drag: HUD SPREAD (#63) and the sound's volumes (#67). A touch on one
+// moves the value along its bar (sideways), never the list.
+typedef struct { OptCell cell; UiStr label; int *value; int max, step; } OptSlider;
+static const OptSlider kOptSliders[] = {
+  { OPT_HUD_SPREAD, kStrHudSpread, &g_ui.hud_spread, 100, 5 },
+  { OPT_VOLUME, kStrVolume, &g_ui.volume, kAudioVolumeMax, 10 },
+  { OPT_MUSIC, kStrMusic, &g_ui.music_volume, kAudioMixMax, 10 },
+  { OPT_SFX, kStrSfx, &g_ui.sfx_volume, kAudioMixMax, 10 },
+};
+enum { kOptSliderCount = sizeof(kOptSliders) / sizeof(kOptSliders[0]) };
+
+// A slider's bar: the columns a touch moves the value along, 0 at the left end.
+static Rect SliderBarRect(const OptSlider *sl) {
+  const Rect r = OptRect(sl->cell);
   return (Rect){ r.x + 8, r.y + 19, r.w - 16 - 30, 5 };
 }
 
-static int SpreadAt(int x) {
-  const Rect b = SpreadBarRect();
-  const int v = (x - b.x) * 100 / (b.w - 1);
-  return v < 0 ? 0 : v > 100 ? 100 : (v + 2) / 5 * 5;   // in steps of 5 %
+static int SliderAt(const OptSlider *sl, int x) {
+  const Rect b = SliderBarRect(sl);
+  const int v = (x - b.x) * sl->max / (b.w - 1);
+  return v < 0 ? 0 : v > sl->max ? sl->max : (v + sl->step / 2) / sl->step * sl->step;
 }
 
-// HUD SPREAD (#63): the label, a bar with its knob and the value. Dimmed without WIDE, which it is for.
-static void DrawSpreadCell(Surface s) {
-  const Rect r = OptRect(OPT_HUD_SPREAD), b = SpreadBarRect();
-  const bool on = g_ui.wide;
+// Whether a slider applies now: HUD SPREAD is for WIDE, the volumes for when the sound is on.
+static bool SliderLive(const OptSlider *sl) {
+  return sl->cell == OPT_HUD_SPREAD ? g_ui.wide : g_ui.audio_on;
+}
+
+// The label, a bar with its knob and the value, dimmed while it does not apply.
+static void DrawSliderCell(Surface s, const OptSlider *sl) {
+  const Rect r = OptRect(sl->cell), b = SliderBarRect(sl);
+  const bool on = SliderLive(sl);
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), false);
-  UiDrawText(s, r.x + 6, r.y + 5, 1, on ? COL_TEXT : COL_DIM, Tr(kStrHudSpread));
-  const int fill = (b.w - 1) * g_ui.hud_spread / 100;
+  UiDrawText(s, r.x + 6, r.y + 5, 1, on ? COL_TEXT : COL_DIM, Tr(sl->label));
+  const int fill = (b.w - 1) * *sl->value / sl->max;
   UiFillRect(s, b.x, b.y + 1, b.w, b.h - 2, RGB(50, 60, 85));
   UiFillRect(s, b.x, b.y + 1, fill, b.h - 2, on ? COL_GOOD : COL_DIM);
+  if (sl->max > 100) {   // a tick at 100 %, the original's level
+    const int t = b.x + (b.w - 1) * 100 / sl->max;
+    UiFillRect(s, t, b.y - 1, 1, b.h + 2, on ? COL_TEXT : COL_DIM);
+  }
   UiFillRect(s, b.x + fill - 2, b.y - 2, 5, b.h + 4, on ? COL_TEXT : COL_DIM);
   char buf[8];
-  snprintf(buf, sizeof(buf), "%d%%", g_ui.hud_spread);
+  snprintf(buf, sizeof(buf), "%d%%", *sl->value);
   UiDrawText(s, r.x + r.w - 6 - UiTextWidth(buf, 1), r.y + 17, 1, on ? COL_GOOD : COL_DIM, buf);
 }
 
@@ -1719,7 +1748,7 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
-  DrawSpreadCell(s);
+  for (int i = 0; i < kOptSliderCount; i++) DrawSliderCell(s, &kOptSliders[i]);
   const Rect rr = OptRect(OPT_RESET);
   UiDrawBoxLabel(s, rr, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(rr), Tr(kStrResetGame));
 
@@ -1809,23 +1838,36 @@ static void OptionsTouch(int x, int y) {
   g_opt_touch.bar = x >= kOptBarHitX && OptMaxScroll() > 0;
   g_opt_touch.start_x = x;
   g_opt_touch.start_y = g_opt_touch.last_y = y;
-  // HUD SPREAD: a touch on its cell drags the value along the bar (sideways), never the list.
-  g_opt_touch.spread = !g_opt_touch.bar && UiIn(OptRect(OPT_HUD_SPREAD), x, y);
+  // A slider's cell: moving sideways drags its value, up or down scrolls the list as anywhere else
+  // (four bars in a row would leave little to scroll by), a tap puts the value where it touched.
+  g_opt_touch.slider = -1;
+  g_opt_touch.sliding = false;
+  for (int i = 0; i < kOptSliderCount && !g_opt_touch.bar; i++)
+    if (UiIn(OptRect(kOptSliders[i].cell), x, y)) g_opt_touch.slider = i;
   if (g_opt_touch.bar) OptScrollToBar(y);
-  if (g_opt_touch.spread) {
-    g_opt_info = OPT_HUD_SPREAD;
-    g_ui.hud_spread = SpreadAt(x);
-  }
+}
+
+// A slider's value from a touch at x; the cell's description shows.
+static bool SetSliderAt(int x) {
+  const OptSlider *sl = &kOptSliders[g_opt_touch.slider];
+  g_opt_info = sl->cell;
+  const int v = SliderAt(sl, x);
+  if (v == *sl->value) return false;
+  *sl->value = v;
+  return true;
 }
 
 static bool OptionsTouchMove(int x, int y) {
   if (!g_opt_touch.active) return false;
   const int before = g_opt_scroll;
-  if (g_opt_touch.spread) {
-    const int v = SpreadAt(x);
-    if (v == g_ui.hud_spread) return false;
-    g_ui.hud_spread = v;
-    return true;
+  if (g_opt_touch.sliding) return SetSliderAt(x);
+  if (g_opt_touch.slider >= 0 && !g_opt_touch.dragging) {
+    const int dx = abs(x - g_opt_touch.start_x), dy = abs(y - g_opt_touch.start_y);
+    if (dx >= kOptDragSlop && dx >= dy) {
+      g_opt_touch.sliding = true;
+      SetSliderAt(x);
+      return true;   // drawn again either way: the description may have changed
+    }
   }
   if (g_opt_touch.bar) {
     OptScrollToBar(y);
@@ -1844,7 +1886,9 @@ static bool OptionsTouchMove(int x, int y) {
 static void OptionsTouchUp(void) {
   if (!g_opt_touch.active) return;
   g_opt_touch.active = false;
-  if (!g_opt_touch.dragging && !g_opt_touch.bar && !g_opt_touch.spread) OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
+  if (g_opt_touch.dragging || g_opt_touch.bar || g_opt_touch.sliding) return;
+  if (g_opt_touch.slider >= 0) SetSliderAt(g_opt_touch.start_x);
+  else OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
 }
 
 // ---- Modals ---------------------------------------------------------------------
@@ -3203,7 +3247,7 @@ static void DrawUnlockNotice(Surface s) {
 
 typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
-      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy;
+      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, volume, music_volume, sfx_volume;
   unsigned mapping;   // ModernControls_MappingKey
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
@@ -3212,7 +3256,8 @@ typedef struct {
 static SavedOptions CurrentOptions(void) {
   return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
                          g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics, ModernControls_MappingKey(),
+                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
+                         g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
                          g_debug_log, g_debug_log_direct, g_debug_ftp };
 }
 
@@ -3225,10 +3270,12 @@ static void SaveConfig(void) {
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\n",
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\n"
+          "volume=%d\nmusic_volume=%d\nsfx_volume=%d\n",
           o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
-          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy);
+          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy,
+          o.volume, o.music_volume, o.sfx_volume);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
   // or its trigger (ZL, ZR).
   for (int a = 0; a < kModernActions; a++)
@@ -3321,6 +3368,9 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "charge_pull")) g_rtl_charge_pull = v != 0;
     else if (!strcmp(key, "auto_run")) AutoRun_Set(v != 0);
     else if (!strcmp(key, "hud_spread") && v >= 0 && v <= 100) g_ui.hud_spread = (int)v;
+    else if (!strcmp(key, "volume") && v >= 0 && v <= kAudioVolumeMax) g_ui.volume = (int)v;
+    else if (!strcmp(key, "music_volume") && v >= 0 && v <= kAudioMixMax) g_ui.music_volume = (int)v;
+    else if (!strcmp(key, "sfx_volume") && v >= 0 && v <= kAudioMixMax) g_ui.sfx_volume = (int)v;
     else if (!strcmp(key, "heavy_physics")) g_rtl_heavy_physics = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
 #if DEBUG_TOOLS

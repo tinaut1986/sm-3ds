@@ -11,6 +11,13 @@
 
 typedef struct Dsp Dsp;
 
+// The port's music and sound-effect volumes (OPTIONS -> SOUND), as gains on each voice's share of the mix:
+// 256 = 100 %. Kept outside Dsp, which save states copy whole. g_dsp_sfx_voices: the voices the sound
+// driver has taken from the music for an effect, bit n = voice n (SpcPlayer.is_chan_on, SPC RAM $1A).
+// At 256 and 256 the output is the S-DSP's, bit for bit.
+extern int g_dsp_gain_music, g_dsp_gain_sfx;
+extern uint8_t g_dsp_sfx_voices;
+
 typedef struct Apu Apu;
 
 typedef struct DspChannel {

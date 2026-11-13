@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <time.h>
 #include "src/types.h"
 #include "src/sm_rtl.h"
@@ -58,6 +59,8 @@ int main(int argc, char **argv) {
   uint64_t hash = 1469598103934665603ull;
   double audio_us = 0;
   long active = 0, echo_frames = 0, total = 0;
+  static long level_hist[32769];   // |sample| counts: the peak and the loud tail of the output
+  double sq_sum = 0;
   int room_count = 1, room_i = 0;
   const SmRoom *room_list = NULL;
   if (rooms) {
@@ -91,7 +94,12 @@ int main(int argc, char **argv) {
     const double t0 = Now();
     RtlRenderAudio(out, 736, 2);
     audio_us += Now() - t0;
-    for (int k = 0; k < 736 * 2; k++) hash = (hash ^ (uint16_t)out[k]) * 1099511628211ull;
+    for (int k = 0; k < 736 * 2; k++) {
+      hash = (hash ^ (uint16_t)out[k]) * 1099511628211ull;
+      const int a = out[k] < 0 ? -out[k] : out[k];
+      level_hist[a > 32768 ? 32768 : a]++;
+      sq_sum += (double)out[k] * out[k];
+    }
     const Dsp *d = g_spc_player->dsp;
     for (int c = 0; c < 8; c++) active += d->channel[c].gain != 0;
     echo_frames += d->echoVolumeL || d->echoVolumeR || d->feedbackVolume;
@@ -100,5 +108,17 @@ int main(int argc, char **argv) {
   printf("frames %ld  audio %.1f us/frame  voices sounding %.2f  echo on %.0f%%  hash %016llx\n", total,
          audio_us / total, (double)active / total, 100.0 * echo_frames / total,
          (unsigned long long)hash);
+  // Levels of the output, for the volume settings: the loudest sample, the level only 0.1 % and
+  // 0.01 % of the samples exceed, and the RMS (all in 16-bit units, 32767 = full scale).
+  const long n = total * 736 * 2;
+  long above = 0;
+  int peak = 0, p999 = -1, p9999 = -1;
+  for (int a = 32768; a >= 0; a--) {
+    if (level_hist[a] && !peak) peak = a;
+    above += level_hist[a];
+    if (p9999 < 0 && above * 10000 >= n) p9999 = a;
+    if (p999 < 0 && above * 1000 >= n) p999 = a;
+  }
+  printf("levels  peak %d  p99.99 %d  p99.9 %d  rms %.0f\n", peak, p9999, p999, n ? sqrt(sq_sum / n) : 0.0);
   return 0;
 }

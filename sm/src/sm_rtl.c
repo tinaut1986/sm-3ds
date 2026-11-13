@@ -742,6 +742,7 @@ void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
 
   if (!g_use_my_apu_code) {
     if (!is_uploading_apu) {
+      g_dsp_sfx_voices = g_snes->apu->ram[0x1a];   // the driver's is_chan_on, for the port's volumes (dsp.h)
       while (g_snes->apu->dsp->sampleOffset < 534)
         apu_cycle(g_snes->apu);
       dsp_getSamples(g_snes->apu->dsp, audio_buffer, samples);
