@@ -59,6 +59,9 @@ typedef struct {
   bool update_beta;      // the updates it looks for: only releases, or the betas too
   bool wide;             // WIDE view: more of the room on the sides in gameplay (GPU renderer)
   int hud_spread;        // WIDE view: how far (0..100 %) the HUD's two parts go towards the screen's corners (#63)
+  int volume;            // OPTIONS -> SOUND (#67): the game's sound, 0..kAudioVolumeMax %, on top of the console's slider
+  int music_volume;      // the music's share, 0..kAudioMixMax %
+  int sfx_volume;        // the sound effects' share, 0..kAudioMixMax %
   int save_slot;        // 0..9, for save states
   // One-shot requests, consumed by the main loop.
   bool req_reset;

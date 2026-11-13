@@ -28,6 +28,7 @@
 #include "modern_controls.h"
 #include "auto_bomb.h"
 #include "auto_run.h"
+#include "audio_gain.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
@@ -384,6 +385,10 @@ static void AudioCallback(uint8 *stream, int len) {
   const float buffer_ms = len * 1000.0f / (kAudioRate * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
+  // OPTIONS -> SOUND (#67): the music's and the effects' shares inside the S-DSP's mix, the whole
+  // after it (audio_gain.c); the achievement sound is mixed in afterwards, as it was.
+  g_dsp_gain_music = AudioGain_FromPercent(g_ui.music_volume);
+  g_dsp_gain_sfx = AudioGain_FromPercent(g_ui.sfx_volume);
   RecursiveLock_Lock(&g_audio_mutex);
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
@@ -400,6 +405,7 @@ static void AudioCallback(uint8 *stream, int len) {
     len -= n;
   }
   RecursiveLock_Unlock(&g_audio_mutex);
+  AudioGain_Apply((int16_t *)stream_start, stream_len / 2, AudioGain_FromPercent(g_ui.volume));
   RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4, kAudioRate);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
