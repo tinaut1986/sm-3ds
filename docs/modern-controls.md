@@ -153,13 +153,17 @@ The title screen's demos replay recorded SNES input and show no buttons: unaffec
 - The game's CONTROLLER SETTING screen remaps CLASSIC only: done as above. In MODERN it is shown as not
   applying (or hidden); its config is still what the translation writes into, so it never
   breaks MODERN.
-- The CLASSIC buttons are a setting, not part of the game (#70): the game keeps them in its memory
-  (`button_config_*`), so a save state or the save file brought back the ones it was made with.
-  `source/classic_buttons.c` keeps the player's (`classic_buttons=` in `config.ini`, seven SNES masks:
-  jump, run, shoot, item switch, item cancel, aim up, aim down), taken from the game's options menu
-  (game state 2) and the bottom screen's CONTROLS window, and writes them back before every frame and
-  right after a state load or a reset. The intro (its default buttons), the opening and the demos are
-  left alone. With no setting yet (an older `config.ini`) the first buttons played with become it.
+- The CLASSIC buttons and the game's SPECIAL SETTING (ICON CANCEL, MOON WALK) are settings, not part of
+  the game (#70): the game keeps them in its memory (`button_config_*`, `hud_auto_cancel_flag`,
+  `moonwalk_flag`), so a save state or the save file brought back the ones it was made with.
+  `source/game_settings.c` keeps the player's (`config.ini`: `classic_buttons=`, seven SNES masks: jump,
+  run, shoot, item switch, item cancel, aim up, aim down; `special_settings=` ICON CANCEL automatic, MOON
+  WALK on, 0 or 1), taken from the game's options menu (game state 2) and the bottom screen's CONTROLS
+  window, and writes them back before every frame and right after a state load or a reset. MODERN follows
+  too: it translates through the game's assignments. The intro (its default buttons), the opening and the
+  demos are left alone. With no setting yet (an older `config.ini`) the first ones played with become it.
+  The port's own options (AUTO RUN, HEAVY PHYSICS...) live outside the game's memory and never came back
+  with a state.
 
 ## Host check
 

@@ -1,4 +1,4 @@
-#include "classic_buttons.h"
+#include "game_settings.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -10,7 +10,8 @@
 // The buttons the original lets the player assign: B Y SELECT A X L R (START and the D-pad are fixed).
 enum { kAssignable = 0x8000 | 0x4000 | 0x2000 | 0x80 | 0x40 | 0x20 | 0x10 };
 
-static uint16 g_setting[kClassicButtons];
+static uint16 g_buttons[kClassicButtons];
+static bool g_icon_cancel, g_moon_walk;
 static bool g_have;
 
 static uint16 *GameButton(int i) {
@@ -39,13 +40,15 @@ static void ReadGame(uint16 v[kClassicButtons]) {
   for (int i = 0; i < kClassicButtons; i++) v[i] = *GameButton(i);
 }
 
-bool ClassicButtons_Have(void) { return g_have; }
+bool GameSettings_Have(void) { return g_have; }
+bool GameSettings_IconCancel(void) { return g_icon_cancel; }
+bool GameSettings_MoonWalk(void) { return g_moon_walk; }
 
-void ClassicButtons_Get(uint16_t out[kClassicButtons]) {
-  for (int i = 0; i < kClassicButtons; i++) out[i] = g_setting[i];
+void GameSettings_Buttons(uint16_t out[kClassicButtons]) {
+  for (int i = 0; i < kClassicButtons; i++) out[i] = g_buttons[i];
 }
 
-bool ClassicButtons_Parse(const char *text) {
+bool GameSettings_ParseButtons(const char *text) {
   unsigned v[kClassicButtons];
   if (sscanf(text, "%x,%x,%x,%x,%x,%x,%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) != kClassicButtons) return false;
   uint16 b[kClassicButtons];
@@ -54,36 +57,47 @@ bool ClassicButtons_Parse(const char *text) {
     b[i] = (uint16)v[i];
   }
   if (!Valid(b)) return false;
-  memcpy(g_setting, b, sizeof(g_setting));
+  memcpy(g_buttons, b, sizeof(g_buttons));
   g_have = true;
   return true;
 }
 
-void ClassicButtons_Adopt(void) {
+bool GameSettings_ParseSpecial(const char *text) {
+  int icon, moon;
+  if (sscanf(text, "%d,%d", &icon, &moon) != 2 || (icon & ~1) || (moon & ~1)) return false;
+  g_icon_cancel = icon, g_moon_walk = moon;
+  return true;
+}
+
+void GameSettings_Adopt(void) {
   uint16 v[kClassicButtons];
   ReadGame(v);
   if (!Valid(v)) return;
-  memcpy(g_setting, v, sizeof(g_setting));
+  memcpy(g_buttons, v, sizeof(g_buttons));
+  g_icon_cancel = hud_auto_cancel_flag != 0;
+  g_moon_walk = moonwalk_flag != 0;
   g_have = true;
 }
 
-void ClassicButtons_Sync(bool loaded) {
+void GameSettings_Sync(bool loaded) {
   // The intro sets the default buttons while Samus has its 900 missiles and puts the player's back
-  // afterwards (CinematicFunction_Intro_Initial, RevertButtonConfig); the opening and the demos are
-  // left alone too.
+  // afterwards (CinematicFunction_Intro_Initial, RevertButtonConfig); the opening and the demos (which
+  // set their own buttons and turn MOON WALK off) are left alone too.
   if (game_state == kGameState_1_OpeningCinematic || game_state == kGameState_30_IntroCinematic ||
       (game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo))
     return;
   // In the game's options menu the player changes them: that is the setting (a loaded state that
   // happens to be there still gets the setting put back first).
   if (game_state == kGameState_2_GameOptionsMenu && !loaded) {
-    ClassicButtons_Adopt();
+    GameSettings_Adopt();
     return;
   }
   if (!g_have) {   // no setting yet (config.ini from before #70): the first ones played with become it
-    if (game_state == kGameState_8_MainGameplay) ClassicButtons_Adopt();
+    if (game_state == kGameState_8_MainGameplay) GameSettings_Adopt();
     return;
   }
   for (int i = 0; i < kClassicButtons; i++)
-    if (*GameButton(i) != g_setting[i]) *GameButton(i) = g_setting[i];
+    if (*GameButton(i) != g_buttons[i]) *GameButton(i) = g_buttons[i];
+  if ((hud_auto_cancel_flag != 0) != g_icon_cancel) hud_auto_cancel_flag = g_icon_cancel;
+  if ((moonwalk_flag != 0) != g_moon_walk) moonwalk_flag = g_moon_walk;
 }
