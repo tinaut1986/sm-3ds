@@ -29,6 +29,7 @@
 #include "auto_bomb.h"
 #include "auto_run.h"
 #include "audio_gain.h"
+#include "classic_buttons.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
@@ -937,6 +938,7 @@ int main(int argc, char** argv) {
 
     if (g_ui.req_reset) {
       RtlReset(1);
+      ClassicButtons_Sync(true);
       BottomUi_GameReset();
       RetroAch_GameReset();
     }
@@ -973,6 +975,7 @@ int main(int argc, char** argv) {
 #if DEBUG_TOOLS
       const u64 tl1 = svcGetSystemTick();
 #endif
+      if (ok) ClassicButtons_Sync(true);   // the player's buttons, not the ones the state was saved with (#70)
       BottomUi_StateLoaded(g_ui.save_slot, ok);
       if (ok) RetroAch_StateLoaded(g_ui.save_slot);
 #if DEBUG_TOOLS
@@ -1028,6 +1031,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
+      ClassicButtons_Sync(false);   // before the buttons are translated with the game's assignments
       int inputs = IntroSkip_Filter(AutoBomb_Translate(AutoRun_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad()))));
       Cheats_BeforeFrame();
       {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)

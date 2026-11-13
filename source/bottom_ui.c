@@ -18,6 +18,7 @@
 #include "auto_bomb.h"
 #include "auto_run.h"
 #include "audio_gain.h"
+#include "classic_buttons.h"
 #include "debug_tools.h"
 #include "ftp_server.h"
 #include "scene_rec.h"
@@ -2030,6 +2031,7 @@ void BottomUi_ButtonCaptured(int pad_bit) {
       if (other != mine && *other == mask) *other = *mine;
     }
     *mine = mask;
+    ClassicButtons_Adopt();   // a setting, not something a save state brings back (#70)
   } else {
     // The modern scheme's buttons are the four on the right, and for a weapon ZL and ZR too.
     const int face = FaceOfPadBit(pad_bit);
@@ -2132,6 +2134,7 @@ static void ControlsModalTouch(int x, int y) {
       button_config_itemswitch = 0x2000;
       button_config_aim_up_R = 0x10;
       button_config_aim_down_L = 0x20;
+      ClassicButtons_Adopt();
     }
   }
   for (int i = 0; i < 2; i++)
@@ -3249,16 +3252,23 @@ typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
       controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, volume, music_volume, sfx_volume;
   unsigned mapping;   // ModernControls_MappingKey
+  unsigned classic[kClassicButtons];   // the original scheme's buttons (ClassicButtons_Get), all 0 while there is no setting
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
 } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
-                         g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
-                         g_debug_log, g_debug_log_direct, g_debug_ftp };
+  SavedOptions o = { g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
+                     g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
+                     g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
+                     g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
+                     { 0 }, g_debug_log, g_debug_log_direct, g_debug_ftp };
+  if (ClassicButtons_Have()) {
+    uint16_t b[kClassicButtons];
+    ClassicButtons_Get(b);
+    for (int i = 0; i < kClassicButtons; i++) o.classic[i] = b[i];
+  }
+  return o;
 }
 
 static SavedOptions g_saved_options;   // what config.ini holds
@@ -3283,6 +3293,10 @@ static void SaveConfig(void) {
   static const char *const kWeaponKeys[kModernWeapons] = { "missile", "xray", "grapple" };
   for (int w = 0; w < kModernWeapons; w++)
     fprintf(f, "modern_with_%s=%s\n", kWeaponKeys[w], ModernControls_WeaponPlaceName((ModernWeapon)w));
+  // The original scheme's buttons (jump, run, shoot, item switch, item cancel, aim up, aim down) as SNES masks.
+  if (ClassicButtons_Have())
+    fprintf(f, "classic_buttons=%04X,%04X,%04X,%04X,%04X,%04X,%04X\n", o.classic[0], o.classic[1], o.classic[2], o.classic[3],
+            o.classic[4], o.classic[5], o.classic[6]);
 #if DEBUG_TOOLS
   fprintf(f, "debug_log=%d\ndebug_log_direct=%d\ndebug_ftp=%d\n", o.debug_log, o.debug_log_direct, o.debug_ftp);
 #endif
@@ -3347,6 +3361,10 @@ static void LoadConfig(void) {
     }
     if (sscanf(line, "controls=%15[^\r\n]", code) == 1) {
       SetControls(!strcmp(code, "modern"));
+      continue;
+    }
+    if (!strncmp(line, "classic_buttons=", 16)) {
+      ClassicButtons_Parse(line + 16);   // an invalid one is left out: the game's own stay
       continue;
     }
     if (!strncmp(line, "modern_", 7) && sscanf(line, "%31[^=]=%15[^\r\n]", key, code) == 2 && LoadModernMapping(key, code))
