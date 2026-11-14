@@ -1493,7 +1493,7 @@ void BottomUi_GameReset(void) {
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_VOLUME, OPT_MUSIC, OPT_SFX, OPT_RESET, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_AIR_SPIN, OPT_VOLUME, OPT_MUSIC, OPT_SFX, OPT_RESET, OPT_COUNT
 } OptCell;
 
 enum {
@@ -1514,7 +1514,7 @@ static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
   { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_SPOILERS, false } }, 2 },
   { kStrOptSound, { { OPT_AUDIO, true }, { OPT_VOLUME, true }, { OPT_MUSIC, true }, { OPT_SFX, true } }, 4 },
   { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false }, { OPT_HUD_SPREAD, true } }, 6 },
-  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true }, { OPT_HEAVY, true } }, 5 },
+  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true }, { OPT_HEAVY, true }, { OPT_AIR_SPIN, true } }, 6 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
   { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
 };
@@ -1530,7 +1530,7 @@ static const UiStr kOptInfo[OPT_COUNT + 1] = {
   [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
   [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull, [OPT_AUTO_RUN] = kStrOptInfoAutoRun,
-  [OPT_HUD_SPREAD] = kStrOptInfoHudSpread, [OPT_HEAVY] = kStrOptInfoHeavy,
+  [OPT_HUD_SPREAD] = kStrOptInfoHudSpread, [OPT_HEAVY] = kStrOptInfoHeavy, [OPT_AIR_SPIN] = kStrOptInfoAirSpin,
   [OPT_VOLUME] = kStrOptInfoVolume, [OPT_MUSIC] = kStrOptInfoMusic, [OPT_SFX] = kStrOptInfoSfx,
   [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
 };
@@ -1719,6 +1719,8 @@ static void DrawOptions(Surface s) {
   DrawOnOffCell(s, OPT_AUTO_RUN, kStrAutoRun, AutoRun_On());
   // Zero Mission-like physics, Super Metroid Redux's values (sm_rtl.h, g_rtl_heavy_physics, #65; off by default).
   DrawOnOffCell(s, OPT_HEAVY, kStrHeavy, g_rtl_heavy_physics);
+  // The jump button in the air starts a spin jump, as in Zero Mission (sm_rtl.h, g_rtl_air_spin, #68; off by default).
+  DrawOnOffCell(s, OPT_AIR_SPIN, kStrAirSpin, g_rtl_air_spin);
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1821,6 +1823,7 @@ static void OptionsTap(int x, int y) {
     case OPT_CHARGE_PULL: g_rtl_charge_pull = !g_rtl_charge_pull; break;
     case OPT_AUTO_RUN: AutoRun_Set(!AutoRun_On()); break;
     case OPT_HEAVY: g_rtl_heavy_physics = !g_rtl_heavy_physics; break;
+    case OPT_AIR_SPIN: g_rtl_air_spin = !g_rtl_air_spin; break;
     case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
@@ -3235,7 +3238,7 @@ static void DrawUnlockNotice(Surface s) {
 
 typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
-      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, volume, music_volume, sfx_volume;
+      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, air_spin, volume, music_volume, sfx_volume;
   unsigned mapping;   // ModernControls_MappingKey
   unsigned classic[kClassicButtons];   // the original scheme's buttons (GameSettings_Buttons), all 0 while there is no setting
   int icon_cancel, moon_walk;          // the game's special settings (GameSettings_*), 0 while there is no setting
@@ -3246,7 +3249,7 @@ typedef struct {
 static SavedOptions CurrentOptions(void) {
   SavedOptions o = { g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
                      g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                     g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
+                     g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics, g_rtl_air_spin,
                      g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
                      { 0 }, 0, 0, g_debug_log, g_debug_log_direct, g_debug_ftp };
   if (GameSettings_Have()) {
@@ -3267,11 +3270,11 @@ static void SaveConfig(void) {
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\n"
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\nair_spin=%d\n"
           "volume=%d\nmusic_volume=%d\nsfx_volume=%d\n",
           o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
-          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy,
+          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy, o.air_spin,
           o.volume, o.music_volume, o.sfx_volume);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
   // or its trigger (ZL, ZR).
@@ -3384,6 +3387,7 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "music_volume") && v >= 0 && v <= kAudioMixMax) g_ui.music_volume = (int)v;
     else if (!strcmp(key, "sfx_volume") && v >= 0 && v <= kAudioMixMax) g_ui.sfx_volume = (int)v;
     else if (!strcmp(key, "heavy_physics")) g_rtl_heavy_physics = v != 0;
+    else if (!strcmp(key, "air_spin")) g_rtl_air_spin = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
 #if DEBUG_TOOLS
     else if (!strcmp(key, "debug_log")) g_debug_log = v != 0;

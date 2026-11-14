@@ -81,6 +81,9 @@ check map-rooms "map_test: OK" "$(grep -q '^map_test: OK$' "$OUT/map-test.log"; 
 echo "auto-bomb: the bomb button held in the morph ball climbs three open shafts (source/auto_bomb.c)"
 WORK=$OUT/auto-bomb-test "$ROOT/tools/auto-bomb-test/run.sh" "$ROM" > "$OUT/auto-bomb-test.log" 2>&1 || true
 check auto-bomb "auto_bomb_test: OK" "$(grep -q '^auto_bomb_test: OK$' "$OUT/auto-bomb-test.log"; echo $?)"
+echo "air-spin: AIR SPIN in a jump and a fall, and the HEAVY PHYSICS wall jump as high as a jump (#68, #65)"
+WORK=$OUT/air-spin-test "$ROOT/tools/air-spin-test/run.sh" "$ROM" > "$OUT/air-spin-test.log" 2>&1 || true
+check air-spin "air_spin_test: OK" "$(grep -q '^air_spin_test: OK$' "$OUT/air-spin-test.log"; echo $?)"
 
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."
