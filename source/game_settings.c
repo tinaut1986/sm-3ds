@@ -80,13 +80,39 @@ void GameSettings_Adopt(void) {
   g_have = true;
 }
 
+// The intro sets the default buttons while Samus has its 900 missiles and puts the player's back
+// afterwards (CinematicFunction_Intro_Initial, RevertButtonConfig), and the demos set their own buttons
+// and turn MOON WALK off: the game's memory is left alone there. The title screen (game state 1) is not
+// among them: a state made there brought its buttons back.
+static bool GameOwnsSettings(void) {
+  return game_state == kGameState_30_IntroCinematic ||
+         (game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
+}
+
+static void Apply(void) {
+  for (int i = 0; i < kClassicButtons; i++)
+    if (*GameButton(i) != g_buttons[i]) *GameButton(i) = g_buttons[i];
+  if ((hud_auto_cancel_flag != 0) != g_icon_cancel) hud_auto_cancel_flag = g_icon_cancel;
+  if ((moonwalk_flag != 0) != g_moon_walk) moonwalk_flag = g_moon_walk;
+}
+
+void GameSettings_CurrentButtons(uint16_t out[kClassicButtons]) {
+  if (g_have) GameSettings_Buttons(out);
+  else ReadGame(out);
+}
+
+void GameSettings_SetButtons(const uint16_t in[kClassicButtons]) {
+  uint16 v[kClassicButtons];
+  for (int i = 0; i < kClassicButtons; i++) v[i] = in[i];
+  if (!Valid(v)) return;
+  if (!g_have) g_icon_cancel = hud_auto_cancel_flag != 0, g_moon_walk = moonwalk_flag != 0;
+  memcpy(g_buttons, v, sizeof(g_buttons));
+  g_have = true;
+  if (!GameOwnsSettings()) Apply();
+}
+
 void GameSettings_Sync(bool loaded) {
-  // The intro sets the default buttons while Samus has its 900 missiles and puts the player's back
-  // afterwards (CinematicFunction_Intro_Initial, RevertButtonConfig); the opening and the demos (which
-  // set their own buttons and turn MOON WALK off) are left alone too.
-  if (game_state == kGameState_1_OpeningCinematic || game_state == kGameState_30_IntroCinematic ||
-      (game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo))
-    return;
+  if (GameOwnsSettings()) return;
   // What the player changes in the game's options menu reaches GameSettings_Adopt through
   // g_rtl_game_settings_changed (sm_rtl.h). Anything else that changes them is not the player's choice:
   // the save file the file select loads just before the options menu, a save state, the game's reset.
@@ -94,10 +120,7 @@ void GameSettings_Sync(bool loaded) {
     if (game_state == kGameState_8_MainGameplay) GameSettings_Adopt();
     return;
   }
-  for (int i = 0; i < kClassicButtons; i++)
-    if (*GameButton(i) != g_buttons[i]) *GameButton(i) = g_buttons[i];
-  if ((hud_auto_cancel_flag != 0) != g_icon_cancel) hud_auto_cancel_flag = g_icon_cancel;
-  if ((moonwalk_flag != 0) != g_moon_walk) moonwalk_flag = g_moon_walk;
+  Apply();
   // A state made on the CONTROLLER SETTING screen brings that screen's own copy of the buttons, which
   // it writes back when left: rebuilt from the setting.
   if (loaded && game_state == kGameState_2_GameOptionsMenu &&

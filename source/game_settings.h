@@ -14,8 +14,15 @@ enum { kClassicButtons = 7 };   // jump, run, shoot, item switch, item cancel, a
 
 // Whether there is a setting yet (none until the game first reaches gameplay or the player changes one).
 bool GameSettings_Have(void);
-// The seven buttons' SNES masks in the order above.
+// The seven buttons' SNES masks in the order above: the setting (all 0 while there is none).
 void GameSettings_Buttons(uint16_t out[kClassicButtons]);
+// What the player's buttons are now: the setting, or the game's while there is none yet. The bottom
+// screen's CONTROLS window shows and edits these, never the game's memory directly: on the title, in the
+// intro or a demo the game holds buttons that are not the player's.
+void GameSettings_CurrentButtons(uint16_t out[kClassicButtons]);
+// New buttons from the bottom screen (one assignable button each, none twice; anything else is ignored):
+// the setting, and the game's memory too unless it is in the intro or a demo.
+void GameSettings_SetButtons(const uint16_t in[kClassicButtons]);
 // The special settings: ICON CANCEL automatic, MOON WALK on.
 bool GameSettings_IconCancel(void);
 bool GameSettings_MoonWalk(void);
@@ -24,8 +31,8 @@ bool GameSettings_MoonWalk(void);
 // special settings are kept off until it does.
 bool GameSettings_ParseButtons(const char *text);
 bool GameSettings_ParseSpecial(const char *text);
-// The game's current settings become the player's: after the bottom screen changed the buttons, or the
-// game's OPTION MODE (g_rtl_game_settings_changed, set by GameSettings_Init).
+// The game's current settings become the player's: after the game's OPTION MODE changed them
+// (g_rtl_game_settings_changed, set by GameSettings_Init).
 void GameSettings_Adopt(void);
 // Once a game frame, before it runs; with `loaded` right after a save state was loaded or the game was
 // reset. Puts the setting back over whatever else the game holds.

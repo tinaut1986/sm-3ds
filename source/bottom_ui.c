@@ -1975,23 +1975,10 @@ static void DrawKeys(Surface s, int x, int y, const char *keys) {
 
 // A row of the window that can be changed: which button it is on. Modern: an action's button
 // (kEditAction + ModernAction), a weapon's (kEditWeapon + ModernWeapon); original: one of the game's
-// seven buttons (kEditClassic + its index into ClassicConfig).
+// seven buttons (kEditClassic + its index in GameSettings_CurrentButtons' order).
 enum { kEditNone = 0, kEditAction = 1, kEditWeapon = 5, kEditClassic = 8 };
 
 static int g_ctl_capture;   // the row waiting for its new button (kEdit...), or kEditNone
-
-// The game's seven button assignments, in the order of the window's rows.
-static uint16_t *ClassicConfig(int i) {
-  switch (i) {
-  case 0: return &button_config_jump_a;
-  case 1: return &button_config_run_b;
-  case 2: return &button_config_shoot_x;
-  case 3: return &button_config_itemswitch;
-  case 4: return &button_config_itemcancel_y;
-  case 5: return &button_config_aim_up_R;
-  default: return &button_config_aim_down_L;
-  }
-}
 
 // A key's SNES mask for a frontend pad bit (bit i is the button 0x8000 >> i).
 static uint16_t SnesMaskOfPadBit(int bit) { return (uint16_t)(0x8000 >> bit); }
@@ -2024,14 +2011,16 @@ void BottomUi_ButtonCaptured(int pad_bit) {
   if (edit >= kEditClassic) {
     // The original's buttons: any of A B X Y L R SELECT, and the action that had it takes this one's old one.
     if (pad_bit == 3 || (pad_bit >= 4 && pad_bit <= 7) || pad_bit > 11) return;   // START, the D-pad, ZL and ZR are not assignable
-    uint16_t *mine = ClassicConfig(edit - kEditClassic);
+    // On the player's setting, not the game's memory (#70: a save state brought those back, and on the
+    // title, in the intro or a demo the game holds buttons that are not the player's).
+    uint16_t b[kClassicButtons];
+    GameSettings_CurrentButtons(b);
+    const int mine = edit - kEditClassic;
     const uint16_t mask = SnesMaskOfPadBit(pad_bit);
-    for (int i = 0; i < 7; i++) {
-      uint16_t *other = ClassicConfig(i);
-      if (other != mine && *other == mask) *other = *mine;
-    }
-    *mine = mask;
-    GameSettings_Adopt();   // a setting, not something a save state brings back (#70)
+    for (int i = 0; i < kClassicButtons; i++)
+      if (i != mine && b[i] == mask) b[i] = b[mine];
+    b[mine] = mask;
+    GameSettings_SetButtons(b);
   } else {
     // The modern scheme's buttons are the four on the right, and for a weapon ZL and ZR too.
     const int face = FaceOfPadBit(pad_bit);
@@ -2058,10 +2047,12 @@ static int ControlsRows(ControlsRow rows[kControlsRows]) {
       { 5, kStrCtlAimUp }, { 6, kStrCtlAimDown },
     };
     rows[n++] = (ControlsRow){ "DPAD", kStrCtlMove, kEditNone };
+    uint16_t cfg[kClassicButtons];   // the player's, not whatever the game holds now (#70)
+    GameSettings_CurrentButtons(cfg);
     for (size_t i = 0; i < sizeof(kClassic) / sizeof(kClassic[0]); i++) {
       static const char *const kDefault[7] = { "A", "B", "X", "SELECT", "Y", "R", "L" };
       ControlsRow r = { "", kClassic[i].what, kEditClassic + kClassic[i].cfg };
-      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(*ClassicConfig(kClassic[i].cfg), kDefault[kClassic[i].cfg]));
+      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(cfg[kClassic[i].cfg], kDefault[kClassic[i].cfg]));
       rows[n++] = r;
     }
     rows[n++] = (ControlsRow){ "START", kStrCtlPause, kEditNone };
@@ -2126,15 +2117,9 @@ static void ControlsModalTouch(int x, int y) {
     g_ctl_capture = kEditNone;
     if (g_controls_help_modern) {
       ModernControls_ResetMapping();
-    } else {   // the game's own defaults (OptionsMenuControllerFunc_8)
-      button_config_shoot_x = 0x40;
-      button_config_jump_a = 0x80;
-      button_config_run_b = 0x8000;
-      button_config_itemcancel_y = 0x4000;
-      button_config_itemswitch = 0x2000;
-      button_config_aim_up_R = 0x10;
-      button_config_aim_down_L = 0x20;
-      GameSettings_Adopt();
+    } else {   // the game's own defaults (OptionsMenuControllerFunc_8), in the rows' order
+      static const uint16_t kDefaults[kClassicButtons] = { 0x80, 0x8000, 0x40, 0x2000, 0x4000, 0x10, 0x20 };
+      GameSettings_SetButtons(kDefaults);
     }
   }
   for (int i = 0; i < 2; i++)
