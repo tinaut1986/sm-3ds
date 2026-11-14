@@ -1548,11 +1548,13 @@ LABEL_11:;
   if ((equipped_items & 0x100) != 0) {
     samus_y_subspeed = kSamus_InitWallJump_3[v1];
     samus_y_speed = kSamus_InitWallJump_2[v1];
-    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 8;   // 3DS port: heavy physics, in air
+    // 3DS port: heavy physics, in air. Zero Mission's wall jump is a normal jump's: the height of this
+    // option's jump (Redux's 8 and 7 rose higher than a jump from the ground, #65).
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 9, samus_y_subspeed = 0;
   } else {
     samus_y_subspeed = kSamus_InitWallJump_1[v1];
     samus_y_speed = kSamus_InitWallJump_0[v1];
-    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 7;
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 6, samus_y_subspeed = 0xe000;
   }
   if ((equipped_items & 0x2000) != 0) {
     r18 = samus_x_extra_run_speed >> 1;
@@ -1633,8 +1635,10 @@ static bool IsGreaterThanQuirked(uint16 vhi, uint16 vlo, uint16 cmphi, uint16 cm
 static uint16 HeavyMaxSpeedX(uint16 k, uint16 max_speed) {
   if (!RtlHeavyPhysics()) return max_speed;
   switch (k + 4) {
-  case 0x9F71: case 0x9F7D: case 0x9FA1: case 0x9FB9: case 0xA03D: return 2;
-  case 0xA031: case 0xA049: return 3;
+  // The wall jump (0xA049) as the rest of the air: Redux's 3 pushed Samus far off the wall; Zero
+  // Mission's tops out at 2 px a frame (#65).
+  case 0x9F71: case 0x9F7D: case 0x9FA1: case 0x9FB9: case 0xA03D: case 0xA049: return 2;
+  case 0xA031: return 3;
   default: return max_speed;
   }
 }

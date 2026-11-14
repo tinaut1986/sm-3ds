@@ -86,8 +86,34 @@ void Samus_Input_01_Running(void) {  // 0x918066
   Samus_LookupTransitionTable();
 }
 
+bool g_rtl_air_spin;   // 3DS port, see sm_rtl.h
+static bool g_air_spin_started;   // the spin below asked for: no new jump when it begins
+
+bool RtlAirSpin(void) {
+  return g_rtl_air_spin && !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
+}
+
+// 3DS port (#68): after the pose table, which has nothing for the jump button in a plain jump or a fall,
+// that button turns the pose into the spin jump the items make it (screw attack, space jump, plain).
+static void Samus_AirSpin(void) {
+  // Nothing asked for yet (in a fall the pose's own number stands for that).
+  if (!RtlAirSpin() || (samus_new_pose != 0xFFFF && samus_new_pose != samus_pose) || (button_config_jump_a & joypad1_newkeys) == 0)
+    return;
+  if ((joypad1_lastkeys & (kButton_Up | kButton_Down)) || ((button_config_aim_up_R | button_config_aim_down_L) & joypad1_lastkeys))
+    return;
+  const bool left = samus_pose_x_dir == 4;
+  if (equipped_items & 8)
+    samus_new_pose = left ? kPose_82_FaceL_Screwattack : kPose_81_FaceR_Screwattack;
+  else if (equipped_items & 0x200)
+    samus_new_pose = left ? kPose_1C_FaceL_SpaceJump : kPose_1B_FaceR_SpaceJump;
+  else
+    samus_new_pose = left ? kPose_1A_FaceL_SpinJump : kPose_19_FaceR_SpinJump;
+  g_air_spin_started = true;
+}
+
 void Samus_Input_02_NormalJumping(void) {  // 0x91806E
   Samus_LookupTransitionTable();
+  Samus_AirSpin();   // 3DS port
 }
 
 void Samus_Input_03_SpinJumping(void) {  // 0x918076
@@ -116,6 +142,7 @@ void Samus_Input_05_Crouching(void) {  // 0x918087
 
 void Samus_Input_06_Falling(void) {  // 0x9180B6
   Samus_LookupTransitionTable();
+  Samus_AirSpin();   // 3DS port
 }
 
 void Samus_Input_08_MorphBallFalling(void) {  // 0x91810A
@@ -3795,6 +3822,13 @@ void HandleJumpTransition_NormalJump(void) {  // 0x91FC66
 }
 
 void HandleJumpTransition_SpinJump(void) {  // 0x91FC99
+  // 3DS port (#68): a spin started in the air keeps the speed it had (from a plain jump or a fall only, so
+  // a flag left over never takes a jump from the ground).
+  const bool air_spin = g_air_spin_started && (samus_prev_movement_type2 == kMovementType_02_NormalJumping ||
+                                               samus_prev_movement_type2 == kMovementType_06_Falling);
+  g_air_spin_started = false;
+  if (air_spin)
+    return;
   if (samus_prev_movement_type2 != kMovementType_03_SpinJumping
       && samus_prev_movement_type2 != kMovementType_14_WallJumping) {
     Samus_InitJump();
