@@ -163,9 +163,11 @@ The title screen's demos replay recorded SNES input and show no buttons: unaffec
   `g_rtl_game_settings_changed`), and writes them back before every frame and right after a state load or
   a reset. Only those count: the file select loads the save file's settings just before the options menu,
   and taking whatever the options menu held adopted them (the first try on the console). A state made on
-  the CONTROLLER SETTING screen also gets that screen's own copy rebuilt (`RtlReloadControllerOptions`). MODERN follows
-  too: it translates through the game's assignments. The intro (its default buttons), the opening and the
-  demos are left alone. With no setting yet (an older `config.ini`) the first ones played with become it.
+  the CONTROLLER SETTING screen also gets that screen's own copy rebuilt (`RtlReloadControllerOptions`).
+  The bottom screen's CONTROLS window shows and edits the setting, never the game's memory (on the title,
+  in the intro or a demo that is not the player's); the title screen gets the setting written back too
+  (a state made there brought its buttons back, the second try on the console). Only the intro and the
+  demos keep their own. MODERN follows too: it translates through the game's assignments. With no setting yet (an older `config.ini`) the first ones played with become it.
   The port's own options (AUTO RUN, HEAVY PHYSICS...) live outside the game's memory and never came back
   with a state.
 
