@@ -6,6 +6,7 @@
 #include "src/types.h"
 #include "src/variables.h"
 #include "src/ida_types.h"
+#include "src/sm_rtl.h"
 
 // The buttons the original lets the player assign: B Y SELECT A X L R (START and the D-pad are fixed).
 enum { kAssignable = 0x8000 | 0x4000 | 0x2000 | 0x80 | 0x40 | 0x20 | 0x10 };
@@ -86,12 +87,9 @@ void GameSettings_Sync(bool loaded) {
   if (game_state == kGameState_1_OpeningCinematic || game_state == kGameState_30_IntroCinematic ||
       (game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo))
     return;
-  // In the game's options menu the player changes them: that is the setting (a loaded state that
-  // happens to be there still gets the setting put back first).
-  if (game_state == kGameState_2_GameOptionsMenu && !loaded) {
-    GameSettings_Adopt();
-    return;
-  }
+  // What the player changes in the game's options menu reaches GameSettings_Adopt through
+  // g_rtl_game_settings_changed (sm_rtl.h). Anything else that changes them is not the player's choice:
+  // the save file the file select loads just before the options menu, a save state, the game's reset.
   if (!g_have) {   // no setting yet (config.ini from before #70): the first ones played with become it
     if (game_state == kGameState_8_MainGameplay) GameSettings_Adopt();
     return;
@@ -100,4 +98,13 @@ void GameSettings_Sync(bool loaded) {
     if (*GameButton(i) != g_buttons[i]) *GameButton(i) = g_buttons[i];
   if ((hud_auto_cancel_flag != 0) != g_icon_cancel) hud_auto_cancel_flag = g_icon_cancel;
   if ((moonwalk_flag != 0) != g_moon_walk) moonwalk_flag = g_moon_walk;
+  // A state made on the CONTROLLER SETTING screen brings that screen's own copy of the buttons, which
+  // it writes back when left: rebuilt from the setting.
+  if (loaded && game_state == kGameState_2_GameOptionsMenu &&
+      (game_options_screen_index == 7 || game_options_screen_index == 9 || game_options_screen_index == 10))
+    RtlReloadControllerOptions();
+}
+
+void GameSettings_Init(void) {
+  g_rtl_game_settings_changed = GameSettings_Adopt;
 }

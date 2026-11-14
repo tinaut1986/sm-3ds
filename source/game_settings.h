@@ -24,8 +24,11 @@ bool GameSettings_MoonWalk(void);
 // special settings are kept off until it does.
 bool GameSettings_ParseButtons(const char *text);
 bool GameSettings_ParseSpecial(const char *text);
-// The game's current settings become the player's (after the bottom screen changed the buttons).
+// The game's current settings become the player's: after the bottom screen changed the buttons, or the
+// game's OPTION MODE (g_rtl_game_settings_changed, set by GameSettings_Init).
 void GameSettings_Adopt(void);
 // Once a game frame, before it runs; with `loaded` right after a save state was loaded or the game was
-// reset. Takes what the game's options menu changed, puts the setting back otherwise.
+// reset. Puts the setting back over whatever else the game holds.
 void GameSettings_Sync(bool loaded);
+// Hooks the game's OPTION MODE (once, at start).
+void GameSettings_Init(void);

@@ -4477,6 +4477,12 @@ void CreatePlmsExecuteDoorAsmRoomSetup(void) {  // 0x82EB6C
 
 const RtlLanguageMenu *g_rtl_language_menu;   // 3DS port, see sm_rtl.h
 const RtlControlsMenu *g_rtl_controls_menu;   // 3DS port, see sm_rtl.h
+void (*g_rtl_game_settings_changed)(void);   // 3DS port, see sm_rtl.h
+
+void RtlReloadControllerOptions(void) {
+  LoadControllerOptionsFromControllerBindings();
+  OptionsMenuFunc6();
+}
 bool g_rtl_controls_row_shown;
 int g_rtl_ctl_cursor, g_rtl_ctl_top;
 static void ControllerSettingsList(void);
@@ -4870,6 +4876,7 @@ void GameOptionsMenuSpecialSettings_0(void) {  // 0x82F08E
     *(uint16 *)v0 = 0;
   else
     *(uint16 *)v0 = 1;
+  if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70)
   OptionsMenuFunc7();
 }
 
@@ -4974,11 +4981,13 @@ void OptionsMenuControllerFunc_8(void) {  // 0x82F224
     button_config_aim_down_L = 32;
     LoadControllerOptionsFromControllerBindings();
     OptionsMenuFunc6();
+    if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70)
   }
 }
 
 void OptionsMenuControllerFunc_7(void) {  // 0x82F25D
   if ((joypad1_newkeys & (kButton_Start | kButton_A)) != 0 && !OptionsMenuFunc8()) {
+    if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70): the buttons written back
     menu_option_index = 0;
     GameOptionsMenuItemFunc_4();
   }

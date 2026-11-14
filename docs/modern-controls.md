@@ -158,8 +158,12 @@ The title screen's demos replay recorded SNES input and show no buttons: unaffec
   `moonwalk_flag`), so a save state or the save file brought back the ones it was made with.
   `source/game_settings.c` keeps the player's (`config.ini`: `classic_buttons=`, seven SNES masks: jump,
   run, shoot, item switch, item cancel, aim up, aim down; `special_settings=` ICON CANCEL automatic, MOON
-  WALK on, 0 or 1), taken from the game's options menu (game state 2) and the bottom screen's CONTROLS
-  window, and writes them back before every frame and right after a state load or a reset. MODERN follows
+  WALK on, 0 or 1), taken when the player changes them (the bottom screen's CONTROLS window; in the game's
+  OPTION MODE, CONTROLLER SETTING left or set to the defaults and a SPECIAL SETTING toggled, through
+  `g_rtl_game_settings_changed`), and writes them back before every frame and right after a state load or
+  a reset. Only those count: the file select loads the save file's settings just before the options menu,
+  and taking whatever the options menu held adopted them (the first try on the console). A state made on
+  the CONTROLLER SETTING screen also gets that screen's own copy rebuilt (`RtlReloadControllerOptions`). MODERN follows
   too: it translates through the game's assignments. The intro (its default buttons), the opening and the
   demos are left alone. With no setting yet (an older `config.ini`) the first ones played with become it.
   The port's own options (AUTO RUN, HEAVY PHYSICS...) live outside the game's memory and never came back

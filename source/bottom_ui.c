@@ -3968,6 +3968,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_saved_options = CurrentOptions();
   g_ui_lang_on_change = OnGameLanguage;
   g_rtl_controls_menu = &kControlsMenu;
+  GameSettings_Init();   // the game's own settings are the player's (#70)
   if (g_is_new3ds) osSetSpeedupEnable(true);
   g_ptmu = R_SUCCEEDED(ptmuInit());
   if (g_ptmu) {
