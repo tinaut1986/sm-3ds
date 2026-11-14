@@ -213,6 +213,14 @@ typedef struct {
   int (*trigger)(void);
 } RtlControlsMenu;
 extern const RtlControlsMenu *g_rtl_controls_menu;
+// 3DS port (#70): called when the player changes the game's own settings in OPTION MODE: CONTROLLER SETTING
+// left with its buttons written back, or set to the defaults, and a SPECIAL SETTING toggled. The port keeps
+// them as its settings; anything else that changes them (a save file, a save state) is not the player's
+// choice. NULL: nothing.
+extern void (*g_rtl_game_settings_changed)(void);
+// The CONTROLLER SETTING screen's own copy of the buttons, rebuilt from button_config_* (after the port
+// put its settings back over a save state that was made on that screen).
+void RtlReloadControllerOptions(void);
 extern bool g_rtl_controls_row_shown;
 extern int g_rtl_ctl_cursor, g_rtl_ctl_top;
 enum { kRtlCtlHeadRow = 5, kRtlCtlRow0 = 8, kRtlCtlPitch = 3, kRtlCtlShown = 7, kRtlCtlClassicCount = 9, kRtlCtlModernCount = 11 };

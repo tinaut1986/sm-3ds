@@ -153,6 +153,23 @@ The title screen's demos replay recorded SNES input and show no buttons: unaffec
 - The game's CONTROLLER SETTING screen remaps CLASSIC only: done as above. In MODERN it is shown as not
   applying (or hidden); its config is still what the translation writes into, so it never
   breaks MODERN.
+- The CLASSIC buttons and the game's SPECIAL SETTING (ICON CANCEL, MOON WALK) are settings, not part of
+  the game (#70): the game keeps them in its memory (`button_config_*`, `hud_auto_cancel_flag`,
+  `moonwalk_flag`), so a save state or the save file brought back the ones it was made with.
+  `source/game_settings.c` keeps the player's (`config.ini`: `classic_buttons=`, seven SNES masks: jump,
+  run, shoot, item switch, item cancel, aim up, aim down; `special_settings=` ICON CANCEL automatic, MOON
+  WALK on, 0 or 1), taken when the player changes them (the bottom screen's CONTROLS window; in the game's
+  OPTION MODE, CONTROLLER SETTING left or set to the defaults and a SPECIAL SETTING toggled, through
+  `g_rtl_game_settings_changed`), and writes them back before every frame and right after a state load or
+  a reset. Only those count: the file select loads the save file's settings just before the options menu,
+  and taking whatever the options menu held adopted them (the first try on the console). A state made on
+  the CONTROLLER SETTING screen also gets that screen's own copy rebuilt (`RtlReloadControllerOptions`).
+  The bottom screen's CONTROLS window shows and edits the setting, never the game's memory (on the title,
+  in the intro or a demo that is not the player's); the title screen gets the setting written back too
+  (a state made there brought its buttons back, the second try on the console). Only the intro and the
+  demos keep their own. MODERN follows too: it translates through the game's assignments. With no setting yet (an older `config.ini`) the first ones played with become it.
+  The port's own options (AUTO RUN, HEAVY PHYSICS...) live outside the game's memory and never came back
+  with a state.
 
 ## Host check
 

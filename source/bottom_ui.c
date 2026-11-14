@@ -18,6 +18,7 @@
 #include "auto_bomb.h"
 #include "auto_run.h"
 #include "audio_gain.h"
+#include "game_settings.h"
 #include "debug_tools.h"
 #include "ftp_server.h"
 #include "scene_rec.h"
@@ -1974,23 +1975,10 @@ static void DrawKeys(Surface s, int x, int y, const char *keys) {
 
 // A row of the window that can be changed: which button it is on. Modern: an action's button
 // (kEditAction + ModernAction), a weapon's (kEditWeapon + ModernWeapon); original: one of the game's
-// seven buttons (kEditClassic + its index into ClassicConfig).
+// seven buttons (kEditClassic + its index in GameSettings_CurrentButtons' order).
 enum { kEditNone = 0, kEditAction = 1, kEditWeapon = 5, kEditClassic = 8 };
 
 static int g_ctl_capture;   // the row waiting for its new button (kEdit...), or kEditNone
-
-// The game's seven button assignments, in the order of the window's rows.
-static uint16_t *ClassicConfig(int i) {
-  switch (i) {
-  case 0: return &button_config_jump_a;
-  case 1: return &button_config_run_b;
-  case 2: return &button_config_shoot_x;
-  case 3: return &button_config_itemswitch;
-  case 4: return &button_config_itemcancel_y;
-  case 5: return &button_config_aim_up_R;
-  default: return &button_config_aim_down_L;
-  }
-}
 
 // A key's SNES mask for a frontend pad bit (bit i is the button 0x8000 >> i).
 static uint16_t SnesMaskOfPadBit(int bit) { return (uint16_t)(0x8000 >> bit); }
@@ -2023,13 +2011,16 @@ void BottomUi_ButtonCaptured(int pad_bit) {
   if (edit >= kEditClassic) {
     // The original's buttons: any of A B X Y L R SELECT, and the action that had it takes this one's old one.
     if (pad_bit == 3 || (pad_bit >= 4 && pad_bit <= 7) || pad_bit > 11) return;   // START, the D-pad, ZL and ZR are not assignable
-    uint16_t *mine = ClassicConfig(edit - kEditClassic);
+    // On the player's setting, not the game's memory (#70: a save state brought those back, and on the
+    // title, in the intro or a demo the game holds buttons that are not the player's).
+    uint16_t b[kClassicButtons];
+    GameSettings_CurrentButtons(b);
+    const int mine = edit - kEditClassic;
     const uint16_t mask = SnesMaskOfPadBit(pad_bit);
-    for (int i = 0; i < 7; i++) {
-      uint16_t *other = ClassicConfig(i);
-      if (other != mine && *other == mask) *other = *mine;
-    }
-    *mine = mask;
+    for (int i = 0; i < kClassicButtons; i++)
+      if (i != mine && b[i] == mask) b[i] = b[mine];
+    b[mine] = mask;
+    GameSettings_SetButtons(b);
   } else {
     // The modern scheme's buttons are the four on the right, and for a weapon ZL and ZR too.
     const int face = FaceOfPadBit(pad_bit);
@@ -2056,10 +2047,12 @@ static int ControlsRows(ControlsRow rows[kControlsRows]) {
       { 5, kStrCtlAimUp }, { 6, kStrCtlAimDown },
     };
     rows[n++] = (ControlsRow){ "DPAD", kStrCtlMove, kEditNone };
+    uint16_t cfg[kClassicButtons];   // the player's, not whatever the game holds now (#70)
+    GameSettings_CurrentButtons(cfg);
     for (size_t i = 0; i < sizeof(kClassic) / sizeof(kClassic[0]); i++) {
       static const char *const kDefault[7] = { "A", "B", "X", "SELECT", "Y", "R", "L" };
       ControlsRow r = { "", kClassic[i].what, kEditClassic + kClassic[i].cfg };
-      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(*ClassicConfig(kClassic[i].cfg), kDefault[kClassic[i].cfg]));
+      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(cfg[kClassic[i].cfg], kDefault[kClassic[i].cfg]));
       rows[n++] = r;
     }
     rows[n++] = (ControlsRow){ "START", kStrCtlPause, kEditNone };
@@ -2124,14 +2117,9 @@ static void ControlsModalTouch(int x, int y) {
     g_ctl_capture = kEditNone;
     if (g_controls_help_modern) {
       ModernControls_ResetMapping();
-    } else {   // the game's own defaults (OptionsMenuControllerFunc_8)
-      button_config_shoot_x = 0x40;
-      button_config_jump_a = 0x80;
-      button_config_run_b = 0x8000;
-      button_config_itemcancel_y = 0x4000;
-      button_config_itemswitch = 0x2000;
-      button_config_aim_up_R = 0x10;
-      button_config_aim_down_L = 0x20;
+    } else {   // the game's own defaults (OptionsMenuControllerFunc_8), in the rows' order
+      static const uint16_t kDefaults[kClassicButtons] = { 0x80, 0x8000, 0x40, 0x2000, 0x4000, 0x10, 0x20 };
+      GameSettings_SetButtons(kDefaults);
     }
   }
   for (int i = 0; i < 2; i++)
@@ -3249,16 +3237,25 @@ typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
       controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, volume, music_volume, sfx_volume;
   unsigned mapping;   // ModernControls_MappingKey
+  unsigned classic[kClassicButtons];   // the original scheme's buttons (GameSettings_Buttons), all 0 while there is no setting
+  int icon_cancel, moon_walk;          // the game's special settings (GameSettings_*), 0 while there is no setting
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
 } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
-                         g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
-                         g_debug_log, g_debug_log_direct, g_debug_ftp };
+  SavedOptions o = { g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
+                     g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
+                     g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics,
+                     g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
+                     { 0 }, 0, 0, g_debug_log, g_debug_log_direct, g_debug_ftp };
+  if (GameSettings_Have()) {
+    uint16_t b[kClassicButtons];
+    GameSettings_Buttons(b);
+    for (int i = 0; i < kClassicButtons; i++) o.classic[i] = b[i];
+    o.icon_cancel = GameSettings_IconCancel(), o.moon_walk = GameSettings_MoonWalk();
+  }
+  return o;
 }
 
 static SavedOptions g_saved_options;   // what config.ini holds
@@ -3283,6 +3280,13 @@ static void SaveConfig(void) {
   static const char *const kWeaponKeys[kModernWeapons] = { "missile", "xray", "grapple" };
   for (int w = 0; w < kModernWeapons; w++)
     fprintf(f, "modern_with_%s=%s\n", kWeaponKeys[w], ModernControls_WeaponPlaceName((ModernWeapon)w));
+  // The original scheme's buttons (jump, run, shoot, item switch, item cancel, aim up, aim down) as SNES masks,
+  // and the game's special settings: ICON CANCEL automatic, MOON WALK on (#70).
+  if (GameSettings_Have()) {
+    fprintf(f, "classic_buttons=%04X,%04X,%04X,%04X,%04X,%04X,%04X\n", o.classic[0], o.classic[1], o.classic[2], o.classic[3],
+            o.classic[4], o.classic[5], o.classic[6]);
+    fprintf(f, "special_settings=%d,%d\n", o.icon_cancel, o.moon_walk);
+  }
 #if DEBUG_TOOLS
   fprintf(f, "debug_log=%d\ndebug_log_direct=%d\ndebug_ftp=%d\n", o.debug_log, o.debug_log_direct, o.debug_ftp);
 #endif
@@ -3347,6 +3351,14 @@ static void LoadConfig(void) {
     }
     if (sscanf(line, "controls=%15[^\r\n]", code) == 1) {
       SetControls(!strcmp(code, "modern"));
+      continue;
+    }
+    if (!strncmp(line, "classic_buttons=", 16)) {
+      GameSettings_ParseButtons(line + 16);   // an invalid one is left out: the game's own stay
+      continue;
+    }
+    if (!strncmp(line, "special_settings=", 17)) {
+      GameSettings_ParseSpecial(line + 17);
       continue;
     }
     if (!strncmp(line, "modern_", 7) && sscanf(line, "%31[^=]=%15[^\r\n]", key, code) == 2 && LoadModernMapping(key, code))
@@ -3941,6 +3953,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_saved_options = CurrentOptions();
   g_ui_lang_on_change = OnGameLanguage;
   g_rtl_controls_menu = &kControlsMenu;
+  GameSettings_Init();   // the game's own settings are the player's (#70)
   if (g_is_new3ds) osSetSpeedupEnable(true);
   g_ptmu = R_SUCCEEDED(ptmuInit());
   if (g_ptmu) {
