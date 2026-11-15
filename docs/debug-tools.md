@@ -135,7 +135,9 @@ While the server runs, the PC can drive the game through SITE commands
 (`source/debug_link.h`): hold buttons for N logic frames, tap the bottom screen, take
 screenshots, save / load / delete save states, take a screen dump, flip an OPTIONS or debug
 value, read the game state and read or write memory. `tools/sm-link/sm-link.py` is the client
-(standard-library Python):
+(standard-library Python). Its `shot` writes `top.png` and `bottom.png`, and with two eyes (the 3D
+slider up, or FORCE 3D) `top-right.png`, the right eye (`top.png` is the left one): stereo-only faults
+show in one eye.
 
 ```sh
 tools/sm-link/sm-link.py wait                 # until the game answers (after an install)
