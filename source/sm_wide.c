@@ -523,30 +523,32 @@ const int16_t (*SmWide_WindowCone(int *window))[2] {
 // (Xray_SetupStage4, in the two 32x32 pages BG2SC points at). For the margins' block columns
 // the same tilemap is built here with the game's own block drawers (RtlXrayBuildBlock), over a
 // copy of what BG1 shows there, and written to the pages' other columns (a 64-column map: the
-// left margin wraps to its end). The pages are put back as they were when the scope is done.
+// left margin wraps to its end).
+// When the scope goes off, the game writes BG2's two pages back from the copy it read before
+// drawing its own (Xray_SetupStage4 / 5 into WRAM 7E:5000-5FFF; HdmaobjPreInstr_XrayFunc3 / 4 write
+// them back, one page a frame): that copy has the margins' columns too, so it is all that is put
+// back here, at once, from the first frame of the switch-off (#69). A copy of VRAM taken here once
+// the cone was up held the scope's own map instead, and brought the copy of BG1 back as the room's
+// background until the next room.
 static uint16_t g_xmap[2048 + 128];    // the pages as the game lays them out (+ what its drawers write past the last row)
-static uint16_t g_xsnap[2048];   // BG2's pages before the scope
-static bool g_xsaved;
-static uint16_t g_xsnap_base;
+static bool g_xsaved;   // margin columns written over BG2's pages: they go back when the scope goes off
 
 static int XIdx(int tc, int tr) { return ((tc & 63) >= 32 ? 1024 : 0) + (tr & 31) * 32 + (tc & 31); }
 
 static void XrayMargins(Ppu *ppu) {
   // The scope starts a couple of frames before the game has its own BG2 map and cone up; the margins wait for the cone.
-  if (!XrayActive() || !g_win1_on) {
-    if (g_xsaved)   // the scope is done: BG2 as it was
-      for (int i = 0; i < 2048; i++) VramPut(ppu, (uint16_t)(g_xsnap_base + i), g_xsnap[i]);
+  // XrayOff: the switch-off has begun (BG2SC is the room's again).
+  if (!XrayActive() || !g_win1_on || XrayOff()) {
+    if (g_xsaved) {   // BG2 as the game saved it, both pages now
+      const uint16_t room_base = (uint16_t)((reg_BG2SC & 0xfc) << 8);
+      for (int i = 0; i < 2048; i++) VramPut(ppu, (uint16_t)(room_base + i), ram4000.xray_tilemaps[0x800 + i]);
+    }
     g_xsaved = false;
     return;
   }
   const uint16_t base = (uint16_t)((reg_BG2SC & 0xfc) << 8);
   if (!(reg_BG2SC & 1) || !(reg_BG1SC & 1)) return;
-  if (!g_xsaved) {
-    for (int i = 0; i < 2048; i++) g_xsnap[i] = ppu->vram[(base + i) & 0x7fff];
-    g_xsnap_base = base;
-    g_xsaved = true;
-  }
-  if (g_xsnap_base != base) return;
+  g_xsaved = true;
   const uint16_t b1 = (uint16_t)((reg_BG1SC & 0xfc) << 8);
   const int bxm = (uint16)(layer1_x_pos + bg1_x_offset) >> 4, bym = (uint16)(layer1_y_pos + bg1_y_offset) >> 4;
   const int lx0 = FloorDiv16((int16)layer1_x_pos), ly0 = FloorDiv16((int16)layer1_y_pos);
