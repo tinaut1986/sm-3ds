@@ -2921,7 +2921,7 @@ uint16 EquipmentScreenMoveLowerOnSuitsMisc(uint16 v0) {  // 0x82B4B7
 
   while ((kEquipmentBitmasks_Suits[v0 >> 1] & collected_items) == 0) {
     v0 += 2;
-    if ((int16)(v0 - 10) >= 0)
+    if ((int16)(v0 - 12) >= 0)   // 3DS port: the ROM compares with 12 (CPX #$000C): 10 never reached the Screw Attack (#71)
       return -1;
   }
   QueueSfx1_Max6(0x37);
