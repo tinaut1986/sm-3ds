@@ -83,6 +83,12 @@ bool RtlHeavyPhysics(void) {
   return g_rtl_heavy_physics && !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
 }
 
+bool g_rtl_auto_space_jump;   // 3DS port, see sm_rtl.h
+
+bool RtlAutoSpaceJump(void) {
+  return g_rtl_auto_space_jump && !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
+}
+
 void Samus_Animate_WaterFx(void) {  // 0x9080B8
   static const uint16 kSamusPhys_AnimDelayInWater = 3;
   uint16 r18 = Samus_GetBottom_R18();
@@ -1968,7 +1974,9 @@ void Samus_Movement_03_SpinJumping(void) {  // 0x90A436
         goto LABEL_24;
       }
       UNUSED_word_7E0DFA = UNUSED_word_7E0DFA & 0xFF00 | 1;
-      if ((button_config_jump_a & joypad1_newkeys) != 0)
+      // 3DS port: AUTO SPACE JUMP takes the button held for a press (#73).
+      if ((button_config_jump_a & joypad1_newkeys) != 0 ||
+          (RtlAutoSpaceJump() && (button_config_jump_a & joypad1_lastkeys) != 0))
         Samus_InitJump(); // bug: this overwrites r18
     }
 LABEL_24:;

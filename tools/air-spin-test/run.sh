@@ -1,5 +1,5 @@
 #!/bin/bash
-# Host check of AIR SPIN (#68) and the HEAVY PHYSICS wall jump (#65), tools/air-spin-test/air_spin_test.c.
+# Host check of AIR SPIN (#68), the HEAVY PHYSICS wall jump (#65) and AUTO SPACE JUMP (#73), tools/air-spin-test/air_spin_test.c.
 # Usage: tools/air-spin-test/run.sh /path/to/rom.sfc
 # Boots the game headless and puts Samus on Landing Site's floor. With the option off a second jump press
 # in a plain jump changes nothing; with it on, the press turns a rising jump and a fall into a spin jump

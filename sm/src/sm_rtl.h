@@ -263,6 +263,12 @@ bool RtlHeavyPhysics(void);
 // RtlAirSpin: on, and not in a title screen demo.
 extern bool g_rtl_air_spin;
 bool RtlAirSpin(void);
+// 3DS port, an option (OPTIONS -> PLAY -> AUTO SPACE JUMP, off by default, #73): with Space Jump, the jump button
+// held in a spin jump counts as a new press on the first frame the game accepts one (falling, inside its speed
+// window, Samus_Movement_03_SpinJumping), so holding it climbs without tapping in rhythm, as in the Zero Mission
+// port. RtlAutoSpaceJump: on, and not in a title screen demo.
+extern bool g_rtl_auto_space_jump;
+bool RtlAutoSpaceJump(void);
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
 // bottom screen's STATUS tab), as the pause menu's equipment screen would: GameState_8_MainGameplay
 // takes it at the start of its next frame, toggles only what Samus has and the equipment screen
