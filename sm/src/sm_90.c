@@ -1506,11 +1506,15 @@ LABEL_11:;
   if ((equipped_items & 0x100) != 0) {
     samus_y_subspeed = kSamus_InitJump_Tab3[v1];
     samus_y_speed = kSamus_InitJump_Tab2[v1];
-    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 9;   // 3DS port: heavy physics, in air
+    // 3DS port: heavy physics. In air, 8.4000 and not Redux's 9: 9 rose 204 px against the original's 168
+    // (+22 %, the jump without Hi-Jump only +8 %), now 172 (#65). In lava / acid Redux's 4.
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 8, samus_y_subspeed = 0x4000;
+    if (v1 == 2 && RtlHeavyPhysics()) samus_y_speed = 4;
   } else {
     samus_y_subspeed = kSamus_InitJump_Subspeed_Y[v1];
     samus_y_speed = kSamus_InitJump_Speed_Y[v1];
     if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 6;
+    if (v1 == 2 && RtlHeavyPhysics()) samus_y_speed = 3;   // 3DS port: Redux's jump in lava / acid (#65)
   }
   if ((equipped_items & 0x2000) != 0) {
     samus_y_subspeed += samus_x_extra_run_subspeed;
@@ -1550,11 +1554,13 @@ LABEL_11:;
     samus_y_speed = kSamus_InitWallJump_2[v1];
     // 3DS port: heavy physics, in air. Zero Mission's wall jump is a normal jump's: the height of this
     // option's jump (Redux's 8 and 7 rose higher than a jump from the ground, #65).
-    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 9, samus_y_subspeed = 0;
+    if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 8, samus_y_subspeed = 0x4000;
+    if (v1 == 1 && RtlHeavyPhysics()) samus_y_speed = 2;   // 3DS port: Redux's wall jump under water (#65)
   } else {
     samus_y_subspeed = kSamus_InitWallJump_1[v1];
     samus_y_speed = kSamus_InitWallJump_0[v1];
     if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 6, samus_y_subspeed = 0xe000;
+    if (v1 == 1 && RtlHeavyPhysics()) samus_y_speed = 2;
   }
   if ((equipped_items & 0x2000) != 0) {
     r18 = samus_x_extra_run_speed >> 1;
@@ -1617,6 +1623,7 @@ LABEL_11:;
   samus_y_subspeed = kSamus_InitBombJump_Subspeed[v1];
   samus_y_speed = kSamus_InitBombJump_Speed[v1];
   if (v1 == 0 && RtlHeavyPhysics()) samus_y_speed = 3;   // 3DS port: heavy physics, in air
+  if (v1 != 0 && RtlHeavyPhysics()) samus_y_speed = v1;   // 3DS port: Redux's bomb jump in water (1) and lava / acid (2) (#65)
   grapple_walljump_timer = 0;
   reached_ceres_elevator_fade_timer = 0;
   samus_y_dir = 1;
@@ -1630,22 +1637,38 @@ static bool IsGreaterThanQuirked(uint16 vhi, uint16 vlo, uint16 cmphi, uint16 cm
   return false;
 }
 
-// 3DS port: heavy physics' top X speeds in air (entries of kSamusSpeedTable_Normal_X, by movement type:
-// jumping, spin jumping, falling, morph ball falling, spring ball in air and falling, wall jumping).
-static uint16 HeavyMaxSpeedX(uint16 k, uint16 max_speed) {
-  if (!RtlHeavyPhysics()) return max_speed;
+// 3DS port: heavy physics' X speeds. In air (kSamusSpeedTable_Normal_X, by movement type: jumping, spin
+// jumping, falling, morph ball falling, spring ball in air and falling, wall jumping) its top speeds; in
+// water (kSamusSpeedTable_Water_X, no Gravity Suit) Redux's own table, which its Heavy Physics is made
+// for (#65). Returns the entry to use, `buf` when it differs from the ROM's.
+static const SamusSpeedTableEntry *HeavySpeedEntry(uint16 k, SamusSpeedTableEntry *buf) {
+  const SamusSpeedTableEntry *sste = get_SamusSpeedTableEntry(k);
+  if (!RtlHeavyPhysics()) return sste;
+  *buf = *sste;
   switch (k + 4) {
   // The wall jump (0xA049) as the rest of the air: Redux's 3 pushed Samus far off the wall; Zero
   // Mission's tops out at 2 px a frame (#65).
-  case 0x9F71: case 0x9F7D: case 0x9FA1: case 0x9FB9: case 0xA03D: case 0xA049: return 2;
-  case 0xA031: return 3;
-  default: return max_speed;
+  case 0x9F71: case 0x9F7D: case 0x9FA1: case 0x9FB9: case 0xA03D: case 0xA049: buf->max_speed = 2; return buf;
+  case 0xA031: buf->max_speed = 3; return buf;
   }
+  if (k >= addr_kSamusSpeedTable_Water_X && k < addr_kSamusSpeedTable_LavaAcid_X) {
+    switch ((k - addr_kSamusSpeedTable_Water_X) / 12) {   // the movement type
+    case 1: buf->accel_sub = 0x1000, buf->max_speed = 1, buf->decel = 1; return buf;   // running
+    case 2: buf->accel_sub = 0xc700; return buf;   // jumping
+    case 3: buf->accel_sub = 0xff00; return buf;   // spin jumping
+    case 4: buf->accel_sub = 0x600; return buf;    // morph ball on the ground
+    case 8: buf->accel_sub = 0xf000; return buf;   // morph ball falling
+    case 17: buf->accel_sub = 0x800; return buf;   // spring ball on the ground
+    case 18: case 19: buf->accel_sub = 0xf000; return buf;   // spring ball in air, falling
+    }
+  }
+  return sste;
 }
 
 int32 Samus_CalcBaseSpeed_X(uint16 k) {  // 0x909A7E
-  SamusSpeedTableEntry *sste = get_SamusSpeedTableEntry(k);
-  const uint16 max_speed = HeavyMaxSpeedX(k, sste->max_speed);
+  SamusSpeedTableEntry heavy;
+  const SamusSpeedTableEntry *sste = HeavySpeedEntry(k, &heavy);   // 3DS port: heavy physics
+  const uint16 max_speed = sste->max_speed;
   if (samus_x_accel_mode) {
     int32 delta = samus_x_decel_mult ?
         __PAIR32__(Mult8x8(samus_x_decel_mult, sste->decel) >> 8, Mult8x8(samus_x_decel_mult, HIBYTE(sste->decel_sub))) :
@@ -1667,8 +1690,9 @@ int32 Samus_CalcBaseSpeed_X(uint16 k) {  // 0x909A7E
 }
 
 static Pair_Bool_Amt Samus_CalcBaseSpeed_NoDecel_X(uint16 k) {  // 0x909B1F
-  SamusSpeedTableEntry *sste = get_SamusSpeedTableEntry(k);
-  const uint16 max_speed = HeavyMaxSpeedX(k, sste->max_speed);
+  SamusSpeedTableEntry heavy;
+  const SamusSpeedTableEntry *sste = HeavySpeedEntry(k, &heavy);   // 3DS port: heavy physics
+  const uint16 max_speed = sste->max_speed;
   bool rv = false;
   if ((samus_x_accel_mode & 1) != 0) {
     int32 delta = samus_x_decel_mult ?
