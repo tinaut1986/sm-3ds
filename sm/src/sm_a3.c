@@ -526,12 +526,13 @@ void Elevator_Func_1(void) {  // 0xA39548
 
 void Elevator_Func_2(void) {  // 0xA39579
   Enemy_Elevator *E = Get_Elevator(cur_enemy_index);
+  // 3DS port: REDUX, faster elevators (P4.26): Redux's 2.8000 up and 2 down where the original's go 1.8000.
   if (E->elevat_parameter_1) {
     elevator_direction = 0x8000;
-    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, -0x18000);
+    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, RtlRedux() ? -0x28000 : -0x18000);
   } else {
     elevator_direction = 0;
-    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, 0x18000);
+    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, RtlRedux() ? 0x20000 : 0x18000);
   }
   Elevator_Func_4();
 }
@@ -543,14 +544,14 @@ void Elevator_Func_3(void) {  // 0xA395B9
 
 void Elevator_Func3b(void) {  // 0xA395BC
   Enemy_Elevator *E = Get_Elevator(cur_enemy_index);
-  if (E->elevat_parameter_1) {
-    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, 0x18000);
+  if (E->elevat_parameter_1) {   // 3DS port: REDUX, 2.8000 (P4.26)
+    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, RtlRedux() ? 0x28000 : 0x18000);
     if (E->base.y_pos < E->elevat_var_A) {
       Elevator_Func_4();
       return;
     }
   } else {
-    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, -0x18000);
+    AddToHiLo(&E->base.y_pos, &E->base.y_subpos, RtlRedux() ? -0x28000 : -0x18000);
     if (E->base.y_pos >= E->elevat_var_A) {
       Elevator_Func_4();
       return;

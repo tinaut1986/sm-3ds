@@ -358,7 +358,7 @@ static void PublishView(void) {
 }
 
 // During a door transition the lean moves from the old room's to the new room's along with
-// the scrolling (64 frames of 4 px across, 57 down or up), the new one taken at the
+// the scrolling (64 frames of 4 px across, 57 down or up; half with REDUX), the new one taken at the
 // destination camera: the door then travels to where the new room shows it, rather than
 // jumping there when the transition ends. Before the scrolling starts the old lean stays:
 // the counter still holds the previous transition's end (64) until FixDoorsMovingUp /
@@ -374,7 +374,9 @@ static void LeanDoor(void) {
     g_lean_from_y = -g_top;
   }
   const bool across = !(door_direction & 2);
-  const int frames = across ? 64 : 57, n = door_transition_frame_counter;
+  // REDUX scrolls 8 px a frame, in half the frames (sm_80.c, DoorScrollStep).
+  const int step = RtlRedux() ? 8 : 4;
+  const int frames = across ? 256 / step : 224 / step + 1, n = door_transition_frame_counter;
   if (n == 0 || n < g_door_last_count) g_door_scrolling = true;
   g_door_last_count = n;
   if (!g_door_scrolling || n <= 0) {

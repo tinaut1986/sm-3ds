@@ -627,6 +627,8 @@ const uint8 *PlmInstr_QueueMusic(const uint8 *plmp, uint16 k) {  // 0x848BD1
 }
 
 const uint8 *PlmInstr_ClearMusicQueueAndQueueTrack(const uint8 *plmp, uint16 k) {  // 0x848BDD
+  if (RtlRedux_ExpansionSound(plmp))   // 3DS port: REDUX, a sound and no fanfare (P4.26)
+    return plmp + 1;
   for (int i = 14; i >= 0; i -= 2) {
     int v3 = i >> 1;
     music_queue_track[v3] = 0;
@@ -730,10 +732,18 @@ const uint8 *PlmInstr_ActivateEnergyStation(const uint8 *plmp, uint16 k) {  // 0
   return plmp;
 }
 
+// 3DS port: REDUX, a missile station reloads the missiles, the super missiles and the power bombs (P4.26).
+static bool WeaponsFull(void) {
+  return samus_missiles == samus_max_missiles && (!RtlRedux() || (samus_super_missiles == samus_max_super_missiles
+                                                                  && samus_power_bombs == samus_max_power_bombs));
+}
+
 const uint8 *PlmInstr_ActivateMissileStation(const uint8 *plmp, uint16 k) {  // 0x848CD0
-  if (samus_max_missiles != samus_missiles) {
+  if (!WeaponsFull()) {
     DisplayMessageBox(0x16);
     samus_missiles = samus_max_missiles;
+    if (RtlRedux())
+      samus_super_missiles = samus_max_super_missiles, samus_power_bombs = samus_max_power_bombs;
   }
   CallSomeSamusCode(1);
   return plmp;
@@ -1103,7 +1113,7 @@ const uint8 *PlmInstr_GotoIfSamusHealthFull(const uint8 *plmp, uint16 k) {  // 0
 }
 
 const uint8 *PlmInstr_GotoIfMissilesFull(const uint8 *plmp, uint16 k) {  // 0x84AEBF
-  if (samus_max_missiles != samus_missiles)
+  if (!WeaponsFull())
     return plmp + 2;
   CallSomeSamusCode(1);
   return INSTRB_RETURN_ADDR(GET_WORD(plmp));
@@ -1257,7 +1267,7 @@ uint8 PlmSetup_B6EF_MissileStationRightAccess(uint16 j) {  // 0x84B2D0
   if ((samus_collision_direction & 0xF) != 0
       || samus_pose != kPose_8A_FaceL_Ranintowall
       || (samus_pose_x_dir & 4) == 0
-      || samus_missiles == samus_max_missiles) {
+      || WeaponsFull()) {
     plm_header_ptr[j >> 1] = 0;
     return 1;
   }
@@ -1268,7 +1278,7 @@ uint8 PlmSetup_B6F3_MissileStationLeftAccess(uint16 j) {  // 0x84B300
   if ((samus_collision_direction & 0xF) == 1
       && samus_pose == kPose_89_FaceR_Ranintowall
       && (samus_pose_x_dir & 8) != 0
-      && samus_missiles != samus_max_missiles) {
+      && !WeaponsFull()) {
     return ActivateStationIfSamusCannonLinedUp(plm_block_indices[j >> 1] + 2, j);
   } else {
     plm_header_ptr[j >> 1] = 0;

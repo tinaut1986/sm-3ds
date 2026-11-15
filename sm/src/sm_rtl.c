@@ -444,6 +444,7 @@ bool RtlRunFrame(int inputs) {
   if (bug_fix_counter != currently_installed_bug_fix_counter)
     RtlUpdateSnesPatchForBugfix();
 
+  RtlRedux_SyncRom();   // 3DS port: REDUX's ROM data in or out (sm_redux.c)
   g_rtl_runframe(inputs, 0);
 
   snes_frame_counter++;

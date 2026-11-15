@@ -2394,15 +2394,20 @@ void Irq_FollowDoorTransition(void) {
   }
 }
 
+// 3DS port: REDUX scrolls a door transition 8 px a frame, in half the frames (P4.26; Samus's speed is
+// doubled in LoadDoorHeader). The original's 4: 64 frames across, 56 down or up.
+static int DoorScrollStep(void) { return RtlRedux() ? 8 : 4; }
+
 uint8 DoorTransition_Right(void) {  // 0x80AE7E
   uint16 v2 = door_transition_frame_counter;
+  const int step = DoorScrollStep();
   AddToHiLo(&samus_x_pos, &samus_x_subpos, __PAIR32__(samus_door_transition_speed, samus_door_transition_subspeed));
   samus_prev_x_pos = samus_x_pos;
-  layer1_x_pos += 4;
-  layer2_x_pos += 4;
+  layer1_x_pos += step;
+  layer2_x_pos += step;
   UpdateScrollVarsUpdateMap();
   door_transition_frame_counter = v2 + 1;
-  if (v2 != 63)
+  if (v2 != 256 / step - 1)
     return 0;
   UpdateScrollVarsUpdateMap();
   return 1;
@@ -2410,23 +2415,25 @@ uint8 DoorTransition_Right(void) {  // 0x80AE7E
 
 uint8 DoorTransition_Left(void) {  // 0x80AEC2
   uint16 v2 = door_transition_frame_counter;
+  const int step = DoorScrollStep();
   AddToHiLo(&samus_x_pos, &samus_x_subpos, -IPAIR32(samus_door_transition_speed, samus_door_transition_subspeed));
   samus_prev_x_pos = samus_x_pos;
-  layer1_x_pos -= 4;
-  layer2_x_pos -= 4;
+  layer1_x_pos -= step;
+  layer2_x_pos -= step;
   UpdateScrollVarsUpdateMap();
   door_transition_frame_counter = v2 + 1;
-  return v2 == 63;
+  return v2 == 256 / step - 1;
 }
 
 uint8 DoorTransition_Down(void) {  // 0x80AF02
   uint16 v6 = door_transition_frame_counter;
+  const int step = DoorScrollStep(), frames = 224 / step + 1;   // 0x39 in the original
   if (door_transition_frame_counter) {
-    if (door_transition_frame_counter < 0x39) {
+    if (door_transition_frame_counter < frames) {
       AddToHiLo(&samus_y_pos, &samus_y_subpos, __PAIR32__(samus_door_transition_speed, samus_door_transition_subspeed));
       samus_prev_y_pos = samus_y_pos;
-      layer1_y_pos += 4;
-      layer2_y_pos += 4;
+      layer1_y_pos += step;
+      layer2_y_pos += step;
       UpdateScrollVarsUpdateMap();
     }
   } else {
@@ -2447,7 +2454,7 @@ uint8 DoorTransition_Down(void) {  // 0x80AF02
     reg_BG1VOFS = v5;
   }
   door_transition_frame_counter = v6 + 1;
-  if ((uint16)(v6 + 1) < 0x39)
+  if ((uint16)(v6 + 1) < frames)
     return 0;
   UpdateScrollVarsUpdateMap();
   return 1;
@@ -2455,12 +2462,13 @@ uint8 DoorTransition_Down(void) {  // 0x80AF02
 
 uint8 DoorTransition_Up(void) {  // 0x80AF89
   uint16 v6 = door_transition_frame_counter;
+  const int step = DoorScrollStep();
   if (door_transition_frame_counter) {
     AddToHiLo(&samus_y_pos, &samus_y_subpos, -IPAIR32(samus_door_transition_speed, samus_door_transition_subspeed));
     samus_prev_y_pos = samus_y_pos;
-    layer1_y_pos -= 4;
-    layer2_y_pos -= 4;
-    if (door_transition_frame_counter >= 5) {
+    layer1_y_pos -= step;
+    layer2_y_pos -= step;
+    if (door_transition_frame_counter >= 16 / step + 1) {   // 5 in the original: the rows behind the HUD first
       UpdateScrollVarsUpdateMap();
     } else {
       reg_BG1HOFS = bg1_x_offset + layer1_x_pos;
@@ -2486,7 +2494,7 @@ uint8 DoorTransition_Up(void) {  // 0x80AF89
     reg_BG1VOFS = v5;
   }
   door_transition_frame_counter = v6 + 1;
-  return v6 == 56;
+  return v6 == 224 / step;
 }
 
 void ConfigureMode7RotationMatrix(void) {  // 0x80B0C2

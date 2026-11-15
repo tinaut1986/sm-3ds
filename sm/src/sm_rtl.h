@@ -257,6 +257,20 @@ extern bool g_rtl_charge_pull;
 // RtlHeavyPhysics: on, and not in a title screen demo, whose inputs were recorded with the original's.
 extern bool g_rtl_heavy_physics;
 bool RtlHeavyPhysics(void);
+// 3DS port, an option (OPTIONS -> PLAY -> REDUX, off by default, P4.26): Super Metroid Redux's changes to the
+// game itself (ShadowOne333's hack; its values, the port's own code, sm_redux.c): missile doors that open with
+// one missile, faster doors and door transitions, message boxes that a button closes after half a second,
+// a sound instead of the fanfare for the expansions (tanks, missiles, super missiles, power bombs), faster
+// elevators, missile stations that reload every weapon. Heavy physics stay their own option (in Redux too).
+// RtlRedux: on, and not in a title screen demo. RtlRedux_SyncRom: puts Redux's ROM data in or takes it out
+// as RtlRedux changes, once a frame (RtlRunFrame).
+extern bool g_rtl_redux;
+bool RtlRedux(void);
+void RtlRedux_SyncRom(void);
+// REDUX in the item lists: plays the sound of an expansion instead of its fanfare (true: the fanfare is not
+// queued); RtlRedux_TakeExpansionSound: true once after it, the room's music then not restarted.
+bool RtlRedux_ExpansionSound(const uint8 *plmp);
+bool RtlRedux_TakeExpansionSound(void);
 // 3DS port, an option (OPTIONS -> PLAY -> AIR SPIN, off by default, #68): as in Zero Mission, the jump button
 // pressed in the air during a plain jump or a fall (neither up, down nor an aim button held) starts a spin
 // jump with the speed Samus has: no new jump. So a fall or a jump without a run can end in a wall jump.
