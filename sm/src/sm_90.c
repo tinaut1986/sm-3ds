@@ -339,8 +339,12 @@ static Func_AnimDelay *const kAnimDelayFuncs[16] = {  // 0x9082DC
 
 #define kDefaultAnimFramePtr ((uint16 *)RomFixedPtr(0x91B5D1))
 
+// 3DS port: REDUX's movement type for running: the low nibble, so the spring ball on the ground (0x11) runs too (SPEED
+// BALL, P4.26).
+static uint8 RunMovementType(void) { return RtlRedux() ? samus_movement_type & 0xF : samus_movement_type; }
+
 static uint8 Samus_HandleSpeedBoosterAnimDelay(const uint8 *jp) {  // 0x90852C
-  if (!samus_has_momentum_flag || (button_config_run_b & joypad1_lastkeys) == 0 || samus_movement_type != 1)
+  if (!samus_has_momentum_flag || (button_config_run_b & joypad1_lastkeys) == 0 || RunMovementType() != 1)
     return jp[0];
   if ((equipped_items & 0x2000) == 0) {
     samus_anim_frame = 0;
@@ -351,7 +355,7 @@ static uint8 Samus_HandleSpeedBoosterAnimDelay(const uint8 *jp) {  // 0x90852C
     return jp[0];
   uint16 v2 = speed_boost_counter;
   if ((speed_boost_counter & 0x400) == 0) {
-    v2 = speed_boost_counter + 256;
+    v2 = speed_boost_counter + (RtlRedux() ? 512 : 256);   // 3DS port: REDUX charges the speed booster twice as fast
     speed_boost_counter = v2;
     if ((v2 & 0x400) != 0) {
       // The original code forgets to preserve A here.
@@ -1011,7 +1015,7 @@ void Samus_JumpingMovement(void) {  // 0x908FB3
     samus_y_dir = 2;
   }
   Pair_Bool_Amt pair = Samus_CalcBaseSpeed_NoDecel_X(Samus_DetermineSpeedTableEntryPtr_X());
-  if (samus_movement_type == 20) {
+  if (samus_movement_type == 20 && !RtlRedux()) {   // 3DS port: REDUX, a wall jump drifts only with the pad held (P4.26)
     if (!samus_x_accel_mode)
       samus_x_accel_mode = 2;
     goto LABEL_17;
@@ -1029,7 +1033,7 @@ LABEL_18:
 }
 
 void Samus_SpinJumpMovement(void) {  // 0x909040
-  static const uint16 g_word_909E9F = 8;
+  const uint16 g_word_909E9F = RtlRedux() ? 10 : 8;   // 3DS port: REDUX finds the wall for a wall jump 2 px further (P4.26)
 
   Samus_HandleExtraRunspeedX();
   if (samus_y_dir == 1 && ((button_config_jump_a & joypad1_lastkeys) == 0 || (samus_y_speed & 0x8000) != 0)) {
@@ -1425,7 +1429,7 @@ LABEL_24:
       goto LABEL_24;
     }
   }
-  if (samus_movement_type != 1 || (button_config_run_b & joypad1_lastkeys) == 0)
+  if (RunMovementType() != 1 || (button_config_run_b & joypad1_lastkeys) == 0)
     goto LABEL_24;
   if ((equipped_items & 0x2000) != 0) {
     if (!samus_has_momentum_flag) {
@@ -1896,7 +1900,20 @@ void Samus_MovementHandler_Normal(void) {
   }
 }
 
+// 3DS port: REDUX keeps the run's speed on landing from a jump or a fall (SMOOTH LANDING, P4.26): standing after one of
+// these poses, nothing of the speed is cleared.
+static bool ReduxKeepsSpeed(void) {
+  static const uint8 kPoses[] = { 0x13, 0x14, 0x19, 0x1A, 0x1B, 0x1C, 0x27, 0x28, 0x29, 0x2A, 0x3D, 0x3E, 0x51, 0x52, 0x67, 0x68,
+                                  0x81, 0x82, 0x83, 0x84 };
+  if (!RtlRedux()) return false;
+  for (size_t i = 0; i < sizeof(kPoses); i++)
+    if ((uint8)samus_last_different_pose == kPoses[i]) return true;
+  return false;
+}
+
 void Samus_Movement_00_Standing(void) {  // 0x90A383
+  if (ReduxKeepsSpeed())
+    return;
   if (samus_pose && samus_pose != kPose_9B_FaceF_VariaGravitySuit) {
     if ((samus_pose == kPose_01_FaceR_Normal || samus_pose == kPose_02_FaceL_Normal)
         && (button_config_shoot_x & joypad1_lastkeys) != 0) {
@@ -1940,12 +1957,15 @@ void Samus_Movement_02_NormalJumping(void) {  // 0x90A42E
 // Warning: OOB
 
 void Samus_Movement_03_SpinJumping(void) {  // 0x90A436
-  static const uint16 kSamusPhys_JumpMinYVelAir = 0x280;
-  static const uint16 kSamusPhys_JumpMaxYVelAir = 0x500;
-  static const uint16 kSamusPhys_JumpMinYVelWater = 0x80;
-  static const uint16 kSamusPhys_JumpMaxYVelWater = 0x500;
+  // 3DS port: REDUX's Space Jump window, 1.00 to 8.00 px a frame of fall in air and water (Space Jump no longer stops
+  // after a long fall), and no liquid check: in water or lava Samus spins and space jumps as in air (P4.26).
+  const bool redux = RtlRedux();
+  const uint16 kSamusPhys_JumpMinYVelAir = redux ? 0x100 : 0x280;
+  const uint16 kSamusPhys_JumpMaxYVelAir = redux ? 0x800 : 0x500;
+  const uint16 kSamusPhys_JumpMinYVelWater = redux ? 0x100 : 0x80;
+  const uint16 kSamusPhys_JumpMaxYVelWater = redux ? 0x800 : 0x500;
   uint16 r18 = 0;
-  if ((samus_suit_palette_index & 4) == 0) {
+  if ((samus_suit_palette_index & 4) == 0 && !redux) {
     uint16 r20 = Samus_GetTop_R20();
     if ((fx_y_pos & 0x8000) != 0) {
       if ((lava_acid_y_pos & 0x8000) == 0 && sign16(lava_acid_y_pos - r20))
@@ -3896,6 +3916,9 @@ LABEL_10:;
     uint16 v3 = hud_item_index;
     uint16 r18 = swap16(hud_item_index);
     projectile_type[v1] |= r18 | 0x8000;
+    // 3DS port: REDUX, a super missile fired down in the air pushes Samus up (SUPER MISSILE RECOIL, P4.26).
+    if (RtlRedux() && projectile_type[v1] == 0x8200 && samus_y_dir && (projectile_dir[v1] == 4 || projectile_dir[v1] == 5))
+      samus_y_dir = 1, samus_y_speed = 3;
     uint16 v4 = 2 * (v3 & 0xF);
     if (!cinematic_function)
       QueueSfx1_Max6(kNonBeamProjectile_Sfx[v4 >> 1]);

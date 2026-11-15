@@ -2056,7 +2056,8 @@ void SamusProjectileInteractionHandler(void) {  // 0xA09785
         knockback_x_dir = (int16)(samus_x_pos - eproj_x_pos[v0 >> 1]) >= 0;
         return;
       }
-      if (projectile_variables[pidx] == 8) {
+      // 3DS port: REDUX, down held: no bomb jump (BOMB SKIP, P4.26).
+      if (projectile_variables[pidx] == 8 && !(RtlRedux() && (joypad1_lastkeys & button_config_down))) {
         bomb_jump_dir = (samus_x_pos == projectile_x_pos[pidx]) ? 2 :
             (int16)(samus_x_pos - projectile_x_pos[pidx]) < 0 ? 1 : 3;
       }

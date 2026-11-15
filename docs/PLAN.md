@@ -912,9 +912,14 @@ Lessons from mzm that apply directly:
   expansion item lists play sound 0x22 instead of the fanfare and keep the music (the chozo orbs' first missile, super missile
   and power bomb keep it, as in Redux); elevators at 2.8000 / 2 px a frame; missile stations reload missiles, super missiles
   and power bombs, with box 22 reading WEAPONS RELOAD (`kWeaponsReloadKey` in `game_text.c`). Host test `tools/redux-test` in
-  `make test`. Next: Redux's movement (respin in a fall, spin fall, bomb skip, quick morph, the demorph jump, Space Jump after a
-  long fall, the run speed kept after a jump or fall, super missile recoil), then power bombs revealing blocks, Screw Attack
-  through frozen enemies, the X-ray's width and speed, game time and percentage in the pause screen. Not planned: Redux's new
+  `make test`. Second batch (Redux's moves, from its pose table and Project Base's patches): RESPIN is AIR SPIN turned on;
+  QUICK MORPH (item cancel + down, standing, jumping or falling, ahead of the table's crouch); BOMB SKIP; SPEED BALL (movement
+  type's low nibble for running); Space Jump window 1.00-8.00 in air and water and no liquid check while spinning; the wall
+  jump found at 10 px; no forced drift after a wall jump; super missile recoil; SPARK RESTART; the speed booster charged
+  twice as fast and kept through a spin's turn; the fall's speed kept (HandleTransitionsA_5_2); SMOOTH LANDING as Redux hooks
+  it (Samus_Movement_00_Standing; no difference found in a plain run-jump-land, left unverified). Not found in Redux's code:
+  SPIN FALL and the DEMORPH JUMP. Next: power bombs revealing blocks, Screw Attack through frozen enemies, the X-ray's width
+  and speed, game time and percentage in the pause screen. Not planned: Redux's new
   map, HUD colours, difficulty, demos, MSU-1, its Speed Booster. *Done when:* the owner has played with it on and every change
   works as in Redux, with nothing different with it off.
 

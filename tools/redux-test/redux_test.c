@@ -26,7 +26,7 @@ void RtlApuLock(void) {} void RtlApuUnlock(void) {} void RtlApuQueueLock(void) {
 int SDL_GetKeyFromName(const char *n) { return 0; }
 
 // The frontend's pad bits: bit i is the SNES button 0x8000 >> i (main.c, RtlRunFrame).
-enum { START = 0x08, LEFT = 0x40, RIGHT = 0x80, JUMP = 0x100, SHOOT = 0x200 };
+enum { RUN = 0x01, ITEM_CANCEL = 0x02, START = 0x08, DOWN = 0x20, LEFT = 0x40, RIGHT = 0x80, JUMP = 0x100, SHOOT = 0x200 };
 
 static void Step(int in) {
   samus_health = 99;
@@ -37,6 +37,47 @@ static void Step(int in) {
 }
 
 static int RomByte(uint32 addr) { return *RomFixedPtr(addr); }
+
+// Landing Site, Samus standing on the floor under its tallest open column (as tools/air-spin-test).
+static bool Place(void) {
+  int n;
+  const SmRoom *rooms = SmMap_Rooms(&n);
+  for (int i = 0; i < n; i++)
+    if (rooms[i].header == 0x91F8) SmWarp_ToRoom(&rooms[i], 0);
+  for (int k = 0, s8 = 0; k < 900; k++) {
+    Step(0);
+    if (game_state == 8) { if (++s8 > 60) break; } else s8 = 0;
+  }
+  if (room_ptr != 0x91F8) return false;
+  samus_x_pos = 48 * 16 + 8, samus_y_pos = 77 * 16 - 24, samus_y_dir = 2;
+  for (int k = 0; k < 120; k++) Step(0);
+  return samus_movement_type == 0;
+}
+
+// The movement checks (P4.26's second batch): 1 when Redux's behaviour shows, 0 when the original's, -1 when it could not be set up.
+enum { kMoveSpace, kMoveQuickMorph, kMoveCount };
+static const char *const kMoveNames[kMoveCount] = { "space jump at 6 px a frame of fall", "quick morph (Y + down, standing)" };
+
+static int MoveCheck(int which) {
+  switch (which) {
+  case kMoveSpace: {   // a spin jump with Space Jump, falling at 6 px a frame: the jump button jumps again only in REDUX's window
+    collected_items |= 0x200, equipped_items |= 0x200;
+    for (int k = 0; k < 12; k++) Step(RIGHT);
+    for (int k = 0; k < 6; k++) Step(RIGHT | JUMP);   // a running jump: a spin
+    for (int k = 0; k < 200 && !(samus_movement_type == 3 && samus_y_dir == 2); k++) Step(RIGHT);
+    if (samus_movement_type != 3) return -1;
+    samus_y_dir = 2, samus_y_speed = 6, samus_y_subspeed = 0;
+    Step(RIGHT | JUMP);
+    return samus_y_dir == 1;   // rising: jumped again
+  }
+  case kMoveQuickMorph: {   // standing, item cancel (Y) and down held: the morph ball
+    collected_items |= 4, equipped_items |= 4;
+    for (int k = 0; k < 30; k++) Step(ITEM_CANCEL | DOWN);
+    return samus_movement_type == 4 || samus_movement_type == 8;
+  }
+  }
+  return -1;
+}
 
 // Arrives in `room` through its door number `which` (a left or right door), turns to the door it came
 // through, shoots it open and walks into it. Returns the frames from the door hit (game state 9) back to
@@ -130,6 +171,33 @@ int main(int argc, char **argv) {
   const bool door_ok = frames[0] > 0 && frames[1] > 0 && frames[1] * 4 < frames[0] * 3;
   printf("door transition: %d frames, with REDUX %d (want at most 3/4)\n", frames[0], frames[1]);
   fails += !door_ok;
+
+  // Movement (P4.26's second batch): with REDUX off the original's result, with it on Redux's.
+  for (int m = 0; m < kMoveCount; m++) {
+    int got[2] = { -1, -1 };
+    for (int t = 0; t < 2; t++) {
+      int fd[2];
+      if (pipe(fd)) return 2;
+      fflush(stdout);
+      pid_t pid = fork();
+      if (pid == 0) {
+        alarm(120);
+        RtlSaveLoad(kSaveLoad_Load, 1);
+        g_rtl_redux = t == 1;
+        int r = Place() ? MoveCheck(m) : -1;
+        if (write(fd[1], &r, sizeof(r)) != sizeof(r)) _exit(2);
+        _exit(0);
+      }
+      int st, r = -1;
+      waitpid(pid, &st, 0);
+      if (read(fd[0], &r, sizeof(r)) != sizeof(r)) r = -1;
+      close(fd[0]), close(fd[1]);
+      got[t] = r;
+    }
+    const bool ok = got[0] == 0 && got[1] == 1;
+    printf("%s: off %d, on %d (want 0 then 1)\n", kMoveNames[m], got[0], got[1]);
+    fails += !ok;
+  }
 
   printf(fails ? "redux_test: %d FAILED\n" : "redux_test: OK\n", fails);
   return fails != 0;

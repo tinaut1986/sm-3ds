@@ -261,7 +261,10 @@ bool RtlHeavyPhysics(void);
 // game itself (ShadowOne333's hack; its values, the port's own code, sm_redux.c): missile doors that open with
 // one missile, faster doors and door transitions, message boxes that a button closes after half a second,
 // a sound instead of the fanfare for the expansions (tanks, missiles, super missiles, power bombs), faster
-// elevators, missile stations that reload every weapon. Heavy physics stay their own option (in Redux too).
+// elevators, missile stations that reload every weapon; and Redux's moves: RESPIN (AIR SPIN on), QUICK MORPH (item cancel +
+// down), BOMB SKIP (down held), SPEED BALL (the spring ball runs), Space Jump's wider window and in liquids, the wall jump
+// found 2 px further, super missile recoil, SPARK RESTART, the speed booster charged twice as fast and kept through a spin's
+// turn, the fall's speed and the run's on landing. Heavy physics stay their own option (in Redux too).
 // RtlRedux: on, and not in a title screen demo. RtlRedux_SyncRom: puts Redux's ROM data in or takes it out
 // as RtlRedux changes, once a frame (RtlRunFrame).
 extern bool g_rtl_redux;
