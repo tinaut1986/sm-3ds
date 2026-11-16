@@ -1,6 +1,6 @@
 # Expected values for tools/test/run.sh. Regenerate with --update after a change
 # that is meant to alter them, and say why in the commit.
-audio-rooms.hash=2711ed38f007843a
+audio-rooms.hash=3744bcb6faf04c1d
 edge-rooms.refused=0
 edge-rooms.wram=eea086f0dca547f8
 gameover-es.refused=0
@@ -43,7 +43,7 @@ wide-pbomb.image=264818894bc880f4
 wide-pbomb.refused=0
 wide-pbomb.wram=a42d0db19046fa1e
 wide-pipebug-leaving.refused=0
-wide-pipebug-leaving.wram=11a6ec8e8841838f
+wide-pipebug-leaving.wram=9d55eb3b6f36081d
 wide-pipebug.refused=0
 wide-pipebug.wram=1f90b87dcd25479b
 wide-rooms.refused=0

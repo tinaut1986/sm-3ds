@@ -216,7 +216,12 @@ static void TestWide(const char *label) {
   }
   g_gpu_ppu_obj_x = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_x;   // NO_FULLX: the 9-bit X (old bug)
   g_gpu_ppu_obj_y = getenv("WIDE_NO_FULLX") ? NULL : g_rtl_oam_shown_y;
+  // WIDE_BG2_CLIP=1: one copy of a boss's BG2 body, as main.c draws it (SmWide_Bg2Clip); off by default, the expected
+  // hashes were taken without it.
+  int bx0, bx1, by0, by1;
+  if (getenv("WIDE_BG2_CLIP") && SmWide_Bg2Clip(&bx0, &bx1, &by0, &by1)) GpuPpu_SetLayerClip(1, bx0, bx1, by0, by1);
   const bool built = GpuPpu_BuildFrame(g_snes->ppu, &g_cap, &g_frame, &why);
+  GpuPpu_SetLayerClip(-1, 0, 0, 0, 0);
   GpuPpu_SetWindow2Extent(NULL);
   GpuPpu_SetWindowCone(0, NULL);
   GpuPpu_SetMode7UnderHud(false);

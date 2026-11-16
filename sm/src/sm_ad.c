@@ -2,6 +2,7 @@
 #include "variables.h"
 #include "funcs.h"
 #include "enemy_types.h"
+#include "sm_rtl.h"
 
 
 #define kMotherBrain_HealthBasedPalettes_Brain ((uint16*)RomFixedPtr(0xade6a2))
@@ -34,6 +35,12 @@ void MotherBrain_CalcHdma(void) {  // 0xADDE00
   uint16 v3 = E1->base.y_pos + 5;
   E->mbn_var_3D = v3;
   E->mbn_var_3F = v3;
+  // 3DS port, WIDE: the rainbow beam's cone for the margins, as the X-ray's (sm_rtl.h, g_rtl_xray_cone): apex at column
+  // v2 >> 8 of line v3, window 1 through hdma_table_2; her angles turn the other way vertically (64 right, 0 down), so
+  // the X-ray's is 128 minus hers. The game cuts the beam to 0..255, so the margins kept the last column's lines and it
+  // went on as a horizontal band (#72).
+  g_rtl_xray_cone = (RtlXrayCone){ (int16)((v2 >> 8) + 1), (int16)v3, (uint16)((128 - E->mbn_var_31) & 0xff),
+                                   (uint16)(HIBYTE(E->mbn_var_33) >> 1), 0x9D00, true };
   r18 = 4 * (E->mbn_var_3A & 0xC0);
   int i = (r18 | E->mbn_var_3B & 0xC0) >> 6;
   funcs_BE56D[i]();

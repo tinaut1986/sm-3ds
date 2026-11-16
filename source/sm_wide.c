@@ -631,6 +631,9 @@ static void BeforePpuDraw(void) {
     return;
   }
   if (!shown) {
+    // The game over screen centred: it kept the fight's last lean, off to one side when Samus died by a wall (Mother
+    // Brain's room, #72). Not the death sequence before it, whose sprites would jump.
+    if (game_state == kGameState_26_GameOverMenu) SetLean(-g_margin_x), SetLeanY(-g_extra_top);
     HudRestore(ppu);   // margins masked: a door transition's rooms disagree
     if (door) Bg2Shift();
     PublishView();
@@ -751,6 +754,9 @@ bool SmWide_Mode7(void) { return g_mode7; }
 // y 409, camera 138, picture's top at row 206; the same for x: 62 columns left of her, 512 between copies). Only that
 // copy is drawn: screen columns [x0, x1), output rows [y0, y1).
 bool SmWide_Bg2Clip(int *x0, int *x1, int *y0, int *y1) {
+  // Only the fight: dying to the boss gives the death sequence and the game over screen, which main.c clips to the game's
+  // 256 columns; this came first there and left them unclipped (VRAM's garbage in the right margin, #72).
+  if (SmWide_GameOverView() || SmWide_MenuView()) return false;
   // Mother Brain's torso (phases 2 and 3, once the room's BG2 is hers: layer2_scroll_x 1: the game writes 257 to the pair; the room's own value is 0xC1) is a picture of ~14 x 11 tiles at
   // the top left of BG2's tilemap, which repeats every 256 columns: with her at the far left a second torso showed in the
   // right margin. The game scrolls it with BG2HOFS = 34 - her x (MotherBrain_MoveBodyDown): the picture's left edge is at
