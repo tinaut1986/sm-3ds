@@ -98,8 +98,8 @@ bool SmWarp_Ready(void) {
 static int g_pending_room = -1;   // header of the room we are warping into, or -1
 #ifdef SM_WARP_DEBUG
 static uint16_t g_def;   // the door definition of the warp in progress
-static uint16_t g_src;   // the room that door is in
 #endif
+static uint16_t g_src;   // the room the warp's door is in
 static int g_target_x, g_target_y;   // where Samus should stand, pixels; -1 = unknown
 static bool g_fixed_target;
 static bool g_target_vertical;   // door in a ceiling or floor: she arrives in the air
@@ -166,9 +166,6 @@ static void RelocateSamus(int target_x_px, int target_y_px) {
   samus_y_speed = samus_y_subspeed = 0;
 }
 
-#ifdef SM_WARP_DEBUG
-static int g_trace_frames;
-int g_warp_trace_plm;
 // A room whose state has no music bank (Mother Brain's, DD58) keeps what the room before it played. A warp has no room
 // before, so it takes the bank and track of the room the door is in, in its state for the current events (the game's own
 // state select, roomdefroomstate_ptr put back after). Without it the bank of wherever the warp started stayed loaded and
@@ -187,6 +184,9 @@ static void SourceRoomMusic(void) {
   if (st[5]) music_track_index = st[5];
 }
 
+#ifdef SM_WARP_DEBUG
+static int g_trace_frames;
+int g_warp_trace_plm;
 void __attribute__((noinline)) SmWarp_DebugArrived(void) { asm volatile(""); }   // gdb breakpoint target
 #endif
 
