@@ -661,9 +661,10 @@ void HdmaobjPreInstr_XrayFunc1_BeamWidening(uint16 k) {  // 0x888754
   if ((button_config_run_b & joypad1_lastkeys) != 0) {
     AddToHiLo(&demo_input_instr_timer, &demo_input_instr_ptr, 2048);
     AddToHiLo(&demo_input, &demo_input_new, __PAIR32__(demo_input_instr_timer, demo_input_instr_ptr));
-    if (!sign16(demo_input - 11)) {
+    // REDUX (P4.26): the beam opens at once (Redux reads a value that always passes the check) and to 26 (0x1A) instead of 10.
+    if (RtlRedux() || !sign16(demo_input - 11)) {
       demo_input_new = 0;
-      demo_input = 10;
+      demo_input = RtlRedux() ? 26 : 10;
       ++demo_input_pre_instr;
     }
     CalculateXrayHdmaTable();
@@ -682,10 +683,13 @@ void HdmaobjPreInstr_XrayFunc2_FullBeam(uint16 k) {  // 0x8887AB
 }
 
 void HandleMovingXrayUpDown(void) {  // 0x8887C5
-  if ((button_config_up & joypad1_lastkeys) != 0) {
-    MoveXrayUp();
-  } else if ((button_config_down & joypad1_lastkeys) != 0) {
-    MoveXrayDown();
+  // REDUX (P4.26): the beam turns 2 a frame instead of 1 (two steps of 1 clamp at the same limit).
+  for (int n = RtlRedux() ? 2 : 1; n--; ) {
+    if ((button_config_up & joypad1_lastkeys) != 0) {
+      MoveXrayUp();
+    } else if ((button_config_down & joypad1_lastkeys) != 0) {
+      MoveXrayDown();
+    }
   }
 }
 

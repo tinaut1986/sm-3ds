@@ -3337,7 +3337,7 @@ void QueueSamusMovementSfx(void) {  // 0x82BE2F
 
 
 uint8 AdvancePaletteFadeForAllPalettes_0xc(void) {  // 0x82D961
-  palette_change_denom = 12;
+  palette_change_denom = RtlRedux() ? 6 : 12;   // 3DS port: REDUX, a door's fades twice as fast (P4.26)
   return AdvancePaletteFadeForAllPalettes();
 }
 
@@ -3645,7 +3645,7 @@ void LoadDoorHeader(void) {  // 0x82DE12
     else
       samus_distance_from_door = 200;
   }
-  uint32 t = samus_distance_from_door << 8;
+  uint32 t = samus_distance_from_door << (RtlRedux() ? 9 : 8);   // 3DS port: REDUX, a transition in half the frames
   samus_door_transition_subspeed = t & 0xffff;
   samus_door_transition_speed = t >> 16;
 }
@@ -3771,6 +3771,8 @@ void NullFunc(void) {  // 0x82E113
 }
 
 void PlayRoomMusicTrackAfterAFrames(uint16 a) {  // 0x82E118
+  if (RtlRedux_TakeExpansionSound())   // 3DS port: REDUX, the music never stopped (P4.26)
+    return;
   if (game_state < kGameState_40_TransitionToDemo) {
     QueueMusic_DelayedY(0, a);
     QueueMusic_Delayed8(music_track_index);

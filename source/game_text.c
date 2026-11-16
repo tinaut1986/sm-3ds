@@ -65,6 +65,10 @@ static const char *const kMsgKeys[kMsgCount] = {
   [21] = "ENERGY RECHARGE COMPLETED.", [22] = "MISSILE RELOAD COMPLETED.", [23] = "WOULD YOU LIKE TO SAVE?",
   [24] = "SAVE COMPLETED.", [25] = "RESERVE TANK", [26] = "GRAVITY SUIT", [28] = "WOULD YOU LIKE TO SAVE?",
 };
+// With REDUX (sm_rtl.h, P4.26) a missile station reloads every weapon and box 22 says so, as in Redux: its own
+// key, and in English its first row (the second, "COMPLETED.", is the original's).
+static const char kWeaponsReloadKey[] = "WEAPONS RELOAD COMPLETED.";
+static const char kWeaponsReloadEnglish[] = "WEAPONS RELOAD";
 
 // The instruction lines of the modern controls ("KEY (modern line)"), English: the boxes whose line
 // names the original's buttons. BOMB's reads the same in both.
@@ -117,7 +121,9 @@ static bool MessageText(int index, MsgText *m) {
   static char rows[3][96];
   memset(m, 0, sizeof(*m));
   if (index <= 0 || index >= kMsgCount || !kMsgKeys[index]) return false;
-  const char *t = UiLang_Get("message boxes", kMsgKeys[index]);
+  const bool weapons = index == 22 && RtlRedux();
+  const char *t = UiLang_Get("message boxes", weapons ? kWeaponsReloadKey : kMsgKeys[index]);
+  if (weapons && !t) t = kWeaponsReloadEnglish;
   for (int r = 0; r < 3 && t; r++) {
     const char *bar = strchr(t, '|');
     const char *end = bar ? bar : t + strlen(t);
@@ -149,6 +155,7 @@ void GameText_ForEachKey(LangKeyFn *fn) {
     if (!kMsgKeys[i] || (i == 28 && !strcmp(kMsgKeys[i], kMsgKeys[23]))) continue;
     char key[64];
     fn("message boxes", kMsgKeys[i], "up to three rows split by |");
+    if (i == 22) fn("message boxes", kWeaponsReloadKey, "REDUX's missile station: up to three rows split by |");
     if ((i >= 2 && i <= 6) || i == 13 || i == 19) {
       snprintf(key, sizeof(key), "%s (line)", kMsgKeys[i]);
       fn("message boxes", key, "lowercase, a {} for each picture of the English line");

@@ -84,6 +84,9 @@ check auto-bomb "auto_bomb_test: OK" "$(grep -q '^auto_bomb_test: OK$' "$OUT/aut
 echo "air-spin: AIR SPIN in a jump and a fall, and the HEAVY PHYSICS wall jump as high as a jump, AUTO SPACE JUMP holding the button (#68, #65, #73)"
 WORK=$OUT/air-spin-test "$ROOT/tools/air-spin-test/run.sh" "$ROM" > "$OUT/air-spin-test.log" 2>&1 || true
 check air-spin "air_spin_test: OK" "$(grep -q '^air_spin_test: OK$' "$OUT/air-spin-test.log"; echo $?)"
+echo "redux: REDUX's ROM data in and out with the option, and a shorter door transition (P4.26)"
+WORK=$OUT/redux-test "$ROOT/tools/redux-test/run.sh" "$ROM" > "$OUT/redux-test.log" 2>&1 || true
+check redux "redux_test: OK" "$(grep -q '^redux_test: OK$' "$OUT/redux-test.log"; echo $?)"
 
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."

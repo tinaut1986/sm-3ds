@@ -77,9 +77,29 @@ void Samus_InputHandler(void) {  // 0x918000
   kSamusInputHandlers[samus_movement_type]();
 }
 
+// 3DS port: REDUX's QUICK MORPH (P4.26): the item cancel button (the X-ray's) and down held, standing still, jumping or
+// falling, and Samus goes straight into the morph ball, as Redux's pose table does. The morph ball must be equipped.
+static void Samus_QuickMorph(void) {
+  // Ahead of what the table asked for (down alone crouches), as Redux's entry is ahead of the others.
+  if (!RtlRedux() || !(equipped_items & 4))
+    return;
+  if (!(button_config_itemcancel_y & joypad1_lastkeys) || !(button_config_down & joypad1_lastkeys))
+    return;
+  switch (samus_pose) {
+  case 0x01: case 0x13: case 0x4D: case 0x51: case 0x29: case 0x2B: case 0x2D: case 0x67: case 0x6D: case 0x6F:
+    samus_new_pose = kPose_37_FaceR_MorphTrans;
+    break;
+  case 0x02: case 0x14: case 0x4E: case 0x52: case 0x2A: case 0x2C: case 0x2E: case 0x68: case 0x6E: case 0x70:
+    samus_new_pose = kPose_38_FaceL_MorphTrans;
+    break;
+  }
+}
+
 void Samus_Input_00_Standing(void) {  // 0x91804D
-  if (samus_pose && samus_pose != kPose_9B_FaceF_VariaGravitySuit || !elevator_status)
+  if (samus_pose && samus_pose != kPose_9B_FaceF_VariaGravitySuit || !elevator_status) {
     Samus_LookupTransitionTable();
+    Samus_QuickMorph();   // 3DS port
+  }
 }
 
 void Samus_Input_01_Running(void) {  // 0x918066
@@ -89,8 +109,11 @@ void Samus_Input_01_Running(void) {  // 0x918066
 bool g_rtl_air_spin;   // 3DS port, see sm_rtl.h
 static bool g_air_spin_started;   // the spin below asked for: no new jump when it begins
 
+// 3DS port: REDUX's RESPIN is AIR SPIN (Redux's pose table: the jump button in a jump or a fall starts a spin, its code: with
+// no new jump), so REDUX turns it on too (P4.26).
 bool RtlAirSpin(void) {
-  return g_rtl_air_spin && !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
+  return (g_rtl_air_spin || g_rtl_redux) &&
+         !(game_state >= kGameState_40_TransitionToDemo && game_state <= kGameState_44_TransitionFromDemo);
 }
 
 // 3DS port (#68): after the pose table, which has nothing for the jump button in a plain jump or a fall,
@@ -114,6 +137,7 @@ static void Samus_AirSpin(void) {
 void Samus_Input_02_NormalJumping(void) {  // 0x91806E
   Samus_LookupTransitionTable();
   Samus_AirSpin();   // 3DS port
+  Samus_QuickMorph();   // 3DS port
 }
 
 void Samus_Input_03_SpinJumping(void) {  // 0x918076
@@ -143,6 +167,7 @@ void Samus_Input_05_Crouching(void) {  // 0x918087
 void Samus_Input_06_Falling(void) {  // 0x9180B6
   Samus_LookupTransitionTable();
   Samus_AirSpin();   // 3DS port
+  Samus_QuickMorph();   // 3DS port
 }
 
 void Samus_Input_08_MorphBallFalling(void) {  // 0x91810A
@@ -2920,8 +2945,8 @@ void Samus_HandleTransitionsA_5_4(void) {  // 0x91EFDF
 void Samus_HandleTransitionsA_5_2(void) {  // 0x91EFEF
   if (samus_y_dir != 1) {
     used_for_ball_bounce_on_landing = 0;
-    samus_y_subspeed = 0;
-    samus_y_speed = 0;
+    if (!RtlRedux())   // 3DS port: REDUX keeps the fall's speed (P4.26)
+      samus_y_subspeed = 0, samus_y_speed = 0;
     samus_is_falling_flag = 1;
     samus_y_dir = 2;
   }
@@ -3417,7 +3442,8 @@ uint8 SamusFunc_F468_SpinJump(void) {  // 0x91F624
       goto LABEL_9;
     }
     AddToHiLo(&samus_x_base_speed, &samus_x_base_subspeed, __PAIR32__(samus_x_extra_run_speed, samus_x_extra_run_subspeed));
-    Samus_CancelSpeedBoost();
+    if (!RtlRedux())   // 3DS port: REDUX keeps the speed booster through a spin jump's turn (P4.26)
+      Samus_CancelSpeedBoost();
     SetHiLo(&samus_x_extra_run_speed, &samus_x_extra_run_subspeed, 0);
     samus_x_accel_mode = 1;
   }
