@@ -185,6 +185,8 @@ const uint32_t *Main_TopScreenPixels(void) {
   return g_top_by_gpu ? GpuPpu3ds_ReadTop() : UiDraw_Screen(GFX_TOP).px;
 }
 
+const uint32_t *Main_TopScreenPixelsRight(void) { return g_top_by_gpu ? GpuPpu3ds_ReadTopRight() : NULL; }
+
 // The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
 // one 400x240 image per eye). The CPU path then shows the same image to both eyes.
 // The intro's skip hint or choice at the bottom of the top screen (GPU renderer only).
@@ -1112,6 +1114,8 @@ int main(int argc, char** argv) {
         int cone_window;
         const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
         GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
+        // The X-ray scope on (Xray_SetupStage7 sets the angle; time frozen until it is done): the scene flat in 3D (#69).
+        GpuPpu_SetFlatScene((time_is_frozen_flag & 0xff) && xray_angle && hdma_ptr_1.bank == 0x98);
         GpuPpu_SetMode7UnderHud(wide && SmWide_Mode7());
         // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
         const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();

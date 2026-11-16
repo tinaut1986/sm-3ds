@@ -108,6 +108,9 @@ static int g_cone_window;
 
 void GpuPpu_SetWindowCone(int window, const int16_t (*cone)[2]) { g_cone = cone, g_cone_window = window; }
 
+static bool g_flat_scene;
+void GpuPpu_SetFlatScene(bool on) { g_flat_scene = on; }
+
 // Window `w` (1 or 2) on `line` with the cone's margins (GpuPpu_SetWindowCone): returns
 // whether it applies, with the window as [*l, *r) on the frame's columns.
 static bool WinCone(const PpuLineState *st, int w, int line, int *l, int *r) {
@@ -1737,7 +1740,9 @@ static int Bg3Part(int row) { return row < 4 ? 0 : row < 32 ? 1 : 2; }
 // first tile row instead (the FX's body is one tile repeated, issue #50).
 static void ExtendBand(GpuFrame *out, GpuBand *b, bool up, int n, bool keep_bg3, int fx_rows) {
   if (up && fx_rows && !keep_bg3) {
-    for (int q = b->main_first, end = b->main_first + b->main_count; q < end; q++) {
+    // Both screens: under the HUD the FX layer is on the subscreen (SynthHudLine).
+    for (int s = 0; s < 2; s++)
+    for (int q = s ? b->sub_first : b->main_first, end = q + (s ? b->sub_count : b->main_count); q < end; q++) {
       GpuQuad *qd0 = &out->quads[q];
       if ((qd0->flags & (kGpuQuadObj | kGpuQuadAffine)) || qd0->y != 0 ||
           (qd0->level != kBgLevel[2][0] && qd0->level != kBgLevel[2][1]) ||
@@ -1752,10 +1757,12 @@ static void ExtendBand(GpuFrame *out, GpuBand *b, bool up, int n, bool keep_bg3,
       }
       if (out->quad_count >= kGpuMaxQuads) break;
       const GpuQuad qd = *qd0;
-      // In the main list, after its quads: the sub screen's move up one.
-      const int at = b->main_first + b->main_count;
+      // In its list, after its quads: for the main one the sub screen's move up one.
+      const int at = s ? b->sub_first + b->sub_count : b->main_first + b->main_count;
       memmove(&out->quads[at + 1], &out->quads[at], (size_t)(out->quad_count - at) * sizeof(GpuQuad));
-      out->quad_count++, b->main_count++, b->sub_first++;
+      out->quad_count++;
+      if (s) b->sub_count++;
+      else b->main_count++, b->sub_first++;
       GpuQuad *extra = &out->quads[at];
       *extra = qd;
       extra->y = (int16_t)-n, extra->h = (int16_t)n, extra->sy = (int16_t)(qd.sy + 8 - n);
@@ -1780,6 +1787,103 @@ static void ExtendBand(GpuFrame *out, GpuBand *b, bool up, int n, bool keep_bg3,
     if (up && c->y == 0) c->y -= n, c->h += n;
     else if (!up && c->y + c->h == kGpuRows) c->h += n;
   }
+}
+
+
+// The extra rows above line 1 (PIXEL PERFECT) repeat its band (ExtendBand), but a window cone does not stand still
+// there: the X-ray scope's went on as a straight edge (#69). Its colour window rectangles over those rows are worked
+// out again row by row, the cone's edges carried on along their slope from lines 1 and 2.
+// BG1 and BG2, which the window cuts, are emitted again row by row the same way (their stretched line-1 pieces showed the
+// cut as a straight edge where the cone crosses blocks); the FX layer and sprites stay as ExtendBand left them.
+static bool IsBg3(const GpuQuad *q) {
+  return !(q->flags & (kGpuQuadObj | kGpuQuadAffine)) && (q->level == kBgLevel[2][0] || q->level == kBgLevel[2][1]);
+}
+
+static bool IsBg12(const GpuQuad *q) {
+  return !(q->flags & (kGpuQuadObj | kGpuQuadAffine)) &&
+         (q->level == kBgLevel[0][0] || q->level == kBgLevel[0][1] || q->level == kBgLevel[1][0] || q->level == kBgLevel[1][1]);
+}
+
+static void ConeTopRows(GpuFrame *out, GpuBand *b, const Ppu *ppu, const PpuLineCapture *cap, int n) {
+  if (!g_cone || !cap || g_cone[1][0] == kGpuWinNone || g_cone[2][0] == kGpuWinNone) return;
+  // Undo the stretch of the rectangles ExtendBand moved up.
+  for (int i = b->cw_first; i < b->cw_first + b->cw_count; i++)
+    if (out->cw[i].y == -n) out->cw[i].y = 0, out->cw[i].h -= n;
+  // And of BG1's and BG2's pieces (screen textures, composed rows, have no rows above to stretch), and of the subscreen's
+  // FX layer, which the window cuts too: stretched, or the extra quad that repeats its tile row (both from ExtendBand).
+  for (int q = b->main_first; q < b->sub_first + b->sub_count; q++) {
+    GpuQuad *qd = &out->quads[q];
+    const GpuTex *t = out->tex[qd->tex];
+    if (qd->y != -n || (t >= &g_screen_tex[0][0] && t <= &g_screen_tex[2][1])) continue;
+    if (IsBg12(qd) || (q >= b->sub_first && IsBg3(qd) && qd->h > n))
+      qd->y = 0, qd->h -= n, qd->sy += n;   // as ExtendBand moved it
+    else if (q >= b->sub_first && IsBg3(qd))
+      qd->h = 0;   // drawn again below
+  }
+  LineInfo *info1 = (LineInfo *)&g_info[1];
+  const LineInfo info1_saved = *info1;
+  static int16_t cone[kPpuCaptureLines][2];
+  const int16_t (*saved)[2] = g_cone;
+  memcpy(cone, g_cone, sizeof(cone));
+  g_cone = (const int16_t (*)[2])cone;
+  for (int k = 1; k <= n; k++) {
+    for (int e = 0; e < 2; e++) {
+      const int a = saved[1][e], c = saved[2][e];
+      cone[1][e] = a <= -kGpuWinFar || a >= kGpuWinFar ? (int16_t)a : (int16_t)(a + (a - c) * k);
+    }
+    LineInfo inf;
+    if (AnalyzeLine(&cap->line[1], &inf, 1)) break;
+    // BG1 and BG2 on this row: emitted for line 1 with this row's spans, then moved up k rows.
+    *info1 = inf;
+    for (int scr = 0; scr < 2; scr++) {
+      const uint8_t layers = (scr ? inf.sub & 7 : inf.main & 3);   // BG3 under the HUD: the FX layer on the subscreen
+      if (!layers || (scr && !(b->math && b->add_subscreen))) continue;
+      static GpuQuad fresh[256];
+      int nf = 0;
+      for (int layer = 0; layer < 3; layer++) {
+        if (!(layers & (1 << layer))) continue;
+        const int first = out->quad_count;
+        if (EmitBgQuads(ppu, cap, layer, 1, 1, !scr && cap->line[1].mathEnabled[layer], scr)) { out->quad_count = first; continue; }
+        for (int q = first; q < out->quad_count && nf < 256; q++) {
+          GpuQuad qd = out->quads[q];
+          if (qd.y != 0 || qd.h != 1) continue;
+          qd.y = (int16_t)-k;
+          int sy = qd.sy - k;   // as ExtendBand moves a quad up
+          if (layer == 2) {   // the FX layer keeps its tile row (rows above it are the HUD's), as ExtendBand repeats it
+            const int row = qd.sy >> 3;
+            while ((sy >> 3) < row) sy += 8;
+          }
+          qd.sy = (int16_t)sy;
+          fresh[nf++] = qd;
+        }
+        out->quad_count = first;
+      }
+      if (!nf || out->quad_count + nf > kGpuMaxQuads) continue;
+      // Into the screen's list: the main one's go before the sub list, which moves up.
+      const int at = scr ? b->sub_first + b->sub_count : b->main_first + b->main_count;
+      memmove(&out->quads[at + nf], &out->quads[at], (size_t)(out->quad_count - at) * sizeof(GpuQuad));
+      memcpy(&out->quads[at], fresh, (size_t)nf * sizeof(GpuQuad));
+      out->quad_count += nf;
+      if (scr) b->sub_count += nf;
+      else b->main_count += nf, b->sub_first += nf;
+    }
+    if (inf.cw_split) {
+      const CwSegs *cs = &g_cw[1];
+      for (int i = 0; i < cs->n && out->cw_count < kGpuMaxCwRects; i++) {
+        if (!cs->seg[i].clip && !cs->seg[i].no_math) continue;
+        out->cw[out->cw_count++] = (GpuCwRect){ cs->seg[i].x0, (int16_t)-k, (int16_t)(cs->seg[i].x1 - cs->seg[i].x0), 1,
+                                                cs->seg[i].clip, cs->seg[i].no_math };
+        b->cw_count++;
+      }
+    } else if ((inf.clip || !inf.math_ok) && out->cw_count < kGpuMaxCwRects) {
+      out->cw[out->cw_count++] = (GpuCwRect){ (int16_t)g_x0, (int16_t)-k, (int16_t)(g_x1 - g_x0), 1, inf.clip, !inf.math_ok };
+      b->cw_count++;
+    }
+  }
+  g_cone = saved;
+  LineInfo inf;
+  AnalyzeLine(&cap->line[1], &inf, 1);   // line 1's own spans back
+  *info1 = info1_saved;
 }
 
 
@@ -1847,6 +1951,8 @@ static bool SameBgConfig(const BgLayer *a, const BgLayer *b) {
 // surface below the HUD), so the line keeps its own settings without BG3 (the HUD is drawn
 // from the HUD list). `g` is the line after the first one below the HUD: the first one is
 // still before the layer's HDMA (a stale scroll), so it is built from `g` too.
+static int g_synth_src_line;   // the line SynthHudLine's `g` is (its caller sets it)
+
 static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLineState *g, int line) {
   const BgLayer *fx = &g->bgLayer[2], *hb = &hud->bgLayer[2];
   const int map_rows = fx->tilemapHigher ? 64 : 32, row = ((line + fx->vScroll) >> 3) & (map_rows - 1);
@@ -1854,6 +1960,23 @@ static void SynthHudLine(PpuLineState *dst, const PpuLineState *hud, const PpuLi
   if (fx_on && fx->tilemapAdr == hb->tilemapAdr && row < 4) {
     *dst = *hud;
     dst->screenEnabled[0] &= ~4, dst->screenEnabled[1] &= ~4;
+    // The room's colour math, not the HUD's: SM gives its HUD lines their own (the X-ray scope's CGWSEL there prevents
+    // math outside the window, the room's inside it), so the room under the HUD came out lighter than the rest (#69).
+    // With it the room's subscreen: the FX layer, whose tile row of the first line under the HUD is repeated (its rows 0-3
+    // are the HUD; the FX's body is one tile repeated, as in BottomRowsSkipHud), or the math would add the fixed colour
+    // where the room halves against the FX layer.
+    dst->screenEnabled[1] = g->screenEnabled[1];
+    dst->bgLayer[2] = *fx;
+    {
+      const int fine = (line + fx->vScroll) & 7, want = ((g_synth_src_line + fx->vScroll) >> 3) & (map_rows - 1);
+      dst->bgLayer[2].vScroll = (uint16_t)((want * 8 + fine - line) & (map_rows * 8 - 1));
+    }
+    dst->screenWindowed[0] = g->screenWindowed[0], dst->screenWindowed[1] = g->screenWindowed[1];
+    dst->windowsel = g->windowsel;
+    dst->clipMode = g->clipMode, dst->preventMathMode = g->preventMathMode;
+    dst->addSubscreen = g->addSubscreen, dst->subtractColor = g->subtractColor, dst->halfColor = g->halfColor;
+    dst->fixedColorR = g->fixedColorR, dst->fixedColorG = g->fixedColorG, dst->fixedColorB = g->fixedColorB;
+    memcpy(dst->mathEnabled, g->mathEnabled, sizeof(dst->mathEnabled));
     return;
   }
   *dst = *g;
@@ -1913,6 +2036,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
   out->show_x0 = g_crop_to_view ? 0 : g_x0;
   out->show_x1 = g_crop_to_view ? 256 : g_x1;
   out->y0 = -g_extra_top;
+  out->flat_scene = g_flat_scene;
   out->y1 = kGpuRows + g_extra_bottom;
   g_out = out;
   *reason = NULL;
@@ -1932,6 +2056,7 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
     for (int l = kGpuRows + 1; l <= last; l++) work.line[l] = orig->line[kGpuRows];
     if (last > kGpuRows) BottomRowsSkipHud(&work, &orig->line[1]);
     const int src = g < kGpuRows ? g + 1 : g;   // the line whose BG3 scroll and colour math the HUD's rows copy
+    g_synth_src_line = src;
     for (int l = 1; g_hud_synth && l <= g_narrow_bg3_rows; l++) SynthHudLine(&work.line[l], &orig->line[l], &orig->line[src], l);
     if (g_hud_synth && src != g && orig->line[g].bgLayer[2].vScroll != orig->line[src].bgLayer[2].vScroll) SynthHudLine(&work.line[g], &orig->line[g], &orig->line[src], g);
     cap = &work;
@@ -2014,7 +2139,10 @@ bool GpuPpu_BuildFrame(const Ppu *ppu, const PpuLineCapture *cap, GpuFrame *out,
           (*reason = EmitScreen(ppu, cap, inf->sub, l0, l1, false, &sprites_built))) { ok = false; break; }
       b->sub_count = out->quad_count - b->sub_first;
       const bool hud = NarrowBg3(cap, l0, l1);
-      if (l0 == 1 && g_extra_top) ExtendBand(out, b, true, g_extra_top, hud, FxSharesHudMap(cap, orig));
+      if (l0 == 1 && g_extra_top) {
+        ExtendBand(out, b, true, g_extra_top, hud, FxSharesHudMap(cap, orig));
+        if (b->cw_count) ConeTopRows(out, b, ppu, cap, g_extra_top);
+      }
     }
     if (l0 == 1) b->y0 = -g_extra_top;
     l0 = l1 + 1;

@@ -18,6 +18,7 @@
 // The main loop hands over what is on the top screen (a 400x240 column-major 0xRRGGBBAA image,
 // the framebuffer's layout), or NULL when there is none.
 extern const uint32_t *Main_TopScreenPixels(void);
+extern const uint32_t *Main_TopScreenPixelsRight(void);   // the right eye, NULL with one
 
 enum {
   kPeekMax = 256,
@@ -359,6 +360,10 @@ static bool Start(LinkOp op) {
     const uint32_t *top = Main_TopScreenPixels();
     const bool ok = top && WriteBmp("debug/shot-top.bmp", top, kTopW, kShotH) &&
                     WriteBmp("debug/shot-bottom.bmp", UiDraw_Screen(GFX_BOTTOM).px, kBottomW, kShotH);
+    // With two eyes, the right one too (the left one is shot-top.bmp); otherwise none left from before.
+    const uint32_t *right = Main_TopScreenPixelsRight();
+    if (right) WriteBmp("debug/shot-top-right.bmp", right, kTopW, kShotH);
+    else remove("debug/shot-top-right.bmp");
     snprintf(g_result, sizeof(g_result), ok ? "200 debug/shot-top.bmp debug/shot-bottom.bmp"
                                             : "550 Could not take the screenshots (no frame drawn yet?).");
     return true;

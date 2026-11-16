@@ -20,7 +20,7 @@ SITE commands of source/debug_link.h. Standard library only.
     dump                      take a screen dump set (DEBUG TOOLS -> SCREEN DUMP)
     switch NAME               cycle RENDERER, FORCE 3D, PLANE TINT, GPU TEST, WIDE, PIXEL PERFECT,
                               FRAMES, AUDIO, FPS or PAUSE
-    shot [DIR]                screenshots of both screens as PNG, default /tmp/sm-shot
+    shot [DIR]                screenshots of both screens as PNG (and top-right.png, the right eye, with 3D), default /tmp/sm-shot
     peek WHAT LENGTH          hex bytes; WHAT is a hex address, a symbol of the ELF, SYMBOL+HEX, or
                               ram:HEX (an SNES WRAM address, 0-1FFFF: ram:09C2 is the energy)
     poke WHAT HEXBYTES        write bytes there
@@ -205,9 +205,14 @@ def run(link, argv):
         out = args[0] if args else '/tmp/sm-shot'
         os.makedirs(out, exist_ok=True)
         link.site('SHOT')
-        for screen in ('top', 'bottom'):
+        for screen in ('top', 'bottom', 'top-right'):   # top-right: the right eye, only with two eyes
             buf = io.BytesIO()
-            link.connect().retrbinary('RETR %s/debug/shot-%s.bmp' % (DATA, screen), buf.write)
+            try:
+                link.connect().retrbinary('RETR %s/debug/shot-%s.bmp' % (DATA, screen), buf.write)
+            except Exception:
+                if screen == 'top-right':
+                    continue
+                raise
             path = os.path.join(out, screen + '.png')
             with open(path, 'wb') as f:
                 f.write(bmp_to_png(buf.getvalue()))
