@@ -12,6 +12,7 @@
 #include "src/spc_player.h"
 #include "src/variables.h"
 #include "src/funcs.h"
+#include "src/ida_types.h"
 #include "sm_map.h"
 #include "sm_warp.h"
 bool g_debug_flag, g_is_turbo, g_want_dump_memmap_flags, g_new_ppu = true, g_other_image;
