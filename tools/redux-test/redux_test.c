@@ -55,7 +55,10 @@ static bool Place(void) {
 }
 
 // The movement checks (P4.26's second batch): 1 when Redux's behaviour shows, 0 when the original's, -1 when it could not be set up.
-// The third batch's are called directly: the X-ray's first widening frame, a super missile block hit by a power bomb.
+void HdmaobjPreInstr_XrayFunc1_BeamWidening(uint16 k);
+uint8 PlmSetup_D08C_SuperMissileBlockRespawning(uint16 j);
+
+// The third batch's are called directly:the X-ray's first widening frame, a super missile block hit by a power bomb.
 enum { kMoveSpace, kMoveQuickMorph, kMoveXray, kMovePbBlock, kMoveCount };
 static const char *const kMoveNames[kMoveCount] = { "space jump at 6 px a frame of fall", "quick morph (Y + down, standing)",
                                                     "x-ray open at once to 26", "power bomb reveals a super missile block" };
