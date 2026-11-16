@@ -631,6 +631,9 @@ static void BeforePpuDraw(void) {
     return;
   }
   if (!shown) {
+    // The game over screen centred: it kept the fight's last lean, off to one side when Samus died by a wall (Mother
+    // Brain's room, #72). Not the death sequence before it, whose sprites would jump.
+    if (game_state == kGameState_26_GameOverMenu) SetLean(-g_margin_x), SetLeanY(-g_extra_top);
     HudRestore(ppu);   // margins masked: a door transition's rooms disagree
     if (door) Bg2Shift();
     PublishView();
