@@ -924,7 +924,9 @@ Lessons from mzm that apply directly:
   (ScrewAttackFrozenEnemis, in `Samus_CheckSolidEnemyColl`); the X-ray opens at once to 26 (0x1A, the original 10; Redux reads
   a byte that always ends the widening) and turns 2 a frame. Game time and item percentage in the pause screen are not done:
   the bottom screen already shows both (STATUS's time, the items window with SPOILERS), and Redux's layout needs its own
-  art. Not planned: Redux's new
+  art. The "?" beside REDUX opens a window listing every change in four tabs (WORLD, MOVES, SPEED, WEAPONS); the option's
+  description only names them (the whole list did not fit its three lines). The super missile recoil needs the jump button
+  held, as in Redux (its patch sets the Y speed; let go and the game ends the rise): checked by the owner. Not planned: Redux's new
   map, HUD colours, difficulty, demos, MSU-1, its Speed Booster. *Done when:* the owner has played with it on and every change
   works as in Redux, with nothing different with it off.
 

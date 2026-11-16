@@ -57,7 +57,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS, MODAL_CONTROLS, MODAL_STATUS_HELP } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS, MODAL_CONTROLS, MODAL_STATUS_HELP, MODAL_REDUX_HELP } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -1601,6 +1601,16 @@ static Rect ControlsCellRect(void) {
   return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h };
 }
 
+// The "?" at the end of REDUX: the window with every change the option makes (MODAL_REDUX_HELP).
+static Rect ReduxHelpRect(void) {
+  const Rect r = OptRect(OPT_REDUX);
+  return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h };
+}
+static Rect ReduxCellRect(void) {
+  const Rect r = OptRect(OPT_REDUX);
+  return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h };
+}
+
 static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
   UiDrawText(s, r.x + 6, r.y + 5, 1, COL_TEXT, label);
@@ -1722,7 +1732,8 @@ static void DrawOptions(Surface s) {
   // The jump button in the air starts a spin jump, as in Zero Mission (sm_rtl.h, g_rtl_air_spin, #68; off by default).
   DrawOnOffCell(s, OPT_AIR_SPIN, kStrAirSpin, g_rtl_air_spin);
   // Super Metroid Redux's changes to the game itself (sm_rtl.h, g_rtl_redux, P4.26; off by default).
-  DrawOnOffCell(s, OPT_REDUX, kStrRedux, g_rtl_redux);
+  DrawOptCell(s, ReduxCellRect(), Tr(kStrRedux), Tr(g_rtl_redux ? kStrOn : kStrOff), g_rtl_redux ? COL_GOOD : COL_DIM);
+  UiDrawBoxLabel(s, ReduxHelpRect(), RGB(24, 32, 50), RGB(50, 80, 130), COL_ACCENT, Pressed(ReduxHelpRect()), "?");
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1785,6 +1796,7 @@ static void DrawOptions(Surface s) {
 static void OpenNotes(void);
 
 static void OpenControlsHelp(void);
+static void OpenReduxHelp(void);
 
 // OPTIONS -> CONTROLS (and config.ini): the scheme and the item boxes' lines that go with it.
 static void SetControls(bool modern) {
@@ -1800,8 +1812,13 @@ static void OptionsTap(int x, int y) {
     OpenControlsHelp();
     return;
   }
+  if (UiIn(ReduxHelpRect(), x, y)) {
+    g_opt_info = OPT_REDUX;
+    OpenReduxHelp();
+    return;
+  }
   for (int i = 0; i < OPT_COUNT; i++) {
-    const Rect r = i == OPT_CONTROLS ? ControlsCellRect() : OptRect((OptCell)i);
+    const Rect r = i == OPT_CONTROLS ? ControlsCellRect() : i == OPT_REDUX ? ReduxCellRect() : OptRect((OptCell)i);
     if (!UiIn(r, x, y)) continue;
     g_opt_info = i;
     switch ((OptCell)i) {
@@ -2182,6 +2199,48 @@ static void DrawStatusHelpModal(Surface s) {
 }
 
 static void StatusHelpTouch(int x, int y) {
+  if (UiIn(StatusHelpCloseRect(), x, y)) g_modal = MODAL_NONE;
+}
+
+// ---- REDUX window ---------------------------------------------------------------
+// OPTIONS -> "?" beside REDUX: what the option changes (sm_rtl.h, P4.26), a tab for each kind, one point a change.
+
+enum { kReduxTabs = 4, kReduxMaxPoints = 6 };
+static int g_redux_help_tab;
+static Rect ReduxTabRect(int i) { return (Rect){ 14 + i * 74, 46, 70, 16 }; }
+
+static void OpenReduxHelp(void) {
+  g_redux_help_tab = 0;
+  g_modal = MODAL_REDUX_HELP;
+}
+
+static void DrawReduxHelpModal(Surface s) {
+  static const struct { UiStr title; UiStr points[kReduxMaxPoints]; } kTabs[kReduxTabs] = {
+    { kStrRxWorld, { kStrRxWorld1, kStrRxWorld2, kStrRxWorld3, kStrRxWorld4, kStrRxWorld5, kStrRxWorld6 } },
+    { kStrRxMoves, { kStrRxMoves1, kStrRxMoves2, kStrRxMoves3, kStrRxMoves4, kStrRxMoves5, kStrCount } },
+    { kStrRxSpeed, { kStrRxSpeed1, kStrRxSpeed2, kStrRxSpeed3, kStrCount, kStrCount, kStrCount } },
+    { kStrRxWeapons, { kStrRxWeapons1, kStrRxWeapons2, kStrRxWeapons3, kStrRxWeapons4, kStrCount, kStrCount } },
+  };
+  UiFillRect(s, 8, 26, 304, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 9, 27, 302, 208, COL_MODAL);
+  UiDrawText(s, 16, 32, 1, COL_TITLE, "SUPER METROID REDUX");
+  for (int i = 0; i < kReduxTabs; i++) {
+    const Rect t = ReduxTabRect(i);
+    const bool on = i == g_redux_help_tab;
+    UiDrawBoxLabel(s, t, on ? RGB(28, 54, 44) : COL_BOX, on ? RGB(90, 220, 150) : COL_BOX_EDGE,
+                   on ? RGB(180, 255, 210) : COL_DIM, Pressed(t), Tr(kTabs[i].title));
+  }
+  int y = 70;
+  for (int k = 0; k < kReduxMaxPoints && kTabs[g_redux_help_tab].points[k] != kStrCount; k++) {
+    UiFillRect(s, 16, y + 2, 3, 3, COL_DIM);
+    y += DrawWrapped(s, 24, y, 47, 4, COL_TEXT, Tr(kTabs[g_redux_help_tab].points[k])) * 10 + 4;
+  }
+  UiDrawBoxLabel(s, StatusHelpCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(StatusHelpCloseRect()), Tr(kStrClose));
+}
+
+static void ReduxHelpTouch(int x, int y) {
+  for (int i = 0; i < kReduxTabs; i++)
+    if (UiIn(ReduxTabRect(i), x, y)) g_redux_help_tab = i;
   if (UiIn(StatusHelpCloseRect(), x, y)) g_modal = MODAL_NONE;
 }
 
@@ -3447,6 +3506,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_ITEMS: ItemsModalTouch(x, y); return;
   case MODAL_CONTROLS: ControlsModalTouch(x, y); return;
   case MODAL_STATUS_HELP: StatusHelpTouch(x, y); return;
+  case MODAL_REDUX_HELP: ReduxHelpTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -3547,6 +3607,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_ITEMS: DrawItemsModal(s); break;
   case MODAL_CONTROLS: DrawControlsModal(s); break;
   case MODAL_STATUS_HELP: DrawStatusHelpModal(s); break;
+  case MODAL_REDUX_HELP: DrawReduxHelpModal(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;
@@ -3571,7 +3632,7 @@ static void DrawBottom(const UiPerf *p) {
 // timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
 static bool UiIsLive(void) {
   switch (g_modal) {
-  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: case MODAL_CONTROLS: case MODAL_STATUS_HELP: break;
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: case MODAL_CONTROLS: case MODAL_STATUS_HELP: case MODAL_REDUX_HELP: break;
 #if DEBUG_TOOLS
   // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
   case MODAL_TOOLS: return SceneRec_Active() || FtpServer_Running();

@@ -98,7 +98,7 @@ enum { kOptVolumeBarX = 166, kOptMusicBarX = 14, kOptSfxBarX = 166, kOptSliderW 
 enum { kOptDisplayX = 20, kOptViewX = 95, kOptHudX = 200, kOptScreenY = 105 };
 enum { kOptFpsX = 20, kOptFramesX = 95, kOptScreen2Y = 140 };
 enum { kOptControlsX = 40, kOptHelpX = 140, kOptAutoBombX = 200, kOptPlayY = 192 };
-enum { kOptChargeX = 40, kOptChargeEndY = 50 };   // at the end
+enum { kOptChargeX = 40, kOptReduxHelpX = 136, kOptChargeEndY = 50 };   // at the end: REDUX and its "?"
 enum { kOptUpdateX = 20, kOptChannelX = 95, kOptUpdatesX = 170, kOptNotesX = 245, kOptUpdatesY = 100, kOptResetY = 152 };
 
 int main(int argc, char **argv) {
@@ -324,9 +324,17 @@ int main(int argc, char **argv) {
   BottomUi_TouchDown(160, 200), BottomUi_TouchMove(160, 140), BottomUi_TouchUp();   // dragged 60 px up
   Shot("options, scrolled 60 px: auto bomb jump off, its description");
   OptEnd();
-  Tap(kOptChargeX, kOptChargeEndY);  // CHARGE PULLS DROPS: ON
-  Shot("options, the end: charge pull on, its description");
+  Tap(kOptChargeX, kOptChargeEndY);  // REDUX, the PLAY group's last cell now: ON
+  Shot("options, the end: redux on, its description");
   Tap(kOptChargeX, kOptChargeEndY);  // and back
+  Tap(kOptReduxHelpX, kOptChargeEndY);   // "?" beside REDUX: the window, each tab
+  for (int t = 0; t < 4; t++) {
+    char what[48];
+    Tap(14 + t * 74 + 35, 46 + 8);
+    snprintf(what, sizeof(what), "redux window, tab %d, English", t + 1);
+    Shot(what);
+  }
+  Tap(160, 222);                     // CLOSE
   OptScreen();
   Tap(kOptAutoBombX, kOptPlayY);
   Tap(kOptHelpX, kOptPlayY);         // "?" beside CONTROLS: the window
@@ -426,6 +434,13 @@ int main(int argc, char **argv) {
     OptEnd();
     snprintf(what, sizeof(what), "options, the end, %s", UiLang_Name(g_ui_lang));
     Shot(what);
+    Tap(kOptReduxHelpX, kOptChargeEndY);   // "?" beside REDUX: the window, each tab
+    for (int t = 0; t < 4; t++) {
+      Tap(14 + t * 74 + 35, 46 + 8);
+      snprintf(what, sizeof(what), "redux window, tab %d, %s", t + 1, UiLang_Name(g_ui_lang));
+      Shot(what);
+    }
+    Tap(160, 222);                   // CLOSE
     Tap(160, kOptResetY);            // RESET GAME
     snprintf(what, sizeof(what), "options, reset window, %s", UiLang_Name(g_ui_lang));
     Shot(what);

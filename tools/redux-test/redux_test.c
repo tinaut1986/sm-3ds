@@ -59,10 +59,11 @@ static bool Place(void) {
 void HdmaobjPreInstr_XrayFunc1_BeamWidening(uint16 k);
 uint8 PlmSetup_D08C_SuperMissileBlockRespawning(uint16 j);
 
-// The third batch's are called directly:the X-ray's first widening frame, a super missile block hit by a power bomb.
-enum { kMoveSpace, kMoveQuickMorph, kMoveXray, kMovePbBlock, kMoveCount };
+// The third batch's are called directly: the X-ray's first widening frame, a super missile block hit by a power bomb.
+enum { kMoveSpace, kMoveQuickMorph, kMoveXray, kMovePbBlock, kMoveRecoil, kMoveCount };
 static const char *const kMoveNames[kMoveCount] = { "space jump at 6 px a frame of fall", "quick morph (Y + down, standing)",
-                                                    "x-ray open at once to 26", "power bomb reveals a super missile block" };
+                                                    "x-ray open at once to 26", "power bomb reveals a super missile block",
+                                                    "super missile fired down in a jump pushes up (jump held)" };
 
 static int MoveCheck(int which) {
   switch (which) {
@@ -92,6 +93,22 @@ static int MoveCheck(int which) {
     plm_instr_list_ptrs[0] = 0, plm_header_ptr[0] = 0x1234;
     PlmSetup_D08C_SuperMissileBlockRespawning(0);
     return plm_instr_list_ptrs[0] == addr_kPlmInstrList_C922 && plm_header_ptr[0] == 0x1234;
+  }
+  case kMoveRecoil: {   // a straight jump, then down + shoot with the super missile near the top: Samus rises again. Jump stays
+                        // held: let go and the game ends the rise at once, in Redux too (its patch only sets the Y speed).
+    collected_items |= 0x8000;
+    samus_max_super_missiles = samus_super_missiles = 10, hud_item_index = 2;
+    for (int k = 0; k < 8; k++) Step(JUMP);
+    for (int k = 0; k < 120 && samus_y_dir != 2; k++) Step(JUMP);
+    if (samus_y_dir != 2) return -1;
+    int before = samus_y_pos, fired = 0, rose = 0;
+    for (int k = 0; k < 12; k++) {
+      Step(DOWN | JUMP | (k == 3 ? SHOOT : 0));
+      fired |= samus_super_missiles != 10;
+      if (samus_y_pos < before) rose = 1;
+      before = samus_y_pos;
+    }
+    return fired ? rose : -1;
   }
   }
   return -1;
