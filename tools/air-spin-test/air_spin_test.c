@@ -123,8 +123,14 @@ int main(int argc, char **argv) {
         const int wall = samus_y_speed;
         Samus_InitJump();
         const int jump = samus_y_speed;
-        ok = wall == jump;
-        printf("heavy physics: wall jump Y speed %d, jump %d (want equal)\n", wall, jump);
+        equipped_items |= 0x100;   // Hi-Jump: 8.4000, not Redux's 9 (+22 % over the original's height, #65)
+        Samus_InitWallJump();
+        const int wall_hj = samus_y_speed << 16 | samus_y_subspeed;
+        Samus_InitJump();
+        const int jump_hj = samus_y_speed << 16 | samus_y_subspeed;
+        ok = wall == jump && wall_hj == jump_hj && jump_hj == 0x84000;
+        printf("heavy physics: wall jump Y speed %d, jump %d (want equal); with Hi-Jump %X, %X (want 84000)\n",
+               wall, jump, wall_hj, jump_hj);
       }
       fflush(stdout);
       _exit(ok ? 0 : 1);
