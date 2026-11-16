@@ -264,7 +264,8 @@ bool RtlHeavyPhysics(void);
 // elevators, missile stations that reload every weapon; and Redux's moves: RESPIN (AIR SPIN on), QUICK MORPH (item cancel +
 // down), BOMB SKIP (down held), SPEED BALL (the spring ball runs), Space Jump's wider window and in liquids, the wall jump
 // found 2 px further, super missile recoil, SPARK RESTART, the speed booster charged twice as fast and kept through a spin's
-// turn, the fall's speed and the run's on landing. Heavy physics stay their own option (in Redux too).
+// turn, the fall's speed and the run's on landing; and a power bomb reveals a super missile block, Screw Attack (shinespark,
+// speed booster) goes through a frozen enemy and thaws it, the X-ray opens at once, wider (26) and turns twice as fast. Heavy physics stay their own option (in Redux too).
 // RtlRedux: on, and not in a title screen demo. RtlRedux_SyncRom: puts Redux's ROM data in or takes it out
 // as RtlRedux changes, once a frame (RtlRunFrame).
 extern bool g_rtl_redux;

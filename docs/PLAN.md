@@ -918,8 +918,13 @@ Lessons from mzm that apply directly:
   jump found at 10 px; no forced drift after a wall jump; super missile recoil; SPARK RESTART; the speed booster charged
   twice as fast and kept through a spin's turn; the fall's speed kept (HandleTransitionsA_5_2); SMOOTH LANDING as Redux hooks
   it (Samus_Movement_00_Standing; no difference found in a plain run-jump-land, left unverified). Not found in Redux's code:
-  SPIN FALL and the DEMORPH JUMP. Next: power bombs revealing blocks, Screw Attack through frozen enemies, the X-ray's width
-  and speed, game time and percentage in the pause screen. Not planned: Redux's new
+  SPIN FALL and the DEMORPH JUMP. Third batch: a power bomb reveals a super missile block as a bomb does (Redux's
+  PBRevealTiles; its crumble-block hook is left out: the built ROM pops the return address there); Screw Attack, a shinespark
+  or the speed booster go through a frozen non-platform enemy and thaw it, except when landing on it
+  (ScrewAttackFrozenEnemis, in `Samus_CheckSolidEnemyColl`); the X-ray opens at once to 26 (0x1A, the original 10; Redux reads
+  a byte that always ends the widening) and turns 2 a frame. Game time and item percentage in the pause screen are not done:
+  the bottom screen already shows both (STATUS's time, the items window with SPOILERS), and Redux's layout needs its own
+  art. Not planned: Redux's new
   map, HUD colours, difficulty, demos, MSU-1, its Speed Booster. *Done when:* the owner has played with it on and every change
   works as in Redux, with nothing different with it off.
 

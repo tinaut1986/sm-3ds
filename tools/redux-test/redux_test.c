@@ -55,8 +55,10 @@ static bool Place(void) {
 }
 
 // The movement checks (P4.26's second batch): 1 when Redux's behaviour shows, 0 when the original's, -1 when it could not be set up.
-enum { kMoveSpace, kMoveQuickMorph, kMoveCount };
-static const char *const kMoveNames[kMoveCount] = { "space jump at 6 px a frame of fall", "quick morph (Y + down, standing)" };
+// The third batch's are called directly: the X-ray's first widening frame, a super missile block hit by a power bomb.
+enum { kMoveSpace, kMoveQuickMorph, kMoveXray, kMovePbBlock, kMoveCount };
+static const char *const kMoveNames[kMoveCount] = { "space jump at 6 px a frame of fall", "quick morph (Y + down, standing)",
+                                                    "x-ray open at once to 26", "power bomb reveals a super missile block" };
 
 static int MoveCheck(int which) {
   switch (which) {
@@ -74,6 +76,18 @@ static int MoveCheck(int which) {
     collected_items |= 4, equipped_items |= 4;
     for (int k = 0; k < 30; k++) Step(ITEM_CANCEL | DOWN);
     return samus_movement_type == 4 || samus_movement_type == 8;
+  }
+  case kMoveXray: {   // the X-ray button held, the beam's first widening frame
+    joypad1_lastkeys = button_config_run_b;
+    demo_input = demo_input_new = demo_input_instr_timer = demo_input_instr_ptr = 0, demo_input_pre_instr = 1;
+    HdmaobjPreInstr_XrayFunc1_BeamWidening(0);
+    return demo_input == 26 && demo_input_pre_instr == 2;
+  }
+  case kMovePbBlock: {   // a power bomb's explosion (projectile type 0x3xx) on a respawning super missile block's PLM
+    projectile_index = 0, projectile_type[0] = 0x300;
+    plm_instr_list_ptrs[0] = 0, plm_header_ptr[0] = 0x1234;
+    PlmSetup_D08C_SuperMissileBlockRespawning(0);
+    return plm_instr_list_ptrs[0] == addr_kPlmInstrList_C922 && plm_header_ptr[0] == 0x1234;
   }
   }
   return -1;

@@ -2279,7 +2279,8 @@ uint8 PlmSetup_D08C_SuperMissileBlockRespawning(uint16 j) {  // 0x84CF67
   int16 v1;
 
   v1 = projectile_type[projectile_index >> 1] & 0xF00;
-  if (v1 == 1280) {
+  // REDUX (P4.26): a power bomb reveals the block, as a bomb does.
+  if (v1 == 1280 || (v1 == 768 && RtlRedux())) {
     plm_instr_list_ptrs[j >> 1] = addr_kPlmInstrList_C922;
   } else if (v1 == 512) {
     int v2 = j >> 1;

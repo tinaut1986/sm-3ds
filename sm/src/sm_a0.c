@@ -2894,6 +2894,13 @@ CheckEnemyColl_Result Samus_CheckSolidEnemyColl(int32 amt) {  // 0xA0A8F0
       v12 = v14 < *(v9 + 5);
       uint16 v15 = v14 - *(v9 + 5);
       if (v12 || v15 < *(v10 + 5)) {
+        // REDUX (P4.26): Screw Attack, a shinespark or the speed booster go through a frozen enemy and thaw it (not a
+        // platform enemy, not when landing on it); the enemy's own collision then applies.
+        if (RtlRedux() && samus_contact_damage_index && samus_contact_damage_index < 4 && samus_collision_direction != 3 &&
+            !(ED->properties & 0x8000)) {
+          ED->frozen_timer = 0;
+          continue;
+        }
         switch (samus_collision_direction & 3) {
         case 0: {
           varE32 = ED->x_width + ED->x_pos;
