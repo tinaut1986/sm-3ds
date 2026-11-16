@@ -12,6 +12,7 @@
 typedef struct {
   uint16_t door_def;   // pointer of the door definition, bank $83
   uint16_t dest;       // header of the room it leads into
+  uint16_t src;        // header of a room that lists it (where the door is)
 } DoorEntry;
 
 enum { kMaxDoors = 1400 };
@@ -47,7 +48,7 @@ void SmWarp_Init(void) {
       // The same door definition can be listed by several rooms; keep one per pair.
       bool dup = false;
       for (int k = 0; k < g_door_count && !dup; k++) dup = g_doors[k].door_def == def;
-      if (!dup && g_door_count < kMaxDoors) g_doors[g_door_count++] = (DoorEntry){ def, dest };
+      if (!dup && g_door_count < kMaxDoors) g_doors[g_door_count++] = (DoorEntry){ def, dest, rooms[i].header };
     }
   }
 }
@@ -97,6 +98,7 @@ bool SmWarp_Ready(void) {
 static int g_pending_room = -1;   // header of the room we are warping into, or -1
 #ifdef SM_WARP_DEBUG
 static uint16_t g_def;   // the door definition of the warp in progress
+static uint16_t g_src;   // the room that door is in
 #endif
 static int g_target_x, g_target_y;   // where Samus should stand, pixels; -1 = unknown
 static bool g_fixed_target;
@@ -167,6 +169,24 @@ static void RelocateSamus(int target_x_px, int target_y_px) {
 #ifdef SM_WARP_DEBUG
 static int g_trace_frames;
 int g_warp_trace_plm;
+// A room whose state has no music bank (Mother Brain's, DD58) keeps what the room before it played. A warp has no room
+// before, so it takes the bank and track of the room the door is in, in its state for the current events (the game's own
+// state select, roomdefroomstate_ptr put back after). Without it the bank of wherever the warp started stayed loaded and
+// a track the room asks for later (Mother Brain's second phase) was read from the wrong bank: garbage, an assert in
+// spc_player.c (#72's crash).
+static void SourceRoomMusic(void) {
+  if (!g_src) return;
+  const uint16 saved = roomdefroomstate_ptr;
+  HandleRoomDefStateSelect(g_src);
+  const uint8_t *st = RomPtr(0x8F0000 | roomdefroomstate_ptr);   // RoomDefRoomstate: +4 music bank, +5 track
+  roomdefroomstate_ptr = saved;
+  if (st[4] && st[4] != music_data_index) {
+    QueueMusic_Delayed8(0);
+    QueueMusic_Delayed8(st[4] | 0xFF00);
+  }
+  if (st[5]) music_track_index = st[5];
+}
+
 void __attribute__((noinline)) SmWarp_DebugArrived(void) { asm volatile(""); }   // gdb breakpoint target
 #endif
 
@@ -208,6 +228,7 @@ void SmWarp_AfterFrame(void) {
   music_entry = 0;
   LoadRoomMusic();
   UpdateMusicTrackIndex();
+  if (!room_music_data_index) SourceRoomMusic();
   PlayRoomMusicTrackAfterAFrames(16);
   const uint16_t arrive_x = samus_x_pos, arrive_y = samus_y_pos;
   (void)arrive_x; (void)arrive_y;   // only printed by the host test
@@ -288,7 +309,7 @@ SmWarpResult SmWarp_ToRoom(const SmRoom *room, int which) {
   uint16_t def = 0;
   for (int i = 0; i < g_door_count; i++) {
     if (g_doors[i].dest != room->header) continue;
-    if (pick-- == 0) { def = g_doors[i].door_def; break; }
+    if (pick-- == 0) { def = g_doors[i].door_def, g_src = g_doors[i].src; break; }
   }
 
   // DoorDef: +3 orientation, +4/+5 cap position in blocks (in the destination room),
