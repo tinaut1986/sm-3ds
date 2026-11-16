@@ -25,7 +25,7 @@ void RtlDrawPpuFrame(uint8 *b, size_t p, uint32 f) {}
 void RtlApuLock(void) {} void RtlApuUnlock(void) {} void RtlApuQueueLock(void) {} void RtlApuQueueUnlock(void) {}
 int SDL_GetKeyFromName(const char *n) { return 0; }
 
-enum { START = 0x08, DOWN = 0x20, A = 0x100 };   // the frontend's pad bits (main.c)
+enum { START = 0x08, DOWN = 0x20, RIGHT = 0x80, A = 0x100 };   // the frontend's pad bits (main.c)
 
 static void Step(int in) {
   samus_health = 99;
@@ -80,7 +80,8 @@ int main(int argc, char **argv) {
   int fails = 0;
   // 0: off, a second press in a plain jump stays a plain jump. 1: on, rising: a spin, no new jump.
   // 2: on, falling (well after the top): a spin that keeps falling. 3: HEAVY PHYSICS' wall jump speed.
-  for (int t = 0; t < 4; t++) {
+  // 4, 5: AUTO SPACE JUMP off and on, a spin jump with Space Jump and the button held (#73).
+  for (int t = 0; t < 6; t++) {
     fflush(stdout);
     pid_t pid = fork();
     if (pid == 0) {
@@ -116,6 +117,20 @@ int main(int argc, char **argv) {
           ok = ok && type == 3 && dir == 2;
           printf("%d (want 6 -> 3), still falling %s\n", type, dir == 2 ? "yes" : "NO");
         }
+      } else if (t >= 4) {
+        g_rtl_auto_space_jump = t == 5;
+        collected_items |= 0x200, equipped_items |= 0x200;   // Space Jump
+        for (int k = 0; k < 12; k++) Step(RIGHT);   // walking: the jump below is a spin
+        const int y0 = samus_y_pos;
+        int top = y0;
+        for (int k = 0; k < 240; k++) {   // the button never let go
+          Step(RIGHT | A);
+          if (samus_y_pos < top) top = samus_y_pos;
+        }
+        const int climb = y0 - top;
+        ok = t == 4 ? climb < 160 : climb > 300;
+        printf("auto space jump %s: climbed %d px holding the button (want %s)\n", t == 5 ? "on" : "off", climb,
+               t == 5 ? "> 300" : "< 160, one jump");
       } else {
         g_rtl_heavy_physics = true;
         equipped_items &= ~0x120;   // no Hi-Jump, no Gravity Suit: the air values
