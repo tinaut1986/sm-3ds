@@ -98,7 +98,7 @@ enum { kOptVolumeBarX = 166, kOptMusicBarX = 14, kOptSfxBarX = 166, kOptSliderW 
 enum { kOptDisplayX = 20, kOptViewX = 95, kOptHudX = 200, kOptScreenY = 105 };
 enum { kOptFpsX = 20, kOptFramesX = 95, kOptScreen2Y = 140 };
 enum { kOptControlsX = 40, kOptHelpX = 140, kOptAutoBombX = 200, kOptPlayY = 192 };
-enum { kOptChargeX = 40, kOptReduxHelpX = 136, kOptChargeEndY = 50 };   // at the end: REDUX and its "?"
+enum { kOptChargeX = 200, kOptReduxHelpX = 290, kOptChargeEndY = 50 };   // at the end: REDUX (beside AUTO SPACE JUMP) and its "?"
 enum { kOptUpdateX = 20, kOptChannelX = 95, kOptUpdatesX = 170, kOptNotesX = 245, kOptUpdatesY = 100, kOptResetY = 152 };
 
 int main(int argc, char **argv) {
