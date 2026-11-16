@@ -54,6 +54,9 @@ check dsp-fuzz "4 runs identical" "$( [ "$(grep -c '^OK:' "$OUT/dsp-fuzz.log")" 
 echo "stereo-depth: the stereo depth mapping against the SNES compositor's order"
 WORK=$OUT/stereo-test "$ROOT/tools/stereo-test/run.sh" > "$OUT/stereo-test.log" 2>&1
 check stereo-depth "0 failed" "$(grep -q ', 0 failed$' "$OUT/stereo-test.log"; echo $?)"
+echo "audio-gain: the master volume's gain and soft limit (source/audio_gain.c)"
+WORK=$OUT/audio-gain-test "$ROOT/tools/audio-gain-test/run.sh" > "$OUT/audio-gain-test.log" 2>&1 || true
+check audio-gain "0 failed" "$(grep -q ', 0 failed$' "$OUT/audio-gain-test.log"; echo $?)"
 echo "states: the save-state store (list, ids, info, screenshot, removal)"
 WORK=$OUT/states-test "$ROOT/tools/states-test/run.sh" > "$OUT/states-test.log" 2>&1
 check states "states_test: OK" "$(grep -q '^states_test: OK$' "$OUT/states-test.log"; echo $?)"
@@ -78,6 +81,12 @@ check map-rooms "map_test: OK" "$(grep -q '^map_test: OK$' "$OUT/map-test.log"; 
 echo "auto-bomb: the bomb button held in the morph ball climbs three open shafts (source/auto_bomb.c)"
 WORK=$OUT/auto-bomb-test "$ROOT/tools/auto-bomb-test/run.sh" "$ROM" > "$OUT/auto-bomb-test.log" 2>&1 || true
 check auto-bomb "auto_bomb_test: OK" "$(grep -q '^auto_bomb_test: OK$' "$OUT/auto-bomb-test.log"; echo $?)"
+echo "air-spin: AIR SPIN in a jump and a fall, and the HEAVY PHYSICS wall jump as high as a jump, AUTO SPACE JUMP holding the button (#68, #65, #73)"
+WORK=$OUT/air-spin-test "$ROOT/tools/air-spin-test/run.sh" "$ROM" > "$OUT/air-spin-test.log" 2>&1 || true
+check air-spin "air_spin_test: OK" "$(grep -q '^air_spin_test: OK$' "$OUT/air-spin-test.log"; echo $?)"
+echo "redux: REDUX's ROM data in and out with the option, and a shorter door transition (P4.26)"
+WORK=$OUT/redux-test "$ROOT/tools/redux-test/run.sh" "$ROM" > "$OUT/redux-test.log" 2>&1 || true
+check redux "redux_test: OK" "$(grep -q '^redux_test: OK$' "$OUT/redux-test.log"; echo $?)"
 
 # ---- Builds (once) ------------------------------------------------------------------------
 echo "building the host test programs..."

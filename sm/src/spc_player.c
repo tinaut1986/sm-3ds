@@ -1570,6 +1570,7 @@ void SpcPlayer_GenerateSamples(SpcPlayer *p) {
     p->timer_cycles += n;
 
     uint64_t t_dsp = AUDIO_PROF_NOW();
+    g_dsp_sfx_voices = p->is_chan_on;   // the voices playing an effect (the port's volumes, dsp.h)
     dsp_cycleBlock(p->dsp, n);
     AUDIO_PROF_ADD(kAudioProf_DspCycles, t_dsp);
 

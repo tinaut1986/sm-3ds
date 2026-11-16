@@ -795,7 +795,8 @@ static void MathPass(const GpuFrame *f, const GpuBand *b) {
       const int px = StereoDepth_PlanePx(QuadPlane(qd, false)) - 1;
       if (px + 1 >= hmax && px < u) u = px;
     }
-    MathAdd(f, b, 2, 2, StereoDepth_EyeOffsetPx(u, g_slider, g_eye_sign));
+    // A flat scene (GpuFrame.flat_scene): the effect where the rest is, or its shift shows the colour window's edges (#69).
+    MathAdd(f, b, 2, 2, f->flat_scene ? 0 : StereoDepth_EyeOffsetPx(u, g_slider, g_eye_sign));
   } else {
     C3D_AlphaTest(false, GPU_ALWAYS, 0);
     if (b->half) C3D_AlphaBlend(eq, eq, GPU_CONSTANT_ALPHA, GPU_CONSTANT_ALPHA, GPU_ZERO, GPU_ONE);
@@ -1137,7 +1138,7 @@ void GpuPpu3ds_DrawAndPresent(const GpuFrame *f, bool pixel_perfect, float slide
     g_slider = eyes == 2 ? slider : 0;
     g_eye_sign = e ? -1 : 1;
     for (int p = 0; p < kStereoPlaneCount; p++)
-      g_eye_dx[p] = eyes == 2 ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
+      g_eye_dx[p] = eyes == 2 && (!f->flat_scene || p == kStereoHud) ? StereoDepth_EyeOffset((StereoPlane)p, slider, g_eye_sign) : 0;
     DrawEye(f, pixel_perfect, e ? (forced ? g_rt_top_dummy : g_rt_top_right) : g_rt_top, e > 0);
   }
   const u64 t3 = svcGetSystemTick();
@@ -1163,15 +1164,25 @@ static void ReadMain(void) {
   GSPGPU_InvalidateDataCache(g_readback, kTexW * kTexH * 4);
 }
 
-const uint32_t *GpuPpu3ds_ReadTop(void) {
-  static uint32_t *top;   // 240x400 linear, like the framebuffer
-  if (!g_ready || !g_any_frame) return NULL;
-  if (!top && !(top = (uint32_t *)linearAlloc(240 * 400 * 4))) return NULL;
+static const uint32_t *ReadTarget(C3D_RenderTarget *rt, uint32_t **buf) {   // 240x400 linear, like the framebuffer
+  if (!g_ready || !g_any_frame || !rt) return NULL;
+  if (!*buf && !(*buf = (uint32_t *)linearAlloc(240 * 400 * 4))) return NULL;
   WaitGpu();
-  C3D_SyncDisplayTransfer((u32 *)g_rt_top->frameBuf.colorBuf, GX_BUFFER_DIM(240, 400), (u32 *)top,
+  C3D_SyncDisplayTransfer((u32 *)rt->frameBuf.colorBuf, GX_BUFFER_DIM(240, 400), (u32 *)*buf,
                           GX_BUFFER_DIM(240, 400), DISPLAY_TRANSFER_FLAGS);
-  GSPGPU_InvalidateDataCache(top, 240 * 400 * 4);
-  return top;
+  GSPGPU_InvalidateDataCache(*buf, 240 * 400 * 4);
+  return *buf;
+}
+
+const uint32_t *GpuPpu3ds_ReadTop(void) {
+  static uint32_t *top;
+  return ReadTarget(g_rt_top, &top);
+}
+
+const uint32_t *GpuPpu3ds_ReadTopRight(void) {
+  static uint32_t *top;
+  if (g_last_eyes != 2) return NULL;
+  return ReadTarget(g_force_two_eyes && g_rt_top_dummy && !gfxIs3D() ? g_rt_top_dummy : g_rt_top_right, &top);
 }
 
 void GpuPpu3ds_WaitIdle(void) {

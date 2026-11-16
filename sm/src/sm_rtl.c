@@ -444,6 +444,7 @@ bool RtlRunFrame(int inputs) {
   if (bug_fix_counter != currently_installed_bug_fix_counter)
     RtlUpdateSnesPatchForBugfix();
 
+  RtlRedux_SyncRom();   // 3DS port: REDUX's ROM data in or out (sm_redux.c)
   g_rtl_runframe(inputs, 0);
 
   snes_frame_counter++;
@@ -742,6 +743,7 @@ void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
 
   if (!g_use_my_apu_code) {
     if (!is_uploading_apu) {
+      g_dsp_sfx_voices = g_snes->apu->ram[0x1a];   // the driver's is_chan_on, for the port's volumes (dsp.h)
       while (g_snes->apu->dsp->sampleOffset < 534)
         apu_cycle(g_snes->apu);
       dsp_getSamples(g_snes->apu->dsp, audio_buffer, samples);

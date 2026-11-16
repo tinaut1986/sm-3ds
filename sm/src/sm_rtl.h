@@ -213,6 +213,14 @@ typedef struct {
   int (*trigger)(void);
 } RtlControlsMenu;
 extern const RtlControlsMenu *g_rtl_controls_menu;
+// 3DS port (#70): called when the player changes the game's own settings in OPTION MODE: CONTROLLER SETTING
+// left with its buttons written back, or set to the defaults, and a SPECIAL SETTING toggled. The port keeps
+// them as its settings; anything else that changes them (a save file, a save state) is not the player's
+// choice. NULL: nothing.
+extern void (*g_rtl_game_settings_changed)(void);
+// The CONTROLLER SETTING screen's own copy of the buttons, rebuilt from button_config_* (after the port
+// put its settings back over a save state that was made on that screen).
+void RtlReloadControllerOptions(void);
 extern bool g_rtl_controls_row_shown;
 extern int g_rtl_ctl_cursor, g_rtl_ctl_top;
 enum { kRtlCtlHeadRow = 5, kRtlCtlRow0 = 8, kRtlCtlPitch = 3, kRtlCtlShown = 7, kRtlCtlClassicCount = 9, kRtlCtlModernCount = 11 };
@@ -244,9 +252,41 @@ extern bool g_rtl_charge_pull;
 // Redux's optional "Heavy Physics" patch (ShadowOne333, code/Optional/HeavyPhysicsRedux.asm, after GBA
 // Style's), a Samus who falls about twice as fast, as in Zero Mission: more gravity in air, a higher top
 // falling speed, stronger jumps, wall jumps and bomb jumps, more air control, bombs that go off sooner.
+// The wall jump is the port's own: as high as this option's jump and pushed off at most 2 px a frame, as
+// in Zero Mission (Redux's rose higher and pushed Samus far off the wall, #65).
 // RtlHeavyPhysics: on, and not in a title screen demo, whose inputs were recorded with the original's.
 extern bool g_rtl_heavy_physics;
 bool RtlHeavyPhysics(void);
+// 3DS port, an option (OPTIONS -> PLAY -> REDUX, off by default, P4.26): Super Metroid Redux's changes to the
+// game itself (ShadowOne333's hack; its values, the port's own code, sm_redux.c): missile doors that open with
+// one missile, faster doors and door transitions, message boxes that a button closes after half a second,
+// a sound instead of the fanfare for the expansions (tanks, missiles, super missiles, power bombs), faster
+// elevators, missile stations that reload every weapon; and Redux's moves: RESPIN (AIR SPIN on), QUICK MORPH (item cancel +
+// down), BOMB SKIP (down held), SPEED BALL (the spring ball runs), Space Jump's wider window and in liquids, the wall jump
+// found 2 px further, super missile recoil, SPARK RESTART, the speed booster charged twice as fast and kept through a spin's
+// turn, the fall's speed and the run's on landing; and a power bomb reveals a super missile block, Screw Attack (shinespark,
+// speed booster) goes through a frozen enemy and thaws it, the X-ray opens at once, wider (26) and turns twice as fast. Heavy physics stay their own option (in Redux too).
+// RtlRedux: on, and not in a title screen demo. RtlRedux_SyncRom: puts Redux's ROM data in or takes it out
+// as RtlRedux changes, once a frame (RtlRunFrame).
+extern bool g_rtl_redux;
+bool RtlRedux(void);
+void RtlRedux_SyncRom(void);
+// REDUX in the item lists: plays the sound of an expansion instead of its fanfare (true: the fanfare is not
+// queued); RtlRedux_TakeExpansionSound: true once after it, the room's music then not restarted.
+bool RtlRedux_ExpansionSound(const uint8 *plmp);
+bool RtlRedux_TakeExpansionSound(void);
+// 3DS port, an option (OPTIONS -> PLAY -> AIR SPIN, off by default, #68): as in Zero Mission, the jump button
+// pressed in the air during a plain jump or a fall (neither up, down nor an aim button held) starts a spin
+// jump with the speed Samus has: no new jump. So a fall or a jump without a run can end in a wall jump.
+// RtlAirSpin: on, and not in a title screen demo.
+extern bool g_rtl_air_spin;
+bool RtlAirSpin(void);
+// 3DS port, an option (OPTIONS -> PLAY -> AUTO SPACE JUMP, off by default, #73): with Space Jump, the jump button
+// held in a spin jump counts as a new press on the first frame the game accepts one (falling, inside its speed
+// window, Samus_Movement_03_SpinJumping), so holding it climbs without tapping in rhythm, as in the Zero Mission
+// port. RtlAutoSpaceJump: on, and not in a title screen demo.
+extern bool g_rtl_auto_space_jump;
+bool RtlAutoSpaceJump(void);
 // 3DS port: items and beams to equip or unequip, asked for by the frontend (a long press on the
 // bottom screen's STATUS tab), as the pause menu's equipment screen would: GameState_8_MainGameplay
 // takes it at the start of its next frame, toggles only what Samus has and the equipment screen

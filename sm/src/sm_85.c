@@ -351,7 +351,7 @@ static CoroutineRet HandleMessageBoxInteraction_Async(void) {  // 0x85846D
   } else {
     my_counter = 10;
     if (message_box_index != 20 && message_box_index != 21 && message_box_index != 22 && message_box_index != 24)
-      my_counter = 360;
+      my_counter = RtlRedux() ? 32 : 360;   // 3DS port: REDUX, a button closes it after 32 frames (P4.26)
     do {
       COROUTINE_AWAIT(2, WaitForNMI_NoUpdate_Async());
       HandleMusicQueue();
@@ -381,7 +381,8 @@ static CoroutineRet CloseMessageBox_Async(void) {  // 0x858589
 CoroutineRet DisplayMessageBox_Async(uint16 a) {  // 0x858080
   COROUTINE_BEGIN(coroutine_state_3, 0)
   message_box_index = a;
-  CancelSoundEffects();
+  if (!RtlRedux())   // 3DS port: REDUX lets the item's sound play on under the box (P4.26)
+    CancelSoundEffects();
   InitializePpuForMessageBoxes();
   ClearMessageBoxBg3Tilemap();
   InitializeMessageBox();

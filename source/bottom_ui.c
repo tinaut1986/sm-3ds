@@ -17,6 +17,8 @@
 #include "modern_controls.h"
 #include "auto_bomb.h"
 #include "auto_run.h"
+#include "audio_gain.h"
+#include "game_settings.h"
 #include "debug_tools.h"
 #include "ftp_server.h"
 #include "scene_rec.h"
@@ -38,6 +40,9 @@
 
 UiOptions g_ui = {
   .audio_on = true,
+  .volume = kAudioVolumeDefault,
+  .music_volume = 100,
+  .sfx_volume = 100,
   .pacing = kPaceAuto,
   .auto_update = true,
   .update_beta = DEBUG_TOOLS != 0,   // pre-release builds follow the betas
@@ -52,7 +57,7 @@ UiOptions g_ui = {
 // The values are what config.ini stores (`tab`): append only.
 typedef enum { TAB_MAP, TAB_STATUS, TAB_DEBUG, TAB_STATES, TAB_OPTIONS, TAB_ACHIEVEMENTS, TAB_COUNT } Tab;
 
-typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS, MODAL_CONTROLS, MODAL_STATUS_HELP } Modal;
+typedef enum { MODAL_NONE, MODAL_RESET, MODAL_TOOLS, MODAL_RA_DETAIL, MODAL_REPORT, MODAL_STATE, MODAL_NOTES, MODAL_ITEMS, MODAL_CONTROLS, MODAL_STATUS_HELP, MODAL_REDUX_HELP } Modal;
 
 static UiRomInfo g_rom_info;
 static Tab g_tab = TAB_STATUS;
@@ -1475,7 +1480,9 @@ void BottomUi_GameReset(void) {
 // of four half buttons; a full one takes two halves of one column. A cell shows its setting and
 // its value, a tap (on release, if the touch did not scroll) changes it.
 //
-//   GENERAL   LANGUAGE | AUDIO      SPOILERS
+//   GENERAL   LANGUAGE | SPOILERS
+//   SOUND     AUDIO                VOLUME (a bar to drag)
+//             MUSIC (a bar)        EFFECTS (a bar)
 //   SCREEN    IMAGE | VIEW         HUD
 //             FPS | FRAMES         HUD SPREAD (a bar to drag)
 //   PLAY      CONTROLS [?]         AUTO BOMB JUMP
@@ -1486,7 +1493,7 @@ void BottomUi_GameReset(void) {
 
 typedef enum {
   OPT_PACING, OPT_AUDIO, OPT_FPS, OPT_LANGUAGE, OPT_DISPLAY, OPT_WIDE, OPT_AUTO_UPDATE, OPT_CHANNEL,
-  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_RESET, OPT_COUNT
+  OPT_UPDATES, OPT_HUD, OPT_NOTES, OPT_SPOILERS, OPT_CONTROLS, OPT_AUTO_BOMB, OPT_CHARGE_PULL, OPT_AUTO_RUN, OPT_HUD_SPREAD, OPT_HEAVY, OPT_AIR_SPIN, OPT_AUTO_SPACE, OPT_REDUX, OPT_VOLUME, OPT_MUSIC, OPT_SFX, OPT_RESET, OPT_COUNT
 } OptCell;
 
 enum {
@@ -1503,10 +1510,11 @@ enum {
 // The groups in order: a title (kStrCount: just the line), then its cells (half or full width). RESET
 // GAME, the whole width, is the last one.
 typedef struct { OptCell cell; bool full; } OptItem;
-static const struct { UiStr title; OptItem items[6]; int n; } kOptGroups[] = {
-  { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_AUDIO, false }, { OPT_SPOILERS, false } }, 3 },
+static const struct { UiStr title; OptItem items[8]; int n; } kOptGroups[] = {
+  { kStrOptGeneral, { { OPT_LANGUAGE, false }, { OPT_SPOILERS, false } }, 2 },
+  { kStrOptSound, { { OPT_AUDIO, true }, { OPT_VOLUME, true }, { OPT_MUSIC, true }, { OPT_SFX, true } }, 4 },
   { kStrOptScreen, { { OPT_DISPLAY, false }, { OPT_WIDE, false }, { OPT_HUD, true }, { OPT_FPS, false }, { OPT_PACING, false }, { OPT_HUD_SPREAD, true } }, 6 },
-  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true }, { OPT_HEAVY, true } }, 5 },
+  { kStrOptPlay, { { OPT_CONTROLS, true }, { OPT_AUTO_BOMB, true }, { OPT_CHARGE_PULL, true }, { OPT_AUTO_RUN, true }, { OPT_HEAVY, true }, { OPT_AIR_SPIN, true }, { OPT_AUTO_SPACE, true }, { OPT_REDUX, true } }, 8 },
   { kStrOptUpdates, { { OPT_AUTO_UPDATE, false }, { OPT_CHANNEL, false }, { OPT_UPDATES, false }, { OPT_NOTES, false } }, 4 },
   { kStrCount, { { OPT_RESET, true } }, 1 },   // a line only
 };
@@ -1522,10 +1530,12 @@ static const UiStr kOptInfo[OPT_COUNT + 1] = {
   [OPT_AUTO_UPDATE] = kStrOptInfoAutoUpdate, [OPT_CHANNEL] = kStrOptInfoChannel, [OPT_UPDATES] = kStrOptInfoUpdates,
   [OPT_HUD] = kStrOptInfoHud, [OPT_NOTES] = kStrOptInfoNotes, [OPT_SPOILERS] = kStrOptInfoSpoilers,
   [OPT_CONTROLS] = kStrOptInfoControls, [OPT_AUTO_BOMB] = kStrOptInfoAutoBomb, [OPT_CHARGE_PULL] = kStrOptInfoChargePull, [OPT_AUTO_RUN] = kStrOptInfoAutoRun,
-  [OPT_HUD_SPREAD] = kStrOptInfoHudSpread, [OPT_HEAVY] = kStrOptInfoHeavy,
+  [OPT_HUD_SPREAD] = kStrOptInfoHudSpread, [OPT_HEAVY] = kStrOptInfoHeavy, [OPT_AIR_SPIN] = kStrOptInfoAirSpin, [OPT_AUTO_SPACE] = kStrOptInfoAutoSpace, [OPT_REDUX] = kStrOptInfoRedux,
+  [OPT_VOLUME] = kStrOptInfoVolume, [OPT_MUSIC] = kStrOptInfoMusic, [OPT_SFX] = kStrOptInfoSfx,
   [OPT_RESET] = kStrOptInfoReset, [kOptHelpInfo] = kStrOptInfoHelp,
 };
-static struct { bool active, dragging, bar, spread; int start_x, start_y, last_y; } g_opt_touch;
+// slider: the kOptSliders cell the touch went down on (-1 none); sliding: it moved sideways and drags the value.
+static struct { bool active, dragging, bar, sliding; int slider; int start_x, start_y, last_y; } g_opt_touch;
 
 // Where everything is, in the list's own coordinates (y 0 at its top): each cell, each group's title
 // row, and the list's height.
@@ -1591,6 +1601,16 @@ static Rect ControlsCellRect(void) {
   return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h };
 }
 
+// The "?" at the end of REDUX: the window with every change the option makes (MODAL_REDUX_HELP).
+static Rect ReduxHelpRect(void) {
+  const Rect r = OptRect(OPT_REDUX);
+  return (Rect){ r.x + r.w - kOptSpeakerW, r.y, kOptSpeakerW, r.h };
+}
+static Rect ReduxCellRect(void) {
+  const Rect r = OptRect(OPT_REDUX);
+  return (Rect){ r.x, r.y, r.w - kOptSpeakerW - 2, r.h };
+}
+
 static void DrawOptCell(Surface s, Rect r, const char *label, const char *value, uint32_t value_col) {
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), Pressed(r));
   UiDrawText(s, r.x + 6, r.y + 5, 1, COL_TEXT, label);
@@ -1634,30 +1654,50 @@ static void DrawOptHead(Surface s, int y, const char *title) {
   UiFillRect(s, x, y + 7, kOptX + 2 * kOptColW + kOptGap - x, 1, RGB(50, 80, 130));
 }
 
-// HUD SPREAD's bar: the columns a touch moves the value along, 0 % at the left end.
-static Rect SpreadBarRect(void) {
-  const Rect r = OptRect(OPT_HUD_SPREAD);
+// The cells whose value is a bar to drag: HUD SPREAD (#63) and the sound's volumes (#67). A touch on one
+// moves the value along its bar (sideways), never the list.
+typedef struct { OptCell cell; UiStr label; int *value; int max, step; } OptSlider;
+static const OptSlider kOptSliders[] = {
+  { OPT_HUD_SPREAD, kStrHudSpread, &g_ui.hud_spread, 100, 5 },
+  { OPT_VOLUME, kStrVolume, &g_ui.volume, kAudioVolumeMax, 10 },
+  { OPT_MUSIC, kStrMusic, &g_ui.music_volume, kAudioMixMax, 10 },
+  { OPT_SFX, kStrSfx, &g_ui.sfx_volume, kAudioMixMax, 10 },
+};
+enum { kOptSliderCount = sizeof(kOptSliders) / sizeof(kOptSliders[0]) };
+
+// A slider's bar: the columns a touch moves the value along, 0 at the left end.
+static Rect SliderBarRect(const OptSlider *sl) {
+  const Rect r = OptRect(sl->cell);
   return (Rect){ r.x + 8, r.y + 19, r.w - 16 - 30, 5 };
 }
 
-static int SpreadAt(int x) {
-  const Rect b = SpreadBarRect();
-  const int v = (x - b.x) * 100 / (b.w - 1);
-  return v < 0 ? 0 : v > 100 ? 100 : (v + 2) / 5 * 5;   // in steps of 5 %
+static int SliderAt(const OptSlider *sl, int x) {
+  const Rect b = SliderBarRect(sl);
+  const int v = (x - b.x) * sl->max / (b.w - 1);
+  return v < 0 ? 0 : v > sl->max ? sl->max : (v + sl->step / 2) / sl->step * sl->step;
 }
 
-// HUD SPREAD (#63): the label, a bar with its knob and the value. Dimmed without WIDE, which it is for.
-static void DrawSpreadCell(Surface s) {
-  const Rect r = OptRect(OPT_HUD_SPREAD), b = SpreadBarRect();
-  const bool on = g_ui.wide;
+// Whether a slider applies now: HUD SPREAD is for WIDE, the volumes for when the sound is on.
+static bool SliderLive(const OptSlider *sl) {
+  return sl->cell == OPT_HUD_SPREAD ? g_ui.wide : g_ui.audio_on;
+}
+
+// The label, a bar with its knob and the value, dimmed while it does not apply.
+static void DrawSliderCell(Surface s, const OptSlider *sl) {
+  const Rect r = OptRect(sl->cell), b = SliderBarRect(sl);
+  const bool on = SliderLive(sl);
   UiDrawBox(s, r, RGB(24, 32, 50), RGB(50, 80, 130), false);
-  UiDrawText(s, r.x + 6, r.y + 5, 1, on ? COL_TEXT : COL_DIM, Tr(kStrHudSpread));
-  const int fill = (b.w - 1) * g_ui.hud_spread / 100;
+  UiDrawText(s, r.x + 6, r.y + 5, 1, on ? COL_TEXT : COL_DIM, Tr(sl->label));
+  const int fill = (b.w - 1) * *sl->value / sl->max;
   UiFillRect(s, b.x, b.y + 1, b.w, b.h - 2, RGB(50, 60, 85));
   UiFillRect(s, b.x, b.y + 1, fill, b.h - 2, on ? COL_GOOD : COL_DIM);
+  if (sl->max > 100) {   // a tick at 100 %, the original's level
+    const int t = b.x + (b.w - 1) * 100 / sl->max;
+    UiFillRect(s, t, b.y - 1, 1, b.h + 2, on ? COL_TEXT : COL_DIM);
+  }
   UiFillRect(s, b.x + fill - 2, b.y - 2, 5, b.h + 4, on ? COL_TEXT : COL_DIM);
   char buf[8];
-  snprintf(buf, sizeof(buf), "%d%%", g_ui.hud_spread);
+  snprintf(buf, sizeof(buf), "%d%%", *sl->value);
   UiDrawText(s, r.x + r.w - 6 - UiTextWidth(buf, 1), r.y + 17, 1, on ? COL_GOOD : COL_DIM, buf);
 }
 
@@ -1689,6 +1729,13 @@ static void DrawOptions(Surface s) {
   DrawOnOffCell(s, OPT_AUTO_RUN, kStrAutoRun, AutoRun_On());
   // Zero Mission-like physics, Super Metroid Redux's values (sm_rtl.h, g_rtl_heavy_physics, #65; off by default).
   DrawOnOffCell(s, OPT_HEAVY, kStrHeavy, g_rtl_heavy_physics);
+  // The jump button in the air starts a spin jump, as in Zero Mission (sm_rtl.h, g_rtl_air_spin, #68; off by default).
+  DrawOnOffCell(s, OPT_AIR_SPIN, kStrAirSpin, g_rtl_air_spin);
+  // The jump button held in a spin jumps again with Space Jump, as in the Zero Mission port (sm_rtl.h, #73; off by default).
+  DrawOnOffCell(s, OPT_AUTO_SPACE, kStrAutoSpace, g_rtl_auto_space_jump);
+  // Super Metroid Redux's changes to the game itself (sm_rtl.h, g_rtl_redux, P4.26; off by default).
+  DrawOptCell(s, ReduxCellRect(), Tr(kStrRedux), Tr(g_rtl_redux ? kStrOn : kStrOff), g_rtl_redux ? COL_GOOD : COL_DIM);
+  UiDrawBoxLabel(s, ReduxHelpRect(), RGB(24, 32, 50), RGB(50, 80, 130), COL_ACCENT, Pressed(ReduxHelpRect()), "?");
 
   const Rect fr = OptRect(OPT_FPS);
   DrawOptCell(s, fr, "FPS", "", COL_TEXT);
@@ -1719,7 +1766,7 @@ static void DrawOptions(Surface s) {
   DrawOptCell(s, OptRect(OPT_HUD), Tr(kStrHud), Tr(g_ui.hud_auto_hide ? kStrHudHidden : kStrHudShown),
               g_ui.hud_auto_hide ? COL_GOOD : COL_DIM);
   DrawOptCell(s, OptRect(OPT_NOTES), Tr(kStrWhatsNew), Updater_RemoteTag(), COL_DIM);
-  DrawSpreadCell(s);
+  for (int i = 0; i < kOptSliderCount; i++) DrawSliderCell(s, &kOptSliders[i]);
   const Rect rr = OptRect(OPT_RESET);
   UiDrawBoxLabel(s, rr, RGB(64, 22, 22), RGB(180, 60, 60), RGB(255, 150, 150), Pressed(rr), Tr(kStrResetGame));
 
@@ -1751,6 +1798,7 @@ static void DrawOptions(Surface s) {
 static void OpenNotes(void);
 
 static void OpenControlsHelp(void);
+static void OpenReduxHelp(void);
 
 // OPTIONS -> CONTROLS (and config.ini): the scheme and the item boxes' lines that go with it.
 static void SetControls(bool modern) {
@@ -1766,8 +1814,13 @@ static void OptionsTap(int x, int y) {
     OpenControlsHelp();
     return;
   }
+  if (UiIn(ReduxHelpRect(), x, y)) {
+    g_opt_info = OPT_REDUX;
+    OpenReduxHelp();
+    return;
+  }
   for (int i = 0; i < OPT_COUNT; i++) {
-    const Rect r = i == OPT_CONTROLS ? ControlsCellRect() : OptRect((OptCell)i);
+    const Rect r = i == OPT_CONTROLS ? ControlsCellRect() : i == OPT_REDUX ? ReduxCellRect() : OptRect((OptCell)i);
     if (!UiIn(r, x, y)) continue;
     g_opt_info = i;
     switch ((OptCell)i) {
@@ -1791,6 +1844,9 @@ static void OptionsTap(int x, int y) {
     case OPT_CHARGE_PULL: g_rtl_charge_pull = !g_rtl_charge_pull; break;
     case OPT_AUTO_RUN: AutoRun_Set(!AutoRun_On()); break;
     case OPT_HEAVY: g_rtl_heavy_physics = !g_rtl_heavy_physics; break;
+    case OPT_AIR_SPIN: g_rtl_air_spin = !g_rtl_air_spin; break;
+    case OPT_AUTO_SPACE: g_rtl_auto_space_jump = !g_rtl_auto_space_jump; break;
+    case OPT_REDUX: g_rtl_redux = !g_rtl_redux; break;
     case OPT_SPOILERS: g_show_spoilers = !g_show_spoilers; break;
     case OPT_NOTES: OpenNotes(); break;
     case OPT_UPDATES: Updater_CheckNow(); break;   // a newer build asks (the prompt); the result shows in the cell
@@ -1809,23 +1865,36 @@ static void OptionsTouch(int x, int y) {
   g_opt_touch.bar = x >= kOptBarHitX && OptMaxScroll() > 0;
   g_opt_touch.start_x = x;
   g_opt_touch.start_y = g_opt_touch.last_y = y;
-  // HUD SPREAD: a touch on its cell drags the value along the bar (sideways), never the list.
-  g_opt_touch.spread = !g_opt_touch.bar && UiIn(OptRect(OPT_HUD_SPREAD), x, y);
+  // A slider's cell: moving sideways drags its value, up or down scrolls the list as anywhere else
+  // (four bars in a row would leave little to scroll by), a tap puts the value where it touched.
+  g_opt_touch.slider = -1;
+  g_opt_touch.sliding = false;
+  for (int i = 0; i < kOptSliderCount && !g_opt_touch.bar; i++)
+    if (UiIn(OptRect(kOptSliders[i].cell), x, y)) g_opt_touch.slider = i;
   if (g_opt_touch.bar) OptScrollToBar(y);
-  if (g_opt_touch.spread) {
-    g_opt_info = OPT_HUD_SPREAD;
-    g_ui.hud_spread = SpreadAt(x);
-  }
+}
+
+// A slider's value from a touch at x; the cell's description shows.
+static bool SetSliderAt(int x) {
+  const OptSlider *sl = &kOptSliders[g_opt_touch.slider];
+  g_opt_info = sl->cell;
+  const int v = SliderAt(sl, x);
+  if (v == *sl->value) return false;
+  *sl->value = v;
+  return true;
 }
 
 static bool OptionsTouchMove(int x, int y) {
   if (!g_opt_touch.active) return false;
   const int before = g_opt_scroll;
-  if (g_opt_touch.spread) {
-    const int v = SpreadAt(x);
-    if (v == g_ui.hud_spread) return false;
-    g_ui.hud_spread = v;
-    return true;
+  if (g_opt_touch.sliding) return SetSliderAt(x);
+  if (g_opt_touch.slider >= 0 && !g_opt_touch.dragging) {
+    const int dx = abs(x - g_opt_touch.start_x), dy = abs(y - g_opt_touch.start_y);
+    if (dx >= kOptDragSlop && dx >= dy) {
+      g_opt_touch.sliding = true;
+      SetSliderAt(x);
+      return true;   // drawn again either way: the description may have changed
+    }
   }
   if (g_opt_touch.bar) {
     OptScrollToBar(y);
@@ -1844,7 +1913,9 @@ static bool OptionsTouchMove(int x, int y) {
 static void OptionsTouchUp(void) {
   if (!g_opt_touch.active) return;
   g_opt_touch.active = false;
-  if (!g_opt_touch.dragging && !g_opt_touch.bar && !g_opt_touch.spread) OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
+  if (g_opt_touch.dragging || g_opt_touch.bar || g_opt_touch.sliding) return;
+  if (g_opt_touch.slider >= 0) SetSliderAt(g_opt_touch.start_x);
+  else OptionsTap(g_opt_touch.start_x, g_opt_touch.start_y);
 }
 
 // ---- Modals ---------------------------------------------------------------------
@@ -1930,23 +2001,10 @@ static void DrawKeys(Surface s, int x, int y, const char *keys) {
 
 // A row of the window that can be changed: which button it is on. Modern: an action's button
 // (kEditAction + ModernAction), a weapon's (kEditWeapon + ModernWeapon); original: one of the game's
-// seven buttons (kEditClassic + its index into ClassicConfig).
+// seven buttons (kEditClassic + its index in GameSettings_CurrentButtons' order).
 enum { kEditNone = 0, kEditAction = 1, kEditWeapon = 5, kEditClassic = 8 };
 
 static int g_ctl_capture;   // the row waiting for its new button (kEdit...), or kEditNone
-
-// The game's seven button assignments, in the order of the window's rows.
-static uint16_t *ClassicConfig(int i) {
-  switch (i) {
-  case 0: return &button_config_jump_a;
-  case 1: return &button_config_run_b;
-  case 2: return &button_config_shoot_x;
-  case 3: return &button_config_itemswitch;
-  case 4: return &button_config_itemcancel_y;
-  case 5: return &button_config_aim_up_R;
-  default: return &button_config_aim_down_L;
-  }
-}
 
 // A key's SNES mask for a frontend pad bit (bit i is the button 0x8000 >> i).
 static uint16_t SnesMaskOfPadBit(int bit) { return (uint16_t)(0x8000 >> bit); }
@@ -1979,13 +2037,16 @@ void BottomUi_ButtonCaptured(int pad_bit) {
   if (edit >= kEditClassic) {
     // The original's buttons: any of A B X Y L R SELECT, and the action that had it takes this one's old one.
     if (pad_bit == 3 || (pad_bit >= 4 && pad_bit <= 7) || pad_bit > 11) return;   // START, the D-pad, ZL and ZR are not assignable
-    uint16_t *mine = ClassicConfig(edit - kEditClassic);
+    // On the player's setting, not the game's memory (#70: a save state brought those back, and on the
+    // title, in the intro or a demo the game holds buttons that are not the player's).
+    uint16_t b[kClassicButtons];
+    GameSettings_CurrentButtons(b);
+    const int mine = edit - kEditClassic;
     const uint16_t mask = SnesMaskOfPadBit(pad_bit);
-    for (int i = 0; i < 7; i++) {
-      uint16_t *other = ClassicConfig(i);
-      if (other != mine && *other == mask) *other = *mine;
-    }
-    *mine = mask;
+    for (int i = 0; i < kClassicButtons; i++)
+      if (i != mine && b[i] == mask) b[i] = b[mine];
+    b[mine] = mask;
+    GameSettings_SetButtons(b);
   } else {
     // The modern scheme's buttons are the four on the right, and for a weapon ZL and ZR too.
     const int face = FaceOfPadBit(pad_bit);
@@ -2012,10 +2073,12 @@ static int ControlsRows(ControlsRow rows[kControlsRows]) {
       { 5, kStrCtlAimUp }, { 6, kStrCtlAimDown },
     };
     rows[n++] = (ControlsRow){ "DPAD", kStrCtlMove, kEditNone };
+    uint16_t cfg[kClassicButtons];   // the player's, not whatever the game holds now (#70)
+    GameSettings_CurrentButtons(cfg);
     for (size_t i = 0; i < sizeof(kClassic) / sizeof(kClassic[0]); i++) {
       static const char *const kDefault[7] = { "A", "B", "X", "SELECT", "Y", "R", "L" };
       ControlsRow r = { "", kClassic[i].what, kEditClassic + kClassic[i].cfg };
-      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(*ClassicConfig(kClassic[i].cfg), kDefault[kClassic[i].cfg]));
+      snprintf(r.keys, sizeof(r.keys), "%s", ButtonName(cfg[kClassic[i].cfg], kDefault[kClassic[i].cfg]));
       rows[n++] = r;
     }
     rows[n++] = (ControlsRow){ "START", kStrCtlPause, kEditNone };
@@ -2080,14 +2143,9 @@ static void ControlsModalTouch(int x, int y) {
     g_ctl_capture = kEditNone;
     if (g_controls_help_modern) {
       ModernControls_ResetMapping();
-    } else {   // the game's own defaults (OptionsMenuControllerFunc_8)
-      button_config_shoot_x = 0x40;
-      button_config_jump_a = 0x80;
-      button_config_run_b = 0x8000;
-      button_config_itemcancel_y = 0x4000;
-      button_config_itemswitch = 0x2000;
-      button_config_aim_up_R = 0x10;
-      button_config_aim_down_L = 0x20;
+    } else {   // the game's own defaults (OptionsMenuControllerFunc_8), in the rows' order
+      static const uint16_t kDefaults[kClassicButtons] = { 0x80, 0x8000, 0x40, 0x2000, 0x4000, 0x10, 0x20 };
+      GameSettings_SetButtons(kDefaults);
     }
   }
   for (int i = 0; i < 2; i++)
@@ -2144,6 +2202,48 @@ static void DrawStatusHelpModal(Surface s) {
 }
 
 static void StatusHelpTouch(int x, int y) {
+  if (UiIn(StatusHelpCloseRect(), x, y)) g_modal = MODAL_NONE;
+}
+
+// ---- REDUX window ---------------------------------------------------------------
+// OPTIONS -> "?" beside REDUX: what the option changes (sm_rtl.h, P4.26), a tab for each kind, one point a change.
+
+enum { kReduxTabs = 4, kReduxMaxPoints = 6 };
+static int g_redux_help_tab;
+static Rect ReduxTabRect(int i) { return (Rect){ 14 + i * 74, 46, 70, 16 }; }
+
+static void OpenReduxHelp(void) {
+  g_redux_help_tab = 0;
+  g_modal = MODAL_REDUX_HELP;
+}
+
+static void DrawReduxHelpModal(Surface s) {
+  static const struct { UiStr title; UiStr points[kReduxMaxPoints]; } kTabs[kReduxTabs] = {
+    { kStrRxWorld, { kStrRxWorld1, kStrRxWorld2, kStrRxWorld3, kStrRxWorld4, kStrRxWorld5, kStrRxWorld6 } },
+    { kStrRxMoves, { kStrRxMoves1, kStrRxMoves2, kStrRxMoves3, kStrRxMoves4, kStrRxMoves5, kStrCount } },
+    { kStrRxSpeed, { kStrRxSpeed1, kStrRxSpeed2, kStrRxSpeed3, kStrCount, kStrCount, kStrCount } },
+    { kStrRxWeapons, { kStrRxWeapons1, kStrRxWeapons2, kStrRxWeapons3, kStrRxWeapons4, kStrCount, kStrCount } },
+  };
+  UiFillRect(s, 8, 26, 304, 210, COL_MODAL_EDGE);
+  UiFillRect(s, 9, 27, 302, 208, COL_MODAL);
+  UiDrawText(s, 16, 32, 1, COL_TITLE, "SUPER METROID REDUX");
+  for (int i = 0; i < kReduxTabs; i++) {
+    const Rect t = ReduxTabRect(i);
+    const bool on = i == g_redux_help_tab;
+    UiDrawBoxLabel(s, t, on ? RGB(28, 54, 44) : COL_BOX, on ? RGB(90, 220, 150) : COL_BOX_EDGE,
+                   on ? RGB(180, 255, 210) : COL_DIM, Pressed(t), Tr(kTabs[i].title));
+  }
+  int y = 70;
+  for (int k = 0; k < kReduxMaxPoints && kTabs[g_redux_help_tab].points[k] != kStrCount; k++) {
+    UiFillRect(s, 16, y + 2, 3, 3, COL_DIM);
+    y += DrawWrapped(s, 24, y, 47, 4, COL_TEXT, Tr(kTabs[g_redux_help_tab].points[k])) * 10 + 4;
+  }
+  UiDrawBoxLabel(s, StatusHelpCloseRect(), COL_BOX, COL_BOX_EDGE, COL_TEXT, Pressed(StatusHelpCloseRect()), Tr(kStrClose));
+}
+
+static void ReduxHelpTouch(int x, int y) {
+  for (int i = 0; i < kReduxTabs; i++)
+    if (UiIn(ReduxTabRect(i), x, y)) g_redux_help_tab = i;
   if (UiIn(StatusHelpCloseRect(), x, y)) g_modal = MODAL_NONE;
 }
 
@@ -3203,17 +3303,27 @@ static void DrawUnlockNotice(Surface s) {
 
 typedef struct {
   int tab, pacing, audio, fps_overlay, pixel_perfect, wide, language, map_zoom, auto_update, update_beta, hud_hide, spoilers,
-      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy;
+      controls, missile, auto_bomb, charge_pull, auto_run, hud_spread, heavy, air_spin, auto_space, redux, volume, music_volume, sfx_volume;
   unsigned mapping;   // ModernControls_MappingKey
+  unsigned classic[kClassicButtons];   // the original scheme's buttons (GameSettings_Buttons), all 0 while there is no setting
+  int icon_cancel, moon_walk;          // the game's special settings (GameSettings_*), 0 while there is no setting
   // DEBUG_TOOLS builds only: the DEBUG TOOLS the next launch finds as they were left.
   int debug_log, debug_log_direct, debug_ftp;
 } SavedOptions;
 
 static SavedOptions CurrentOptions(void) {
-  return (SavedOptions){ g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
-                         g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
-                         g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics, ModernControls_MappingKey(),
-                         g_debug_log, g_debug_log_direct, g_debug_ftp };
+  SavedOptions o = { g_tab, g_ui.pacing, g_ui.audio_on, g_ui.fps_overlay,
+                     g_ui.pixel_perfect, g_ui.wide, g_ui_lang, g_map_zoom, g_ui.auto_update, g_ui.update_beta, g_ui.hud_auto_hide,
+                     g_show_spoilers, ModernControls_On(), ModernControls_Missile(), AutoBomb_On(), g_rtl_charge_pull, AutoRun_On(), g_ui.hud_spread, g_rtl_heavy_physics, g_rtl_air_spin, g_rtl_auto_space_jump, g_rtl_redux,
+                     g_ui.volume, g_ui.music_volume, g_ui.sfx_volume, ModernControls_MappingKey(),
+                     { 0 }, 0, 0, g_debug_log, g_debug_log_direct, g_debug_ftp };
+  if (GameSettings_Have()) {
+    uint16_t b[kClassicButtons];
+    GameSettings_Buttons(b);
+    for (int i = 0; i < kClassicButtons; i++) o.classic[i] = b[i];
+    o.icon_cancel = GameSettings_IconCancel(), o.moon_walk = GameSettings_MoonWalk();
+  }
+  return o;
 }
 
 static SavedOptions g_saved_options;   // what config.ini holds
@@ -3225,10 +3335,12 @@ static void SaveConfig(void) {
   g_saved_options = o;
   fprintf(f, "# Super Metroid 3DS options (written by the bottom screen)\n");
   fprintf(f, "tab=%d\npacing=%d\naudio=%d\nfps_overlay=%d\npixel_perfect=%d\nwide=%d\n"
-          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\n",
+          "language=%s\nmap_zoom=%d\nauto_update=%d\nupdate_beta=%d\nhud_auto_hide=%d\nspoilers=%d\ncontrols=%s\nmodern_missile=%d\nauto_bomb_jump=%d\ncharge_pull=%d\nauto_run=%d\nhud_spread=%d\nheavy_physics=%d\nair_spin=%d\nauto_space_jump=%d\nredux=%d\n"
+          "volume=%d\nmusic_volume=%d\nsfx_volume=%d\n",
           o.tab, o.pacing, o.audio, o.fps_overlay, o.pixel_perfect, o.wide,
           UiLang_Code(o.language), o.map_zoom, o.auto_update, o.update_beta, o.hud_hide, o.spoilers,
-          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy);
+          o.controls ? "modern" : "classic", o.missile, o.auto_bomb, o.charge_pull, o.auto_run, o.hud_spread, o.heavy, o.air_spin, o.auto_space, o.redux,
+          o.volume, o.music_volume, o.sfx_volume);
   // The modern buttons: each action's face button, and the action each weapon rides on (R + that button)
   // or its trigger (ZL, ZR).
   for (int a = 0; a < kModernActions; a++)
@@ -3236,6 +3348,13 @@ static void SaveConfig(void) {
   static const char *const kWeaponKeys[kModernWeapons] = { "missile", "xray", "grapple" };
   for (int w = 0; w < kModernWeapons; w++)
     fprintf(f, "modern_with_%s=%s\n", kWeaponKeys[w], ModernControls_WeaponPlaceName((ModernWeapon)w));
+  // The original scheme's buttons (jump, run, shoot, item switch, item cancel, aim up, aim down) as SNES masks,
+  // and the game's special settings: ICON CANCEL automatic, MOON WALK on (#70).
+  if (GameSettings_Have()) {
+    fprintf(f, "classic_buttons=%04X,%04X,%04X,%04X,%04X,%04X,%04X\n", o.classic[0], o.classic[1], o.classic[2], o.classic[3],
+            o.classic[4], o.classic[5], o.classic[6]);
+    fprintf(f, "special_settings=%d,%d\n", o.icon_cancel, o.moon_walk);
+  }
 #if DEBUG_TOOLS
   fprintf(f, "debug_log=%d\ndebug_log_direct=%d\ndebug_ftp=%d\n", o.debug_log, o.debug_log_direct, o.debug_ftp);
 #endif
@@ -3302,6 +3421,14 @@ static void LoadConfig(void) {
       SetControls(!strcmp(code, "modern"));
       continue;
     }
+    if (!strncmp(line, "classic_buttons=", 16)) {
+      GameSettings_ParseButtons(line + 16);   // an invalid one is left out: the game's own stay
+      continue;
+    }
+    if (!strncmp(line, "special_settings=", 17)) {
+      GameSettings_ParseSpecial(line + 17);
+      continue;
+    }
     if (!strncmp(line, "modern_", 7) && sscanf(line, "%31[^=]=%15[^\r\n]", key, code) == 2 && LoadModernMapping(key, code))
       continue;
     if (sscanf(line, "%31[^=]=%d", key, &v) != 2) continue;
@@ -3321,7 +3448,13 @@ static void LoadConfig(void) {
     else if (!strcmp(key, "charge_pull")) g_rtl_charge_pull = v != 0;
     else if (!strcmp(key, "auto_run")) AutoRun_Set(v != 0);
     else if (!strcmp(key, "hud_spread") && v >= 0 && v <= 100) g_ui.hud_spread = (int)v;
+    else if (!strcmp(key, "volume") && v >= 0 && v <= kAudioVolumeMax) g_ui.volume = (int)v;
+    else if (!strcmp(key, "music_volume") && v >= 0 && v <= kAudioMixMax) g_ui.music_volume = (int)v;
+    else if (!strcmp(key, "sfx_volume") && v >= 0 && v <= kAudioMixMax) g_ui.sfx_volume = (int)v;
     else if (!strcmp(key, "heavy_physics")) g_rtl_heavy_physics = v != 0;
+    else if (!strcmp(key, "air_spin")) g_rtl_air_spin = v != 0;
+    else if (!strcmp(key, "auto_space_jump")) g_rtl_auto_space_jump = v != 0;
+    else if (!strcmp(key, "redux")) g_rtl_redux = v != 0;
     else if (!strcmp(key, "map_zoom") && v >= 0 && v < MAP_ZOOMS) g_map_zoom = v;
 #if DEBUG_TOOLS
     else if (!strcmp(key, "debug_log")) g_debug_log = v != 0;
@@ -3377,6 +3510,7 @@ static void TouchDownImpl(int x, int y) {
   case MODAL_ITEMS: ItemsModalTouch(x, y); return;
   case MODAL_CONTROLS: ControlsModalTouch(x, y); return;
   case MODAL_STATUS_HELP: StatusHelpTouch(x, y); return;
+  case MODAL_REDUX_HELP: ReduxHelpTouch(x, y); return;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: ToolsModalTouch(x, y); return;
 #endif
@@ -3477,6 +3611,7 @@ static void DrawBottom(const UiPerf *p) {
   case MODAL_ITEMS: DrawItemsModal(s); break;
   case MODAL_CONTROLS: DrawControlsModal(s); break;
   case MODAL_STATUS_HELP: DrawStatusHelpModal(s); break;
+  case MODAL_REDUX_HELP: DrawReduxHelpModal(s); break;
 #if DEBUG_TOOLS
   case MODAL_TOOLS: DrawToolsModal(s); break;
   case MODAL_REPORT: DrawReportModal(s); break;
@@ -3501,7 +3636,7 @@ static void DrawBottom(const UiPerf *p) {
 // timeout)? Those are redrawn every REFRESH_FRAMES; the others only when an event marks them.
 static bool UiIsLive(void) {
   switch (g_modal) {
-  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: case MODAL_CONTROLS: case MODAL_STATUS_HELP: break;
+  case MODAL_NONE: case MODAL_RESET: case MODAL_RA_DETAIL: case MODAL_NOTES: case MODAL_ITEMS: case MODAL_CONTROLS: case MODAL_STATUS_HELP: case MODAL_REDUX_HELP: break;
 #if DEBUG_TOOLS
   // The tools window covers the tab: only the scene recorder's frame count moves by itself (the rest changes on a tap).
   case MODAL_TOOLS: return SceneRec_Active() || FtpServer_Running();
@@ -3891,6 +4026,7 @@ bool BottomUi_Init(const UiRomInfo *rom) {
   g_saved_options = CurrentOptions();
   g_ui_lang_on_change = OnGameLanguage;
   g_rtl_controls_menu = &kControlsMenu;
+  GameSettings_Init();   // the game's own settings are the player's (#70)
   if (g_is_new3ds) osSetSpeedupEnable(true);
   g_ptmu = R_SUCCEEDED(ptmuInit());
   if (g_ptmu) {

@@ -28,6 +28,8 @@
 #include "modern_controls.h"
 #include "auto_bomb.h"
 #include "auto_run.h"
+#include "audio_gain.h"
+#include "game_settings.h"
 #include "sm_warp.h"
 #include "sm_wide.h"
 #include "stereo_depth.h"
@@ -182,6 +184,8 @@ static bool CaptureStateShot(void) {
 const uint32_t *Main_TopScreenPixels(void) {
   return g_top_by_gpu ? GpuPpu3ds_ReadTop() : UiDraw_Screen(GFX_TOP).px;
 }
+
+const uint32_t *Main_TopScreenPixelsRight(void) { return g_top_by_gpu ? GpuPpu3ds_ReadTopRight() : NULL; }
 
 // The 3D slider, with the top screen switched to 3D while it is up (gfxSet3D: 800x240,
 // one 400x240 image per eye). The CPU path then shows the same image to both eyes.
@@ -384,6 +388,10 @@ static void AudioCallback(uint8 *stream, int len) {
   const float buffer_ms = len * 1000.0f / (kAudioRate * 4);   // stereo s16
   if (g_cb_last && TicksToMs(cb_start - g_cb_last) > buffer_ms * 1.5f) g_cb_gaps++;
   g_cb_last = cb_start;
+  // OPTIONS -> SOUND (#67): the music's and the effects' shares inside the S-DSP's mix, the whole
+  // after it (audio_gain.c); the achievement sound is mixed in afterwards, as it was.
+  g_dsp_gain_music = AudioGain_FromPercent(g_ui.music_volume);
+  g_dsp_gain_sfx = AudioGain_FromPercent(g_ui.sfx_volume);
   RecursiveLock_Lock(&g_audio_mutex);
   while (len != 0) {
     if (g_audiobuffer_end - g_audiobuffer_cur == 0) {
@@ -400,6 +408,7 @@ static void AudioCallback(uint8 *stream, int len) {
     len -= n;
   }
   RecursiveLock_Unlock(&g_audio_mutex);
+  AudioGain_Apply((int16_t *)stream_start, stream_len / 2, AudioGain_FromPercent(g_ui.volume));
   RetroAch_MixAudio((int16_t *)stream_start, stream_len / 4, kAudioRate);   // the achievement sound, if playing
   const float cb_ms = TicksToMs(svcGetSystemTick() - cb_start);
   if (cb_ms > g_cb_max_ms) g_cb_max_ms = cb_ms;
@@ -931,6 +940,7 @@ int main(int argc, char** argv) {
 
     if (g_ui.req_reset) {
       RtlReset(1);
+      GameSettings_Sync(true);
       BottomUi_GameReset();
       RetroAch_GameReset();
     }
@@ -967,6 +977,7 @@ int main(int argc, char** argv) {
 #if DEBUG_TOOLS
       const u64 tl1 = svcGetSystemTick();
 #endif
+      if (ok) GameSettings_Sync(true);   // the player's settings, not the ones the state was saved with (#70)
       BottomUi_StateLoaded(g_ui.save_slot, ok);
       if (ok) RetroAch_StateLoaded(g_ui.save_slot);
 #if DEBUG_TOOLS
@@ -1022,6 +1033,7 @@ int main(int argc, char** argv) {
       SmWide_SetView(margin, extra, extra, wide > 0);
 
       u64 t0 = svcGetSystemTick();
+      GameSettings_Sync(false);   // before the buttons are translated with the game's assignments
       int inputs = IntroSkip_Filter(AutoBomb_Translate(AutoRun_Translate(ModernControls_Translate(g_input1_state | g_gamepad_buttons | CirclePadAsDpad()))));
       Cheats_BeforeFrame();
       {   // the HUD half the open bottom tab shows is not drawn on the top screen (OPTIONS -> HUD)
@@ -1102,6 +1114,8 @@ int main(int argc, char** argv) {
         int cone_window;
         const int16_t (*cone)[2] = SmWide_WindowCone(&cone_window);
         GpuPpu_SetWindowCone(cone_window, margin_l || margin_r ? cone : NULL);
+        // The X-ray scope on (Xray_SetupStage7 sets the angle; time frozen until it is done): the scene flat in 3D (#69).
+        GpuPpu_SetFlatScene((time_is_frozen_flag & 0xff) && xray_angle && hdma_ptr_1.bank == 0x98);
         GpuPpu_SetMode7UnderHud(wide && SmWide_Mode7());
         // Layers the owner sent to another stereo plane for this room (source/sm_plane_fixes.inc).
         const bool by_hand = SmWide_Gameplay() && SmPlanes_RoomHasRules();

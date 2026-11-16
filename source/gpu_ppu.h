@@ -130,6 +130,10 @@ typedef struct {
   int band_count;
   GpuCwRect cw[kGpuMaxCwRects];
   int cw_count;
+  // The scene at one depth for both eyes (only the HUD list keeps its plane): the X-ray scope's cone is a window that
+  // cuts the layers of several planes and the colour window's rectangles, which are not moved per eye, so with the 3D
+  // on the cone's edges and the view's edge showed a line in one eye or the other (#69).
+  bool flat_scene;   // GpuPpu_SetFlatScene
   // Cleared by GpuPpu_BuildFrame; the caller may add masks before drawing the frame.
   GpuMaskRect mask[kGpuMaxMasks];
   int mask_count;
@@ -290,6 +294,8 @@ void GpuPpu_SetWindow2Extent(const int16_t (*ext)[2]);
 // margins are used. [x0, x1) in view columns, kGpuWinFar for unbounded, x0 = kGpuWinNone:
 // no cone on that line. NULL = none.
 void GpuPpu_SetWindowCone(int window, const int16_t (*cone)[2]);
+// The frame's scene drawn at one depth for both eyes (GpuFrame.flat_scene): the X-ray scope (main.c).
+void GpuPpu_SetFlatScene(bool on);
 
 // Adds a black mask rectangle to `f`, clipped to its columns; false if the list is full.
 bool GpuPpu_AddMask(GpuFrame *f, int x, int y, int w, int h);

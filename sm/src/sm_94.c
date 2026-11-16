@@ -514,6 +514,27 @@ static uint8 BlockColl_Vert_Slope_NonSquare(CollInfo *ci, uint16 k) {  // 0x9486
   }
 }
 
+// 3DS port: REDUX's SPARK RESTART (P4.26): a horizontal shinespark that a slope lifts, with its direction held, turns into
+// a run at full speed with the speed booster on, as in Redux.
+static void ReduxSparkRestart(void) {
+  if (!RtlRedux() || (samus_pose != 0xC9 && samus_pose != 0xCA))
+    return;
+  const bool right = samus_pose == 0xC9;
+  if (!(joypad1_lastkeys & (right ? button_config_right : button_config_left)))
+    return;
+  samus_new_pose = right ? 9 : 10;   // running, not aiming
+  samus_pose_x_dir = right ? 8 : 4;
+  samus_movement_type = 1;
+  samus_x_extra_run_speed = 9;
+  Samus_MoveDown_NoSolidColl(0xFFFE);
+  samus_contact_damage_index = 1;
+  samus_has_momentum_flag = 1;
+  speed_boost_counter = 0x402;
+  samus_y_dir = 0;
+  samus_movement_handler = FUNC16(Samus_MovementHandler_Normal);
+  samus_input_handler = FUNC16(Samus_InputHandler_E913);
+}
+
 void Samus_AlignYPosSlope(void) {  // 0x9487F4
   if ((enable_horiz_slope_coll & 2) == 0)
     return;
@@ -530,6 +551,7 @@ void Samus_AlignYPosSlope(void) {  // 0x9487F4
       if ((int16)v2 < 0) {
         samus_y_pos += v2;
         samus_pos_adjusted_by_slope_flag = 1;
+        ReduxSparkRestart();   // 3DS port
       }
     }
   }

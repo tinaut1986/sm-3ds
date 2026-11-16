@@ -2056,7 +2056,8 @@ void SamusProjectileInteractionHandler(void) {  // 0xA09785
         knockback_x_dir = (int16)(samus_x_pos - eproj_x_pos[v0 >> 1]) >= 0;
         return;
       }
-      if (projectile_variables[pidx] == 8) {
+      // 3DS port: REDUX, down held: no bomb jump (BOMB SKIP, P4.26).
+      if (projectile_variables[pidx] == 8 && !(RtlRedux() && (joypad1_lastkeys & button_config_down))) {
         bomb_jump_dir = (samus_x_pos == projectile_x_pos[pidx]) ? 2 :
             (int16)(samus_x_pos - projectile_x_pos[pidx]) < 0 ? 1 : 3;
       }
@@ -2893,6 +2894,13 @@ CheckEnemyColl_Result Samus_CheckSolidEnemyColl(int32 amt) {  // 0xA0A8F0
       v12 = v14 < *(v9 + 5);
       uint16 v15 = v14 - *(v9 + 5);
       if (v12 || v15 < *(v10 + 5)) {
+        // REDUX (P4.26): Screw Attack, a shinespark or the speed booster go through a frozen enemy and thaw it (not a
+        // platform enemy, not when landing on it); the enemy's own collision then applies.
+        if (RtlRedux() && samus_contact_damage_index && samus_contact_damage_index < 4 && samus_collision_direction != 3 &&
+            !(ED->properties & 0x8000)) {
+          ED->frozen_timer = 0;
+          continue;
+        }
         switch (samus_collision_direction & 3) {
         case 0: {
           varE32 = ED->x_width + ED->x_pos;

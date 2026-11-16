@@ -82,6 +82,8 @@ bool GpuPpu3ds_ReadBack(uint8_t *out, int pitch);
 // RGBA8 exactly like the framebuffer (valid until the next call), or NULL. Blocks until
 // the GPU is done.
 const uint32_t *GpuPpu3ds_ReadTop(void);
+// The right eye's image the same way, when the last frame had two eyes (the 3D slider up, or FORCE 3D); else NULL.
+const uint32_t *GpuPpu3ds_ReadTopRight(void);
 
 // What the start-up calibration found, for the debug screens.
 const char *GpuPpu3ds_CalibrationText(void);

@@ -125,6 +125,9 @@ void dsp_reset(Dsp* dsp) {
   dsp->sampleOffset = 0;
 }
 
+int g_dsp_gain_music = 256, g_dsp_gain_sfx = 256;
+uint8_t g_dsp_sfx_voices;
+
 void dsp_saveload(Dsp *dsp, SaveLoadFunc *func, void *ctx) {
   func(ctx, &dsp->ram, sizeof(Dsp) - offsetof(Dsp, ram));
 }
@@ -193,6 +196,10 @@ void dsp_cycleBlock(Dsp* dsp, int n) {
   // Super Metroid always uses the FIR filter 127,0,0,0,0,0,0,0 (checked over every room).
   bool firOneTap = true;
   for(int i = 1; i < 8; i++) firOneTap &= dsp->firValues[i] == 0;
+  // The port's music and effect volumes: each voice's gain for this block (none at 100 %, the original's mix).
+  const bool gains = g_dsp_gain_music != 256 || g_dsp_gain_sfx != 256;
+  int gain[8];
+  for(int ch = 0; ch < 8; ch++) gain[ch] = (g_dsp_sfx_voices >> ch & 1) ? g_dsp_gain_sfx : g_dsp_gain_music;
   for(int i = 0; i < n; i++) {
     int totalL = 0;
     int totalR = 0;
@@ -206,6 +213,10 @@ void dsp_cycleBlock(Dsp* dsp, int n) {
       if(sampleOut == 0) continue;
       int l = (sampleOut * dsp->channel[ch].volumeL) >> 6;
       int r = (sampleOut * dsp->channel[ch].volumeR) >> 6;
+      if(gains) {   // the echo gets the same share: a quieter voice also echoes less
+        l = (l * gain[ch]) >> 8;
+        r = (r * gain[ch]) >> 8;
+      }
       totalL += l;
       totalR += r;
       totalL = totalL < -0x8000 ? -0x8000 : (totalL > 0x7fff ? 0x7fff : totalL); // clamp 16-bit

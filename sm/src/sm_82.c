@@ -2921,7 +2921,7 @@ uint16 EquipmentScreenMoveLowerOnSuitsMisc(uint16 v0) {  // 0x82B4B7
 
   while ((kEquipmentBitmasks_Suits[v0 >> 1] & collected_items) == 0) {
     v0 += 2;
-    if ((int16)(v0 - 10) >= 0)
+    if ((int16)(v0 - 12) >= 0)   // 3DS port: the ROM compares with 12 (CPX #$000C): 10 never reached the Screw Attack (#71)
       return -1;
   }
   QueueSfx1_Max6(0x37);
@@ -3337,7 +3337,7 @@ void QueueSamusMovementSfx(void) {  // 0x82BE2F
 
 
 uint8 AdvancePaletteFadeForAllPalettes_0xc(void) {  // 0x82D961
-  palette_change_denom = 12;
+  palette_change_denom = RtlRedux() ? 6 : 12;   // 3DS port: REDUX, a door's fades twice as fast (P4.26)
   return AdvancePaletteFadeForAllPalettes();
 }
 
@@ -3645,7 +3645,7 @@ void LoadDoorHeader(void) {  // 0x82DE12
     else
       samus_distance_from_door = 200;
   }
-  uint32 t = samus_distance_from_door << 8;
+  uint32 t = samus_distance_from_door << (RtlRedux() ? 9 : 8);   // 3DS port: REDUX, a transition in half the frames
   samus_door_transition_subspeed = t & 0xffff;
   samus_door_transition_speed = t >> 16;
 }
@@ -3771,6 +3771,8 @@ void NullFunc(void) {  // 0x82E113
 }
 
 void PlayRoomMusicTrackAfterAFrames(uint16 a) {  // 0x82E118
+  if (RtlRedux_TakeExpansionSound())   // 3DS port: REDUX, the music never stopped (P4.26)
+    return;
   if (game_state < kGameState_40_TransitionToDemo) {
     QueueMusic_DelayedY(0, a);
     QueueMusic_Delayed8(music_track_index);
@@ -4477,6 +4479,12 @@ void CreatePlmsExecuteDoorAsmRoomSetup(void) {  // 0x82EB6C
 
 const RtlLanguageMenu *g_rtl_language_menu;   // 3DS port, see sm_rtl.h
 const RtlControlsMenu *g_rtl_controls_menu;   // 3DS port, see sm_rtl.h
+void (*g_rtl_game_settings_changed)(void);   // 3DS port, see sm_rtl.h
+
+void RtlReloadControllerOptions(void) {
+  LoadControllerOptionsFromControllerBindings();
+  OptionsMenuFunc6();
+}
 bool g_rtl_controls_row_shown;
 int g_rtl_ctl_cursor, g_rtl_ctl_top;
 static void ControllerSettingsList(void);
@@ -4870,6 +4878,7 @@ void GameOptionsMenuSpecialSettings_0(void) {  // 0x82F08E
     *(uint16 *)v0 = 0;
   else
     *(uint16 *)v0 = 1;
+  if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70)
   OptionsMenuFunc7();
 }
 
@@ -4974,11 +4983,13 @@ void OptionsMenuControllerFunc_8(void) {  // 0x82F224
     button_config_aim_down_L = 32;
     LoadControllerOptionsFromControllerBindings();
     OptionsMenuFunc6();
+    if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70)
   }
 }
 
 void OptionsMenuControllerFunc_7(void) {  // 0x82F25D
   if ((joypad1_newkeys & (kButton_Start | kButton_A)) != 0 && !OptionsMenuFunc8()) {
+    if (g_rtl_game_settings_changed) g_rtl_game_settings_changed();   // 3DS port (#70): the buttons written back
     menu_option_index = 0;
     GameOptionsMenuItemFunc_4();
   }

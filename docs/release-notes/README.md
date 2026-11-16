@@ -8,9 +8,8 @@ Rules (details in `CLAUDE.md`, "Release notes"):
 
 - 3 to 6 short lines, each starting with `- `. Plain text for the player, in English, under
   ~2.5 KB. The console's font is 5x7: no tables, links or images.
-- A **stable** release lists everything since the previous *stable* tag, betas included
-  (stable players never see beta pages). A **beta** lists only what is new since the
-  previous tag.
+- Every release, beta or stable, lists only what is new since the previous tag: the updater
+  already shows the notes of the betas in between.
 - Written when the tag is made, as one summary of the range, and merged before the tag exists.
 
 Example (`v0.3.0.md`):

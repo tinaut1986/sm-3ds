@@ -143,9 +143,8 @@ the releases list it already downloads and shows it **before** the player instal
 WHAT'S NEW, and a button on the "new version" prompt). The marker must stay identical in the
 workflow and in `source/updater_parse.c`.
 
-What to list: a **stable** release lists everything since the previous *stable* tag, betas
-included (stable players never see beta pages); a **beta** lists only what is new since the
-previous tag. Write it when the tag is made, as one summary of the range
+What to list: only what is new since the previous tag, beta or stable (the owner's rule,
+2026-11-16: the updater already shows the notes of the betas in between). Write it when the tag is made, as one summary of the range
 (`git log <prev>..HEAD`), not one line per commit.
 
 ### The channel is baked into the binary
@@ -176,6 +175,8 @@ git push origin --delete release/v0.1.0
 
 The workflow uses the workflow file **at the tagged commit**, and it refuses to
 build if a `.smc`/`.sfc` is present in `romfs/`.
+
+**Discord**: every run of `.github/workflows/build-release.yml` announces the version on the Discord server (Tinaut's 3DS Ports): a stable in #announcements, pinging the project's role, a beta in #beta-testing, with `docs/release-notes/<tag>.md` as the text (one more reason to write it before the tag). Don't post it by hand. It needs the repo secrets `DISCORD_WEBHOOK_RELEASE` and `DISCORD_WEBHOOK_BETA` (without them the step is skipped); a re-run of the workflow posts again.
 
 ## ROM and legal
 
