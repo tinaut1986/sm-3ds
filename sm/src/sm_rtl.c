@@ -13,6 +13,24 @@ struct StateRecorder;
 static void RtlSaveMusicStateToRam_Locked();
 static void RtlRestoreMusicAfterLoad_Locked(bool is_reset);
 
+// 3DS port: g_rtl_enemy_bg2_room is not in a save state (only the SNES's is). It is set when a boss starts or sends its
+// body to BG2, so a state loaded in the middle of the fight left it at that of the room the game was in before: with
+// WIDE, Mother Brain's torso got the room's parallax and its repeat in the right margin (#72; Kraid, Draygon, Crocomire
+// and Spore Spawn alike). Worked out again from the enemies: one of those bosses in the room, Mother Brain once BG2 is
+// hers (layer2_scroll_x 1, as SmWide_Bg2Clip checks).
+static void RtlRestoreEnemyBg2Room(void) {
+  g_rtl_enemy_bg2_room = 0;
+  for (int i = 0; i < 32; i++) {
+    const uint16 id = *(uint16 *)(g_ram + 0xF78 + i * 64);   // EnemyData.enemy_ptr
+    const bool boss = id == 0xE2BF || id == 0xDE3F || id == 0xDDBF || id == 0xDF3F ||   // Kraid, Draygon, Crocomire, Spore Spawn
+                      ((id == 0xEC7F || id == 0xEC3F) && layer2_scroll_x == 1);         // Mother Brain
+    if (boss) {
+      g_rtl_enemy_bg2_room = room_ptr;
+      return;
+    }
+  }
+}
+
 uint8 g_ram[0x20000 + 0x20000];   // see sm_rtl.h: the tail is zero padding
 // level_data starts at g_ram+0x10002 and the sentinel index is 0xFFFF (16-bit entries).
 _Static_assert(sizeof(g_ram) >= 0x10002 + 2 * 0x10000, "g_ram padding too small for level_data[0xFFFF]");
@@ -265,6 +283,7 @@ bool StateRecorder_Load(StateRecorder *sr, FILE *f, bool replay_mode) {
 
   if (!is_reset)
     RtlRestoreMusicAfterLoad_Locked(false);
+  RtlRestoreEnemyBg2Room();
 
   RtlUpdateSnesPatchForBugfix();
 
