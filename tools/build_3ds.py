@@ -203,22 +203,32 @@ def save_last_ip(ip):
 
 
 def find_make():
+    """The command that runs devkitPro's make in ROOT (a list: add the make arguments)."""
+    if os.name == "nt":
+        # Run make inside devkitPro's own MSYS2 bash (its login profile sets DEVKITPRO, DEVKITARM and PATH):
+        # make.exe started from Git Bash, or from a Python started there, loses every exported variable in its
+        # sub-make (TOPDIR, DEVKITARM...), and the build stops at "/resources/AppInfo: No such file".
+        for devkitpro in (os.environ.get("DEVKITPRO", ""), r"C:\devkitPro"):
+            bash = os.path.join(devkitpro, "msys2", "usr", "bin", "bash.exe")
+            if devkitpro and not devkitpro.startswith("/") and os.path.isfile(bash):
+                return [bash, "-lc", 'cd "$(cygpath -u "$1")" && shift && exec make "$@"', "_",
+                        ROOT.replace("\\", "/")]
     make_bin = shutil.which("make")
     if make_bin:
-        return make_bin
+        return [make_bin, "-C", ROOT]
     devkitpro = os.environ.get("DEVKITPRO", "/opt/devkitpro" if os.name != "nt" else r"C:\devkitPro")
     for c in (os.path.join(devkitpro, "msys2", "usr", "bin", "make.exe"),
               os.path.join(devkitpro, "devkitARM", "bin", "make.exe"),
               os.path.join(devkitpro, "tools", "bin", "make.exe")):
         if os.path.isfile(c):
-            return c
-    return "make"
+            return [c, "-C", ROOT]
+    return ["make", "-C", ROOT]
 
 
 def make_version(make_bin, env):
     """VERSION as the Makefile derives it from git (`make print-version`)."""
     try:
-        proc = subprocess.run([make_bin, "-C", ROOT, "-s", "--no-print-directory", "print-version"],
+        proc = subprocess.run(make_bin + ["-s", "--no-print-directory", "print-version"],
                               env=env, capture_output=True, text=True)
         lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
         return lines[-1] if lines else ""
@@ -310,9 +320,9 @@ def run_build(debug=True, send_ftp=False, ftp_host="", ftp_port=5000, clean=Fals
 
     steps = []
     if clean:
-        steps.append(("Cleaning (make clean)", [make_bin, "-C", ROOT, "clean"]))
+        steps.append(("Cleaning (make clean)", make_bin + ["clean"]))
     target = "3dsx" if hb else "ftp" if send_ftp and not install else "cia"
-    build_cmd = [make_bin, "-C", ROOT, f"-j{jobs}", "FULL_NATIVE=1", f"DEBUG_TOOLS={1 if debug else 0}", target]
+    build_cmd = make_bin + [f"-j{jobs}", "FULL_NATIVE=1", f"DEBUG_TOOLS={1 if debug else 0}", target]
     if send_ftp and not install:
         build_cmd += [f"FTP_HOST={ftp_host}", f"FTP_PORT={ftp_port}"]
     steps.append((f"Building and sending to {ftp_host}:{ftp_port}" if send_ftp and not install
