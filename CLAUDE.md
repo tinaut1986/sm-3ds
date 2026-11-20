@@ -195,6 +195,8 @@ the `devkitpro/devkitarm:20260610` image, same as mzm, and installs those with `
 `makerom` are committed in `tools/bin/` (copied from mzm). On Windows the Makefile uses devkitPro's
 `bannertool.exe` but not its `makerom.exe` (0.19.0 drops the title version's minor number,
 3DSGuy/Project_CTR#169): `tools/fetch-makerom.sh` downloads the owner's fixed build once into `AppData\Local\3ds-tools`.
+On Windows run plain `make` from devkitPro's MSYS2 shell; `./build_3ds.sh` also works from Git Bash (it runs make
+through devkitPro's bash: make started from Git Bash loses its exported variables in the sub-make).
 
 ```sh
 export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
