@@ -342,7 +342,10 @@ COMMON_MAKEROM_PARAMS := -rsf $(RSF) -target t -exefslogo -elf $(OUTPUT_FILE).el
 	-minor "$(APP_VER_MINOR)" -micro "$(APP_VER_MICRO)"
 
 ifeq ($(OS),Windows_NT)
-	MAKEROM = makerom.exe
+	# Not devkitPro's makerom.exe: 0.19.0 drops the title version's minor number (3DSGuy/Project_CTR#169).
+	# tools/fetch-makerom.sh gives a fixed build (downloaded once), run only when a recipe needs it.
+	MAKEROM = $(or $(FIXED_MAKEROM),$(error tools/fetch-makerom.sh found no fixed makerom.exe))
+	FIXED_MAKEROM = $(eval FIXED_MAKEROM := $$(shell sh $(TOPDIR)/tools/fetch-makerom.sh))$(FIXED_MAKEROM)
 	BANNERTOOL = bannertool.exe
 else
 	# Prefer the copies committed in tools/bin, so PATH needs no setup.

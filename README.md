@@ -155,7 +155,8 @@ Needs devkitARM with libctru, citro2d/citro3d (the
 [devkitPro](https://devkitpro.org/wiki/Getting_Started) `3ds-dev` group) and the
 `3ds-curl 3ds-mbedtls 3ds-zlib` portlibs (`dkp-pacman -S 3ds-curl 3ds-mbedtls 3ds-zlib`; the
 self-updater needs them), plus `cmake`, `git`, `curl` and Python 3. `makerom` and `bannertool` are committed
-in `tools/bin/` (Linux x86-64). No ROM is needed to build.
+in `tools/bin/` (Linux x86-64); on Windows the build downloads a fixed `makerom.exe` once
+(`tools/fetch-makerom.sh`: devkitPro's 0.19.0 drops the CIA version's minor number). No ROM is needed to build.
 
 ```sh
 git clone https://github.com/tinaut1986/sm-3ds.git
