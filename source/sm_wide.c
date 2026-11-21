@@ -20,6 +20,9 @@ static int g_left, g_right;   // this frame's margins: 2 * g_margin_x in all, le
 static int g_top, g_bottom;   // this frame's extra rows, the same way: g_extra_top + g_extra_bottom in all
 static int g_lean_from, g_lean_from_y;   // the leans (-g_left, -g_top) when a door transition started
 static bool g_in_door, g_door_scrolling;
+static bool g_lean_ok;      // g_left is this room's lean (the sideways slide starts from it)
+static uint16 g_lean_room;
+enum { kLeanStep = 2 };      // px a frame the lean may slide sideways
 static int g_door_last_count;
 static int g_bg2_dx;          // BG2 shift that keeps the parallax with the leaned view
 static bool g_filled;
@@ -590,6 +593,31 @@ static void XrayMargins(Ppu *ppu) {
   }
 }
 
+static inline int FloorDiv256(int v);
+static bool ScreenShown(int sx, int sy);
+
+// The room's horizontal edges for the lean, in screen columns: the first and last screen columns
+// the margins may show (ScreenShown), not the level's own width. Some rooms are wider than their
+// playable part (the elevator rooms: a plain red screen beside the shaft); leaning by the level
+// edge pushed the view to the room's side and the masked filler showed as a black band (#76).
+static void ShownEdgesX(int *lo, int *hi) {
+  int first = room_width_in_scrolls, last = -1;
+  // Only the screen rows the view spans: a side screen that is real room further up or down
+  // is masked where the view shows its plain part (the masks work per screen row too).
+  const int sy0 = FloorDiv256(-g_extra_top - g_room_still[1]);
+  const int sy1 = FloorDiv256(224 + g_extra_bottom - 1 - g_room_still[1]);
+  for (int sx = 0; sx < room_width_in_scrolls; sx++)
+    for (int sy = sy0 < 0 ? 0 : sy0; sy <= sy1 && sy < room_height_in_scrolls; sy++)
+      if (ScreenShown(sx, sy)) {
+        if (sx < first) first = sx;
+        last = sx;
+        break;
+      }
+  if (last < 0) return;   // nothing shown: keep the level's edges
+  *lo = g_room_still[0] + first * 256;
+  *hi = g_room_still[0] + (last + 1) * 256;
+}
+
 static void BeforePpuDraw(void) {
   g_filled = false;
   ExplosionExtent();
@@ -640,7 +668,17 @@ static void BeforePpuDraw(void) {
     return;
   }
   g_in_door = false;
-  SetLean(LeanX(g_room_still[0], g_room_still[2]));
+  int edge_lo = g_room_still[0], edge_hi = g_room_still[2];
+  ShownEdgesX(&edge_lo, &edge_hi);
+  // The target changes with where the camera is (a side screen that is room at some height and filler at another),
+  // so the view slides to it instead of jumping; a new room (a warp, a loaded state) takes it at once.
+  int lean = LeanX(edge_lo, edge_hi);
+  if (g_lean_ok && g_lean_room == room_ptr) {
+    const int cur = -g_left;
+    lean = lean > cur + kLeanStep ? cur + kLeanStep : lean < cur - kLeanStep ? cur - kLeanStep : lean;
+  }
+  g_lean_ok = true, g_lean_room = room_ptr;
+  SetLean(lean);
   SetLeanY(LeanY(g_room_still[1], g_room_still[3]));
   Bg2Shift();
   PublishView();
